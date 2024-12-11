@@ -1,3 +1,5 @@
+using HambotV2.Connections;
+
 namespace HambotV2
 {
     public class Program
@@ -6,7 +8,7 @@ namespace HambotV2
         {
             var builder = Host.CreateApplicationBuilder(args);
             builder.Configuration.AddJsonFile("appsecrets.json");
-            builder.Services.AddHostedService<Worker>();
+            builder.Services.AddHostedService<DiscordClient>();
 
             var host = builder.Build();
             host.Run();

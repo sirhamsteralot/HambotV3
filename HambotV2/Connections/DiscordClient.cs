@@ -1,17 +1,17 @@
 using Discord;
 using Discord.WebSocket;
 
-namespace HambotV2
+namespace HambotV2.Connections
 {
-    public class Worker : BackgroundService
+    public class DiscordClient : BackgroundService
     {
-        private readonly ILogger<Worker> _logger;
+        private readonly ILogger<DiscordClient> _logger;
         private readonly IConfiguration _configuration;
 
         private DiscordSocketClient _client;
         private string _logFormat;
 
-        public Worker(ILogger<Worker> logger, IConfiguration configuration)
+        public DiscordClient(ILogger<DiscordClient> logger, IConfiguration configuration)
         {
             _logger = logger;
             _configuration = configuration;
@@ -43,11 +43,11 @@ namespace HambotV2
 
         private Task ClientLogged(LogMessage logMessage)
         {
-            switch (logMessage.Severity) 
+            switch (logMessage.Severity)
             {
                 case LogSeverity.Verbose:
                     _logger.Log(LogLevel.Trace, _logFormat, logMessage.Source, logMessage.Message);
-                break;
+                    break;
                 case LogSeverity.Debug:
                     _logger.Log(LogLevel.Debug, _logFormat, logMessage.Source, logMessage.Message);
                     break;
