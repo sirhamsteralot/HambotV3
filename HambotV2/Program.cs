@@ -1,3 +1,5 @@
+using HambotV2.Configuration;
+
 namespace HambotV2
 {
     public class Program
