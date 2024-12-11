@@ -1,7 +1,5 @@
 using Discord;
 using Discord.WebSocket;
-using HambotV2.Configuration;
-using Microsoft.Extensions.Options;
 
 namespace HambotV2
 {
@@ -17,19 +15,18 @@ namespace HambotV2
         {
             _logger = logger;
             _configuration = configuration;
+            _logFormat = _configuration["BotConfiguration:LogFormat"]!;
+            _client = new DiscordSocketClient();
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
-            _logFormat = _configuration["BotConfiguration:LogFormat"];
-
             _logger.LogInformation("Initializing Discord connection...");
 
-            _client = new DiscordSocketClient();
 
             _client.Log += ClientLogged;
 
-            var token = _configuration["BotConfiguration:Token"];
+            var token = _configuration["Secrets:BotToken"];
 
             await _client.LoginAsync(TokenType.Bot, token);
             await _client.StartAsync();
