@@ -8,6 +8,6 @@ namespace HambotV2.Connections
 {
     public class Database
     {
-        //test for github webhook
+        //test for github webhook 2
     }
 }
