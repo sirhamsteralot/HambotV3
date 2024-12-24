@@ -1,5 +1,7 @@
 using Discord;
 using Discord.WebSocket;
+using Microsoft.EntityFrameworkCore;
+using static HambotV2.Connections.DatabaseContext;
 
 namespace HambotV2.Connections
 {
