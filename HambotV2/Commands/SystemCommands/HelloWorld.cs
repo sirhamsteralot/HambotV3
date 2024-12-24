@@ -11,9 +11,6 @@ namespace HambotV2.Commands.SystemCommands
     {
         public string Name => "hello";
 
-        public HashSet<ulong> UserIdsList => new HashSet<ulong> { };
-        public bool IsWhitelist => false;
-
         public async Task ExecuteCommand(SocketMessage socketMessage, ICommandContext context)
         {
             await socketMessage.Channel.SendMessageAsync(GetResponse());

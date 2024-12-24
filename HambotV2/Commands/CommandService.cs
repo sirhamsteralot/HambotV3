@@ -35,7 +35,7 @@ namespace HambotV2.Commands
             Commands.Add(commandName, command);
         }
 
-        public bool TryGetCommand(ulong authorId, string content, out ICommand command)
+        public bool TryGetCommand(string content, out ICommand command)
         {
             if (!CommandsRegistered)
                 RegisterCommands();
@@ -46,21 +46,8 @@ namespace HambotV2.Commands
 
             if (Commands.TryGetValue(commandString, out ICommand selectedCommand))
             {
-                if (selectedCommand.IsWhitelist)
-                {
-                    if (selectedCommand.UserIdsList.Contains(authorId))
-                    {
-                        command = selectedCommand;
-                        return true;
-                    }
-                } else
-                {
-                    if (!selectedCommand.UserIdsList.Contains(authorId))
-                    {
-                        command = selectedCommand;
-                        return true;
-                    }
-                }
+                command = selectedCommand;
+                return true;
             }
 
             command = null;

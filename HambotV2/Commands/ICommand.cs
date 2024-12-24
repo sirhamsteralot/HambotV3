@@ -10,10 +10,6 @@ namespace HambotV2.Commands
     internal interface ICommand
     {
         string Name { get; }
-
-        bool IsWhitelist { get; }
-        HashSet<ulong> UserIdsList { get; }
-
         public Task ExecuteCommand(SocketMessage socketMessage, ICommandContext context);
     }
 }

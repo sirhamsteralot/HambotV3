@@ -84,7 +84,7 @@ namespace BotTests
             Assert.IsTrue(commandService.CommandsRegistered);
             Assert.IsTrue(commandService.Commands.Count > 0);
 
-            bool returnValue = commandService.TryGetCommand(10, "!hello", out ICommand command);
+            bool returnValue = commandService.TryGetCommand("!hello", out ICommand command);
             Assert.IsTrue(returnValue);
             Assert.IsNotNull(command);
         }
@@ -112,7 +112,7 @@ namespace BotTests
             Assert.IsTrue(commandService.CommandsRegistered);
             Assert.IsTrue(commandService.Commands.Count > 0);
 
-            bool returnValue = commandService.TryGetCommand(10, "!gibberishcommandlaksjf;lsakjdf;laskjdf;alk asdfa", out ICommand command);
+            bool returnValue = commandService.TryGetCommand("!gibberishcommandlaksjf;lsakjdf;laskjdf;alk asdfa", out ICommand command);
             Assert.IsFalse(returnValue);
             Assert.IsNull(command);
         }

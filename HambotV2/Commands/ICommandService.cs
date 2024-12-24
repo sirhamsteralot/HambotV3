@@ -12,7 +12,7 @@ namespace HambotV2.Commands
         Dictionary<string, ICommand> Commands { get; }
         bool CommandsRegistered { get; internal set; }
 
-        bool TryGetCommand(ulong authorId, string content, out ICommand command);
+        bool TryGetCommand(string content, out ICommand command);
         void RegisterCommand(string commandName, ICommand command);
         void RegisterCommands();
     }
