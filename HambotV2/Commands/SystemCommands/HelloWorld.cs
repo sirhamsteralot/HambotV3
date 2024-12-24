@@ -16,7 +16,12 @@ namespace HambotV2.Commands.SystemCommands
 
         public async Task ExecuteCommand(SocketMessage socketMessage, ICommandContext context)
         {
-            await socketMessage.Channel.SendMessageAsync("Hello World");
+            await socketMessage.Channel.SendMessageAsync(GetResponse());
+        }
+
+        internal string GetResponse()
+        {
+            return "Hello World";
         }
     }
 }
