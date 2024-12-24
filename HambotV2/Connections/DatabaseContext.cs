@@ -12,13 +12,21 @@ namespace HambotV2.Connections
     {
         public DatabaseContext(DbContextOptions<DatabaseContext> options) : base(options) { }
 
+        public DbSet<CommandMetaData> Commands { get; set; }
+
         public DbSet<User> Users { get; set; }
 
         public class User
         {
-            public int Id { get; set; }
-            public string Name { get; set; }
-            public string Email { get; set; }
+            public ulong DiscordId { get; set; }
+            public int PermissionTier { get; set; }
+        }
+
+        public class CommandMetaData
+        {
+            public int CommandId { get; set; }
+            public string CommandName { get; set; }
+            public int PermissionTier { get; set; }
         }
     }
 }

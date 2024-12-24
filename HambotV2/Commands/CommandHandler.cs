@@ -14,25 +14,34 @@ namespace HambotV2.Commands
         private IConfiguration _configuration;
         private ICommandService _commandService;
         private DatabaseContext _databaseContext;
+        private IPermissionsService _permissionsService;
 
-        public CommandHandler(ICommandService commandService, ILogger<CommandHandler> logger, IConfiguration configuration, DatabaseContext databaseContext) 
+        public CommandHandler(ICommandService commandService, ILogger<CommandHandler> logger, IConfiguration configuration, DatabaseContext databaseContext, IPermissionsService permissionsService) 
         { 
             _logger = logger;
             _configuration = configuration;
             _commandService = commandService;
             _databaseContext = databaseContext;
+            _permissionsService = permissionsService;
         }
 
-        public Task HandleCommand(SocketMessage socketMessageCommand)
+        public async Task HandleCommand(SocketMessage socketMessageCommand)
         {
             if (!_commandService.TryGetCommand(socketMessageCommand.Content, out ICommand command)) {
                 _logger.LogInformation("Unavailable command executed! from message: {content}", socketMessageCommand.Content);
                 socketMessageCommand.Channel.SendMessageAsync("The requested command is unavailable");
-                return Task.CompletedTask;
+                return;
+            }
+
+            if (!await _permissionsService.CheckUserPermissions(socketMessageCommand.Author.Id, command, _databaseContext))
+            {
+                _logger.LogInformation("No sufficient permissions to execute command! from message: {content}", socketMessageCommand.Content);
+                socketMessageCommand.Channel.SendMessageAsync("You are not permitted to use that command");
+                return;
             }
 
             _logger.LogInformation("Executed command: {command}", socketMessageCommand.Content);
-            return command.ExecuteCommand(socketMessageCommand, new CommandContext(_databaseContext));
+            await command.ExecuteCommand(socketMessageCommand, new CommandContext(_databaseContext));
         }
 
         public void Dispose()

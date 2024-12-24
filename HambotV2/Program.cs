@@ -14,6 +14,7 @@ namespace HambotV2
             builder.Services.AddDbContext<DatabaseContext>(options => options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")), ServiceLifetime.Transient, ServiceLifetime.Transient);
             builder.Services.AddHostedService<DiscordClient>();
             builder.Services.AddTransient<ICommandHandler, CommandHandler>();
+            builder.Services.AddTransient<IPermissionsService, PermissionsService>();
             builder.Services.AddSingleton<ICommandService, CommandService>();
 
             var host = builder.Build();
