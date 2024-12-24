@@ -9,5 +9,6 @@ namespace HambotV2.Commands
 {
     internal interface ICommandContext
     {
+       DatabaseContext DbContext { get; }
     }
 }

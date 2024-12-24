@@ -11,6 +11,7 @@ namespace HambotV2.Commands.SystemCommands
         public static void RegisterCommands(ICommandService commandService)
         {
             commandService.RegisterCommand("hello", new HelloWorld());
+            commandService.RegisterCommand("commandpermission", new CommandPermission());
         }
     }
 }
