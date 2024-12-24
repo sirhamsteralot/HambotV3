@@ -10,7 +10,10 @@ namespace HambotV2.Commands
     internal interface ICommandService
     {
         Dictionary<string, ICommand> Commands { get; }
+        bool CommandsRegistered { get; internal set; }
 
-        bool TryGetCommand(SocketUser author, string content, out ICommand command);
+        bool TryGetCommand(ulong authorId, string content, out ICommand command);
+        void RegisterCommand(string commandName, ICommand command);
+        void RegisterCommands();
     }
 }

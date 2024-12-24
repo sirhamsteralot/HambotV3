@@ -25,7 +25,7 @@ namespace HambotV2.Commands
 
         public Task HandleCommand(SocketMessage socketMessageCommand)
         {
-            if (!_commandService.TryGetCommand(socketMessageCommand.Author, socketMessageCommand.Content, out ICommand command)) {
+            if (!_commandService.TryGetCommand(socketMessageCommand.Author.Id, socketMessageCommand.Content, out ICommand command)) {
                 _logger.LogInformation("Unavailable command executed! from message: {content}", socketMessageCommand.Content);
                 socketMessageCommand.Channel.SendMessageAsync("The requested command is unavailable or you lack the necessary permissions to execute it.");
                 return Task.CompletedTask;

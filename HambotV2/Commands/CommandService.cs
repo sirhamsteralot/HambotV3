@@ -12,10 +12,11 @@ namespace HambotV2.Commands
     {
         public Dictionary<string, ICommand> Commands { get; private set; }
 
-        private ILogger<CommandHandler> _logger;
+        private ILogger<CommandService> _logger;
         private IConfiguration _configuration;
+        public bool CommandsRegistered { get; set; } = false;
 
-        public CommandService(ILogger<CommandHandler> logger, IConfiguration configuration)
+        public CommandService(ILogger<CommandService> logger, IConfiguration configuration)
         {
             _logger = logger;
             _configuration = configuration;
@@ -23,14 +24,23 @@ namespace HambotV2.Commands
             Commands = new Dictionary<string, ICommand>();
         }
 
+        public void RegisterCommands()
+        {
+            RegisterAllCommands.RegisterCommands(this);
+            CommandsRegistered = true;
+        }
+
         public void RegisterCommand(string commandName, ICommand command)
         {
             Commands.Add(commandName, command);
         }
 
-        public bool TryGetCommand(SocketUser author, string content, out ICommand command)
+        public bool TryGetCommand(ulong authorId, string content, out ICommand command)
         {
-            string[] strings = content.Split(_configuration["BotConfiguration:CommandIdentifier"]);
+            if (!CommandsRegistered)
+                RegisterCommands();
+
+            string[] strings = content.Trim().Split(" ");
 
             string commandString = strings[0].Substring(1,strings[0].Length - 1).ToLower();
 
@@ -38,14 +48,14 @@ namespace HambotV2.Commands
             {
                 if (selectedCommand.IsWhitelist)
                 {
-                    if (selectedCommand.UserIdsList.Contains(author.Id))
+                    if (selectedCommand.UserIdsList.Contains(authorId))
                     {
                         command = selectedCommand;
                         return true;
                     }
                 } else
                 {
-                    if (!selectedCommand.UserIdsList.Contains(author.Id))
+                    if (!selectedCommand.UserIdsList.Contains(authorId))
                     {
                         command = selectedCommand;
                         return true;
