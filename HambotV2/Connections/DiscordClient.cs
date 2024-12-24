@@ -1,7 +1,6 @@
 using Discord;
 using Discord.WebSocket;
-using Microsoft.EntityFrameworkCore;
-using static HambotV2.Connections.DatabaseContext;
+using HambotV2.Commands;
 
 namespace HambotV2.Connections
 {
@@ -12,9 +11,11 @@ namespace HambotV2.Connections
 
         private DiscordSocketClient _client;
         private string _logFormat;
+        private IServiceProvider _serviceProvider;
 
-        public DiscordClient(ILogger<DiscordClient> logger, IConfiguration configuration)
+        public DiscordClient(ILogger<DiscordClient> logger, IConfiguration configuration, IServiceProvider serviceProvider)
         {
+            _serviceProvider = serviceProvider;
             _logger = logger;
             _configuration = configuration;
             _logFormat = _configuration["BotConfiguration:LogFormat"]!;
@@ -33,6 +34,8 @@ namespace HambotV2.Connections
             await _client.LoginAsync(TokenType.Bot, token);
             await _client.StartAsync();
 
+            _client.MessageReceived += _client_MessageReceived;
+
             while (!stoppingToken.IsCancellationRequested)
             {
                 if (_logger.IsEnabled(LogLevel.Information))
@@ -41,6 +44,25 @@ namespace HambotV2.Connections
                 }
                 await Task.Delay(10000, stoppingToken);
             }
+        }
+
+        private Task _client_MessageReceived(SocketMessage arg)
+        {
+            if (arg.Content.StartsWith(_configuration["BotConfiguration:CommandIdentifier"]))
+            {
+                using (var commandHandler = _serviceProvider.GetService<ICommandHandler>())
+                {
+                    if (commandHandler != null)
+                    {
+                        return commandHandler.HandleCommand(arg);
+                    } else
+                    {
+                        _logger.LogWarning("No Command Handler found yet command executed!");
+                    }
+                }
+            }
+
+            return Task.CompletedTask;
         }
 
         private Task ClientLogged(LogMessage logMessage)
