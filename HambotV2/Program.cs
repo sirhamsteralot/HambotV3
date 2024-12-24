@@ -11,7 +11,7 @@ namespace HambotV2
         {
             var builder = Host.CreateApplicationBuilder(args);
             builder.Configuration.AddJsonFile("appsecrets.json");
-            builder.Services.AddDbContext<DatabaseContext>(options => options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
+            builder.Services.AddDbContext<DatabaseContext>(options => options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")), ServiceLifetime.Transient, ServiceLifetime.Transient);
             builder.Services.AddHostedService<DiscordClient>();
             builder.Services.AddTransient<ICommandHandler, CommandHandler>();
             builder.Services.AddSingleton<ICommandService, CommandService>();
