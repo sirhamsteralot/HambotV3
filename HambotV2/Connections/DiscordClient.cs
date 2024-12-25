@@ -19,7 +19,7 @@ namespace HambotV2.Connections
             _logger = logger;
             _configuration = configuration;
             _logFormat = _configuration["BotConfiguration:LogFormat"]!;
-            _client = new DiscordSocketClient();
+            _client = new DiscordSocketClient(new DiscordSocketConfig { GatewayIntents = GatewayIntents.AllUnprivileged | GatewayIntents.MessageContent });
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
