@@ -21,23 +21,29 @@ namespace HambotV2.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
-            modelBuilder.Entity("HambotV2.Connections.DatabaseContext+User", b =>
+            modelBuilder.Entity("HambotV2.Connections.DatabaseContext+CommandMetaData", b =>
                 {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
+                    b.Property<string>("CommandName")
+                        .HasColumnType("text");
+
+                    b.Property<int>("PermissionTier")
                         .HasColumnType("integer");
 
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+                    b.HasKey("CommandName");
 
-                    b.Property<string>("Email")
-                        .IsRequired()
-                        .HasColumnType("text");
+                    b.ToTable("Commands");
+                });
 
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasColumnType("text");
+            modelBuilder.Entity("HambotV2.Connections.DatabaseContext+User", b =>
+                {
+                    b.Property<decimal>("DiscordId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("numeric(20,0)");
 
-                    b.HasKey("Id");
+                    b.Property<int>("PermissionTier")
+                        .HasColumnType("integer");
+
+                    b.HasKey("DiscordId");
 
                     b.ToTable("Users");
                 });

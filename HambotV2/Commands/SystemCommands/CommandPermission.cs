@@ -19,7 +19,7 @@ namespace HambotV2.Commands.SystemCommands
             {
                 if (int.TryParse(arguments[2], out var permissionsTier))
                 {
-                    var command = context.DbContext.Commands.First(item => item.CommandName == arguments[1]);
+                    var command = context.DbContext.Commands.FirstOrDefault(item => item.CommandName == arguments[1]);
                     if (command != null)
                     {
                         command.PermissionTier = permissionsTier;
@@ -28,7 +28,7 @@ namespace HambotV2.Commands.SystemCommands
                     {
                         command = new Connections.DatabaseContext.CommandMetaData()
                         {
-                            CommandName = Name,
+                            CommandName = arguments[1],
                             PermissionTier = permissionsTier
                         };
 
@@ -44,7 +44,7 @@ namespace HambotV2.Commands.SystemCommands
                 return;
             } else if (arguments.Length == 2)
             {
-                var command = context.DbContext.Commands.First(item => item.CommandName == arguments[1]);
+                var command = context.DbContext.Commands.FirstOrDefault(item => item.CommandName == arguments[1]);
                 if (command != null)
                 {
                     await socketMessage.Channel.SendMessageAsync($"Permissions tier for command {arguments[1]}: {command.PermissionTier}");

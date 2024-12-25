@@ -12,13 +12,13 @@ namespace HambotV2.Commands
     {
         public async Task<bool> CheckUserPermissions(ulong userDiscordId, ICommand command, DatabaseContext database)
         {
-            var commandMetaData = await database.Commands.FirstAsync(x => x.CommandName == command.Name);
+            var commandMetaData = await database.Commands.FirstOrDefaultAsync(x => x.CommandName == command.Name);
             int commandTier = 0;
 
-            if (commandMetaData != null) 
+            if (commandMetaData != null)
                 commandTier = commandMetaData.PermissionTier;
 
-            var userMetaData = await database.Users.FirstAsync(x => x.DiscordId == userDiscordId);
+            var userMetaData = await database.Users.FirstOrDefaultAsync(x => x.DiscordId == userDiscordId);
             int userTier = 0;
 
             if (userMetaData != null)

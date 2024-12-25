@@ -29,18 +29,17 @@ namespace HambotV2.Commands
         {
             if (!_commandService.TryGetCommand(socketMessageCommand.Content, out ICommand command)) {
                 _logger.LogInformation("Unavailable command executed! from message: {content}", socketMessageCommand.Content);
-                socketMessageCommand.Channel.SendMessageAsync("The requested command is unavailable");
+                await socketMessageCommand.Channel.SendMessageAsync("The requested command is unavailable");
                 return;
             }
 
             if (!await _permissionsService.CheckUserPermissions(socketMessageCommand.Author.Id, command, _databaseContext))
             {
                 _logger.LogInformation("No sufficient permissions to execute command! from message: {content}", socketMessageCommand.Content);
-                socketMessageCommand.Channel.SendMessageAsync("You are not permitted to use that command");
+                await socketMessageCommand.Channel.SendMessageAsync("You are not permitted to use that command");
                 return;
             }
 
-            _logger.LogInformation("Executed command: {command}", socketMessageCommand.Content);
             await command.ExecuteCommand(socketMessageCommand, new CommandContext(_databaseContext));
         }
 

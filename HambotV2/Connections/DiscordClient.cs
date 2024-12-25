@@ -42,11 +42,11 @@ namespace HambotV2.Connections
                 {
                     _logger.LogInformation("Worker running at: {time}, discord status: {1}", DateTimeOffset.Now, _client.ConnectionState.ToString());
                 }
-                await Task.Delay(10000, stoppingToken);
+                await Task.Delay(TimeSpan.FromMinutes(5), stoppingToken);
             }
         }
 
-        private Task _client_MessageReceived(SocketMessage arg)
+        private async Task _client_MessageReceived(SocketMessage arg)
         {
             if (arg.Content.StartsWith(_configuration["BotConfiguration:CommandIdentifier"]))
             {
@@ -54,15 +54,13 @@ namespace HambotV2.Connections
                 {
                     if (commandHandler != null)
                     {
-                        return commandHandler.HandleCommand(arg);
+                        await commandHandler.HandleCommand(arg);
                     } else
                     {
                         _logger.LogWarning("No Command Handler found yet command executed!");
                     }
                 }
             }
-
-            return Task.CompletedTask;
         }
 
         private Task ClientLogged(LogMessage logMessage)
