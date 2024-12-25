@@ -26,5 +26,13 @@
 
             Assert.IsTrue(command.Name == command.Name.ToLower());
         }
+
+        [TestMethod]
+        public void Verify_Lowercase_Name_UserPermission()
+        {
+            var command = new HambotV2.Commands.SystemCommands.UserPermission();
+
+            Assert.IsTrue(command.Name == command.Name.ToLower());
+        }
     }
 }
