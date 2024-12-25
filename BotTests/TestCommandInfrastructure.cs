@@ -62,6 +62,29 @@ namespace BotTests
         }
 
         [TestMethod]
+        public void CommandService_Register_System_Commands()
+        {
+            var mock = new Mock<ILogger<CommandService>>();
+            ILogger<CommandService> logger = mock.Object;
+
+            var inMemorySettings = new Dictionary<string, string> {
+                {"BotConfiguration:CommandIdentifier", "!"},
+            };
+
+            IConfiguration configuration = new ConfigurationBuilder()
+                .AddInMemoryCollection(inMemorySettings)
+                .Build();
+
+            ICommandService commandService = new CommandService(logger, configuration);
+
+            Assert.IsTrue(commandService.Commands.Count == 0);
+
+            RegisterSystemCommands.RegisterCommands(commandService);
+
+            Assert.IsTrue(commandService.Commands.Count > 0);
+        }
+
+        [TestMethod]
         public void CommandService_Get_Helloworld_Command_Success()
         {
             var mock = new Mock<ILogger<CommandService>>();
