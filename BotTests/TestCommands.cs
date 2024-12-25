@@ -10,5 +10,21 @@
 
             Assert.IsTrue(command.GetResponse() == "Hello World");
         }
+
+        [TestMethod]
+        public void Verify_Lowercase_Name_HelloWorld()
+        {
+            var command = new HambotV2.Commands.SystemCommands.HelloWorld();
+
+            Assert.IsTrue(command.Name == command.Name.ToLower());
+        }
+
+        [TestMethod]
+        public void Verify_Lowercase_Name_CommandPermission()
+        {
+            var command = new HambotV2.Commands.SystemCommands.CommandPermission();
+
+            Assert.IsTrue(command.Name == command.Name.ToLower());
+        }
     }
 }
