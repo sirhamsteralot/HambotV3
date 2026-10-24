@@ -71,8 +71,9 @@ A `BackgroundService` that:
 1. Creates a `DiscordSocketClient` with only the gateway intents the bot uses: `Guilds | GuildMessages | DirectMessages | MessageContent` (explicit intents instead of `AllUnprivileged` avoid Discord.Net warnings for unused intents).
 2. Logs in with the token from configuration key `Secrets:BotToken` and starts the gateway.
 3. Subscribes to `MessageReceived`. Messages from bots and webhooks (including the bot itself) are ignored — otherwise the bot would re-process its own replies that start with the identifier (e.g. the `!help` detail output). Any remaining message whose content starts with the configured `BotConfiguration:CommandIdentifier` (default `!`) is forwarded to a freshly resolved `ICommandHandler` (resolved from `IServiceProvider`, disposed after handling).
-4. Bridges `Discord.Log` events to `Microsoft.Extensions.Logging` using the configurable `BotConfiguration:LogFormat` format string.
+4. Bridges `Discord.Log` events to `Microsoft.Extensions.Logging` using the configurable `BotConfiguration:LogFormat` format string. Gateway connection events are logged explicitly: `Disconnected` at Warning (including the reason), `Connected` at Information (fires both for the initial connection and for Discord.Net's automatic reconnects).
 5. Runs a keep-alive loop that logs gateway connection state every 5 minutes.
+6. On host shutdown (or any exit path, including startup failures) stops the gateway, logs out, and disposes the `DiscordSocketClient`, logging the shutdown ("Shutting down Discord connection..." → "Discord connection shut down cleanly.") instead of dying mid-connection.
 
 ### 3.2 Command pipeline — `Commands/`
 
@@ -220,5 +221,4 @@ These are observations of the current implementation, not roadmap commitments:
 
 - **State is global**: permission tiers and settings are shared across all guilds; per-guild scoping is roadmap task T14.
 - **Hand-parsed command arguments**: each command splits and parses `socketMessage.Content` itself; a shared argument-parsing framework is roadmap task T15.
-- **Shutdown/reconnect logging**: gateway disconnects are handled by Discord.Net's built-in reconnects but not logged explicitly, and shutdown does not explicitly dispose the Discord client — roadmap task T8.
-- **Pre-existing nullable warnings** (CS8618, CS8625, CS8600, CS8604) remain in a handful of places — roadmap task T11.
+- **CI**: a declarative `Jenkinsfile` at the repository root builds the solution and runs the tests (with nullable warnings treated as errors); the Jenkins job must be configured as "Pipeline script from SCM" pointing at it.

@@ -30,6 +30,8 @@ namespace HambotV2.Connections
 
 
             _client.Log += ClientLogged;
+            _client.Disconnected += ClientDisconnected;
+            _client.Connected += ClientConnected;
 
             var token = _configuration["Secrets:BotToken"];
 
@@ -38,14 +40,65 @@ namespace HambotV2.Connections
 
             _client.MessageReceived += _client_MessageReceived;
 
-            while (!stoppingToken.IsCancellationRequested)
+            try
             {
-                if (_logger.IsEnabled(LogLevel.Information))
+                while (!stoppingToken.IsCancellationRequested)
                 {
-                    _logger.LogInformation("Worker running at: {time}, discord status: {1}", DateTimeOffset.Now, _client.ConnectionState.ToString());
+                    if (_logger.IsEnabled(LogLevel.Information))
+                    {
+                        _logger.LogInformation("Worker running at: {time}, discord status: {1}", DateTimeOffset.Now, _client.ConnectionState.ToString());
+                    }
+                    await Task.Delay(TimeSpan.FromMinutes(5), stoppingToken);
                 }
-                await Task.Delay(TimeSpan.FromMinutes(5), stoppingToken);
             }
+            catch (OperationCanceledException)
+            {
+                // Expected when the host requests shutdown; cleanup happens in the finally block.
+            }
+            finally
+            {
+                await ShutdownClientAsync();
+            }
+        }
+
+        /// <summary>
+        /// Stops the gateway, logs the Discord client out and releases its resources.
+        /// Runs on every exit path of <see cref="ExecuteAsync"/>, including startup failures,
+        /// so the bot never dies mid-connection without a clean logout.
+        /// </summary>
+        private async Task ShutdownClientAsync()
+        {
+            _logger.LogInformation("Shutting down Discord connection...");
+            _client.MessageReceived -= _client_MessageReceived;
+            _client.Disconnected -= ClientDisconnected;
+            _client.Connected -= ClientConnected;
+
+            try
+            {
+                await _client.StopAsync();
+                await _client.LogoutAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error while shutting down the Discord connection.");
+            }
+            finally
+            {
+                _client.Dispose();
+                _logger.LogInformation("Discord connection shut down cleanly.");
+            }
+        }
+
+        private Task ClientDisconnected(Exception exception)
+        {
+            _logger.LogWarning("Discord gateway disconnected: {reason}. Discord.Net will attempt to reconnect automatically.", exception.Message);
+            return Task.CompletedTask;
+        }
+
+        private Task ClientConnected()
+        {
+            _logger.LogInformation("Discord gateway connection established.");
+            return Task.CompletedTask;
         }
 
         private async Task _client_MessageReceived(SocketMessage arg)
