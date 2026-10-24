@@ -50,6 +50,12 @@ namespace HambotV2.Connections
 
         private async Task _client_MessageReceived(SocketMessage arg)
         {
+            // The gateway delivers the bot's own messages (and other bots'/webhooks') too. Without
+            // this guard the bot would re-process its own replies that start with the command
+            // identifier — e.g. the !help detail output — and answer itself.
+            if (arg.Author.IsBot || arg.Author.IsWebhook)
+                return;
+
             if (arg.Content.StartsWith(_configuration["BotConfiguration:CommandIdentifier"]))
             {
                 using (var commandHandler = _serviceProvider.GetService<ICommandHandler>())
