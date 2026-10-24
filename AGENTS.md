@@ -26,7 +26,7 @@ dotnet test HambotV2.sln
 - Building requires the .NET 10 SDK (`10.0.x`).
 
 - Tests run without a database or Discord token; they use Moq and in-memory configuration. All tests are in `BotTests/` (`TestCommandInfrastructure.cs`, `TestCommands.cs`, `TestPermissions.cs`, `TestCommandHandler.cs`, `TestConfigurationValidator.cs`).
-- The build currently emits several pre-existing nullable warnings (CS8625, CS8604, CS8620, CS0162) — don't treat them as new failures, but avoid adding new ones.
+- The build is warning-free (roadmap T11 cleaned up the pre-existing nullable warnings); keep it that way and avoid introducing new warnings.
 
 ## Docker
 

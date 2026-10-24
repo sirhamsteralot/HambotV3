@@ -27,7 +27,7 @@ namespace HambotV2.Connections
         public class CommandMetaData
         {
             [Key]
-            public string CommandName { get; set; }
+            public string CommandName { get; set; } = string.Empty;
             public int PermissionTier { get; set; }
         }
     }

@@ -2,6 +2,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 
 namespace HambotV2.Commands
 {
@@ -51,7 +52,7 @@ namespace HambotV2.Commands
             Commands.Add(commandName, command);
         }
 
-        public bool TryGetCommand(string content, out ICommand command)
+        public bool TryGetCommand(string content, [NotNullWhen(true)] out ICommand? command)
         {
             if (!CommandsRegistered)
                 RegisterCommands();

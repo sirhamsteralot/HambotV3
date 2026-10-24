@@ -56,7 +56,7 @@ namespace HambotV2.Connections
             if (arg.Author.IsBot || arg.Author.IsWebhook)
                 return;
 
-            if (arg.Content.StartsWith(_configuration["BotConfiguration:CommandIdentifier"]))
+            if (arg.Content.StartsWith(_configuration["BotConfiguration:CommandIdentifier"] ?? "!"))
             {
                 using (var commandHandler = _serviceProvider.GetService<ICommandHandler>())
                 {

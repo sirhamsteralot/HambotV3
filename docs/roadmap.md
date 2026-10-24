@@ -179,7 +179,7 @@ The first two phases address the limitations recorded in [`software-design.md`](
 - Pushes get a green/red build+test result from Jenkins automatically.
 - The Jenkins job stays in sync with the solution structure (it currently needs updating whenever the build/test setup changes).
 
-### T11. Nullable-warning cleanup
+### T11. [x] Nullable-warning cleanup
 
 **Problem**: The build emits pre-existing nullable warnings (CS8625, CS8604, CS8620, CS0162). They hide real issues (e.g. `command = null` patterns, unguarded config reads) and make `TreatWarningsAsErrors` impossible.
 
@@ -236,11 +236,11 @@ The first two phases address the limitations recorded in [`software-design.md`](
 
 ## Suggested pick-up order
 
-Completed so far: **T1**–**T4** (error handling, DB init, container secrets, config validation), **T5**–**T7**, **T16**, **T17** (parsing robustness, persistence abstraction, permission bootstrap/escalation guard, mention parsing, help command) — Phase 1 is done — and **T9** (README).
+Completed so far: **T1**–**T4** (error handling, DB init, container secrets, config validation), **T5**–**T7**, **T16**, **T17** (parsing robustness, persistence abstraction, permission bootstrap/escalation guard, mention parsing, help command) — Phase 1 is done — and **T9** (README), **T11** (nullable-warning cleanup).
 
 Remaining work, in dependency and risk order:
 
-1. **T8**, **T10**, **T11** — operational hardening: graceful shutdown; then CI (T10) before warning cleanup (T11), so enforcement is in place when the build goes clean.
+1. **T8**, **T10** — operational hardening: graceful shutdown and CI (T10).
 2. Phase 3 features: **T12** (logging) and **T15** (argument parsing) first — T15 removes hand-parsing before more commands are written — then **T13** (cooldowns), and **T14** (per-guild scoping) last as the largest change, building on T16's tier model.
 
 When a task is completed, tick it off here (e.g. `- [x]`) and update `software-design.md` / `software-requirements.md` so the docs keep describing the system as it actually is.

@@ -67,7 +67,7 @@ namespace BotTests
 
             commandService.RegisterCommands();
 
-            bool returnValue = commandService.TryGetCommand("!hello", out ICommand command);
+            bool returnValue = commandService.TryGetCommand("!hello", out ICommand? command);
             Assert.IsTrue(returnValue);
             Assert.IsNotNull(command);
         }
@@ -79,7 +79,7 @@ namespace BotTests
 
             commandService.RegisterCommands();
 
-            bool returnValue = commandService.TryGetCommand("!gibberishcommandlaksjf;lsakjdf;laskjdf;alk asdfa", out ICommand command);
+            bool returnValue = commandService.TryGetCommand("!gibberishcommandlaksjf;lsakjdf;laskjdf;alk asdfa", out ICommand? command);
             Assert.IsFalse(returnValue);
             Assert.IsNull(command);
         }
@@ -103,7 +103,7 @@ namespace BotTests
             }
         }
 
-        [DataTestMethod]
+        [TestMethod]
         [DataRow("!")]
         [DataRow("!   ")]
         [DataRow(" ! ")]
@@ -113,7 +113,7 @@ namespace BotTests
             ICommandService commandService = CreateService();
             commandService.RegisterCommands();
 
-            Assert.IsFalse(commandService.TryGetCommand(content, out ICommand command));
+            Assert.IsFalse(commandService.TryGetCommand(content, out ICommand? command));
             Assert.IsNull(command);
         }
 
@@ -138,7 +138,7 @@ namespace BotTests
             Assert.IsFalse(commandService.IsIdentifierOnlyMessage(""));
         }
 
-        [DataTestMethod]
+        [TestMethod]
         [DataRow("!hello")]
         [DataRow("!hello world")]
         [DataRow("   !hello   ")]
@@ -149,7 +149,7 @@ namespace BotTests
             ICommandService commandService = CreateService();
             commandService.RegisterCommands();
 
-            Assert.IsTrue(commandService.TryGetCommand(content, out ICommand command), $"'{content}' must resolve to the hello command");
+            Assert.IsTrue(commandService.TryGetCommand(content, out ICommand? command), $"'{content}' must resolve to the hello command");
             Assert.AreEqual("hello", command.Name);
         }
 
@@ -170,7 +170,7 @@ namespace BotTests
 
             commandService.RegisterCommands();
 
-            Assert.IsTrue(commandService.TryGetCommand("//hello", out ICommand command));
+            Assert.IsTrue(commandService.TryGetCommand("//hello", out ICommand? command));
             Assert.AreEqual("hello", command.Name);
             Assert.IsFalse(commandService.TryGetCommand("!hello", out _));
             Assert.IsTrue(commandService.IsIdentifierOnlyMessage("//"));

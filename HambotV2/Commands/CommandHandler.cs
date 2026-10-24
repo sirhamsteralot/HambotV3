@@ -27,7 +27,7 @@ namespace HambotV2.Commands
 
         public async Task HandleCommand(IMessage socketMessageCommand)
         {
-            ICommand command = null;
+            ICommand? command = null;
             try
             {
                 if (!_commandService.TryGetCommand(socketMessageCommand.Content, out command)) {
@@ -86,11 +86,12 @@ namespace HambotV2.Commands
         {
             // The handler is created per message; its DatabaseContext is transient and would otherwise
             // only be disposed when the root provider shuts down, leaking connections across messages.
+            // Nulling the fields on a disposed object requires the null-forgiving operator.
             _databaseContext?.Dispose();
-            _logger = null;
-            _configuration = null;
-            _databaseContext = null;
-            _commandService = null;
+            _logger = null!;
+            _configuration = null!;
+            _databaseContext = null!;
+            _commandService = null!;
         }
     }
 }
