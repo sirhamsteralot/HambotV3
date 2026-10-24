@@ -91,6 +91,10 @@ EF Core migrations live in `HambotV2/Migrations/`. Regenerate with `dotnet ef mi
 - `appsettings.json` holds non-secret bot config (`BotConfiguration:BotName`, `LogFormat`, `CommandIdentifier`).
 - **`HambotV2/appsecrets.json` is gitignored** and holds the Discord bot token (`Secrets:BotToken`) and the PostgreSQL connection string (`ConnectionStrings:DefaultConnection`). Its expected structure is documented in `README.md`. Never commit secrets; never reference real tokens in code or tests.
 
+## Git
+
+- **Do not stage or commit anything to git yourself.** Never run `git add` or `git commit`; leave all changes unstaged in the working tree and let the user handle version control.
+
 ## Conventions
 
 - C# with nullable reference types and implicit usings enabled; `LangVersion` is `latest` in the test project.
