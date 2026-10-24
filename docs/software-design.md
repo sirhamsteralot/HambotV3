@@ -68,7 +68,7 @@ Key external dependencies:
 
 A `BackgroundService` that:
 
-1. Creates a `DiscordSocketClient` with `GatewayIntents.AllUnprivileged | MessageContent`.
+1. Creates a `DiscordSocketClient` with only the gateway intents the bot uses: `Guilds | GuildMessages | DirectMessages | MessageContent` (explicit intents instead of `AllUnprivileged` avoid Discord.Net warnings for unused intents).
 2. Logs in with the token from configuration key `Secrets:BotToken` and starts the gateway.
 3. Subscribes to `MessageReceived`. Any message whose content starts with the configured `BotConfiguration:CommandIdentifier` (default `!`) is forwarded to a freshly resolved `ICommandHandler` (resolved from `IServiceProvider`, disposed after handling).
 4. Bridges `Discord.Log` events to `Microsoft.Extensions.Logging` using the configurable `BotConfiguration:LogFormat` format string.

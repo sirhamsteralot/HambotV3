@@ -62,6 +62,7 @@ Entry point is `HambotV2/Program.cs`: a generic host registers `DatabaseContext`
 ### Message flow
 
 1. `Connections/DiscordClient.cs` (BackgroundService) connects to Discord with the token from `Secrets:BotToken`. Messages starting with the configured `BotConfiguration:CommandIdentifier` (default `!`) are forwarded to `ICommandHandler`.
+   - **Gateway intents**: request only what the bot uses — currently `Guilds | GuildMessages | DirectMessages | MessageContent` in `DiscordClient.cs`. Do NOT switch back to `GatewayIntents.AllUnprivileged`: it triggers Discord.Net "using intent without listening to any events" warnings on every connect. When adding a feature that needs a new intent (e.g. reactions, members), add it explicitly and keep this list current.
 2. `Commands/CommandHandler.cs` resolves the command via `ICommandService.TryGetCommand` (the command name is the first space-delimited token minus the identifier, lowercased), checks permissions via `IPermissionsService`, then executes the command with a `CommandContext` wrapping the `DatabaseContext`.
 3. Commands implement `Commands/ICommand.cs` (`Name` + `ExecuteCommand(SocketMessage, ICommandContext)`).
 

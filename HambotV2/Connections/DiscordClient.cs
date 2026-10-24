@@ -19,7 +19,9 @@ namespace HambotV2.Connections
             _logger = logger;
             _configuration = configuration;
             _logFormat = _configuration["BotConfiguration:LogFormat"]!;
-            _client = new DiscordSocketClient(new DiscordSocketConfig { GatewayIntents = GatewayIntents.AllUnprivileged | GatewayIntents.MessageContent });
+            // Only request the intents the bot actually uses; AllUnprivileged would make Discord.Net
+            // warn about unused intents (e.g. GuildScheduledEvents, GuildInvites) at every connect.
+            _client = new DiscordSocketClient(new DiscordSocketConfig { GatewayIntents = GatewayIntents.Guilds | GatewayIntents.GuildMessages | GatewayIntents.DirectMessages | GatewayIntents.MessageContent });
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
