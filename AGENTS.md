@@ -71,6 +71,7 @@ Entry point is `HambotV2/Program.cs`: a generic host registers `DatabaseContext`
 - `Commands/CommandService.cs` is a singleton holding a `Dictionary<string, ICommand>`, lazily populated on first use via `Commands/RegisterAllCommands.cs`.
 - To add a command: create a class implementing `ICommand` in an appropriate namespace (system commands live in `Commands/SystemCommands/`), then register it in the relevant `Register*Commands` class (e.g. `SystemCommands/RegisterSystemCommands.cs`).
 - **Command names must be lowercase** — lookup lowercases input, and tests assert `Name == Name.ToLower()`.
+- **Every command must provide help text** — implement `Description` (one-line summary shown by `!help`) and `Usage` (argument summary shown by `!help <name>`) on the command implementation. Unit tests enforce non-empty values for all registered commands. See `docs/software-design.md` §3.6 for the help-command design (roadmap T17; applies once implemented).
 
 ### Permissions
 

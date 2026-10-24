@@ -117,11 +117,15 @@ The first two phases address the limitations recorded in [`software-design.md`](
 
 **Problem**: There is no way to discover which commands exist or which of them the invoking user may run — a usability gap for users, moderators, and admins alike.
 
-**Work** (implements FR-38):
+**Work** (implements FR-38 to FR-40):
 - Add a `!help` command that lists the registered commands available to the invoking user in the current guild (required tier ≤ user's tier).
+- Give every command help text: a short description and a usage/argument summary, declared on the command implementation (e.g. on `ICommand` or a parallel `HelpText` property) so it stays in sync with the code and registration.
+- Support `!help <commandName>`: show the detailed help (description, usage, required permission tier) for that command — only for commands the user can run; for unavailable or unknown names reply generically, without revealing whether the command exists at a higher tier.
 
 **Acceptance criteria**:
 - `!help` output differs correctly between a tier-0 user, a moderator, and an admin on the same guild.
+- `!help <command>` shows that command's description and usage; `!help` on an unknown or insufficient-tier command does not leak the command's existence details.
+- Every registered command has help text; a command without it fails its unit test (or registration is rejected).
 - Behavior is unit-tested.
 
 ## Phase 2 — Operational base for a server-hosted bot

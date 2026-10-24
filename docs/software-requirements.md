@@ -27,7 +27,7 @@ HambotV2 ("HamBot") is a Discord chat bot. It listens to messages in the guilds 
 
 ### 2.3 Command execution & error handling
 
-- **FR-12**: Each command shall be a class implementing `ICommand` (`Name` + `ExecuteCommand(SocketMessage, ICommandContext)`), registered at startup through the command registration chain.
+- **FR-12**: Each command shall be a class implementing `ICommand` (`Name` + `ExecuteCommand(SocketMessage, ICommandContext)`), registered at startup through the command registration chain. Commands shall also provide their help text (FR-39) as part of the implementation.
 - **FR-13**: A command shall receive an execution context wrapping a database context scoped to the message being handled.
 - **FR-14**: If the invoking user lacks sufficient permissions, the bot shall reply in-channel that the user is not permitted to use the command, and the command shall not execute.
 - **FR-15 (roadmap T1)**: A failure in a command, permission check, or database access shall produce a user-facing error message in-channel and a logged exception; it shall never stop the bot from processing subsequent messages. Exception details shall not be exposed in-channel.
@@ -57,6 +57,8 @@ HambotV2 ("HamBot") is a Discord chat bot. It listens to messages in the guilds 
 - **FR-36 (roadmap T16 — escalation guard)**: A user may only assign permission tiers strictly lower than their own tier. A user shall not be able to modify their own tier or the tier of a user whose tier is equal to or higher than their own.
 - **FR-37 (roadmap T16)**: Assigned tiers shall be validated: integers within the defined tier scale (non-negative, not exceeding the highest defined tier). Invalid input shall produce an in-channel error message.
 - **FR-38 (roadmap T17)**: A `!help` command shall list the commands available to the invoking user (i.e. commands whose required tier in the current guild is at most the user's tier), so users and staff can discover what they can run.
+- **FR-39 (roadmap T17)**: Each registered command shall expose help text: a short description and a usage/argument summary, supplied with the command implementation (see FR-12) so it stays in sync with the code.
+- **FR-40 (roadmap T17)**: Invoking `!help <commandName>` shall display the detailed help text (description, usage, required permission tier) for that command. Detailed help shall only be shown for commands the invoking user can run; requesting help for an unavailable or unknown command shall produce an in-channel message saying so, without revealing whether the command exists at a higher tier.
 
 ### 2.5 Persistence & startup
 
@@ -96,6 +98,7 @@ HambotV2 ("HamBot") is a Discord chat bot. It listens to messages in the guilds 
 |---|---|---|
 | `!hello` | none | Bot replies "Hello World". |
 | `!help` | none | Lists the commands the invoking user can run in this guild. |
+| `!help <name>` | command name | Shows the detailed help text (description, usage, required tier) for that command, if the user can run it. |
 | `!commandpermission <name>` | command name | Prints the command's permission tier (0 if not set). |
 | `!commandpermission <name> <tier>` | command name, integer tier | Sets or creates the command's permission tier. |
 | `!userpermission <user>` | Discord mention or numeric Discord ID | Prints the user's permission tier (0 if not set). |

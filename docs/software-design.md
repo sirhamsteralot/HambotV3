@@ -136,6 +136,35 @@ All in `Commands/SystemCommands/`, registered by `RegisterSystemCommands`:
 | `CommandPermission` | `!commandpermission <name> [tier]` | With 1 arg: prints the command's permission tier (defaults to 0 if absent). With 2 args: sets/creates the command's tier and saves to the database. |
 | `UserPermission` | `!userpermission <discordId> [tier]` | With 1 arg: prints the user's permission tier (defaults to 0 if absent). With 2 args: sets/creates the user's tier and saves to the database. |
 
+### 3.6 Help / command discovery (planned design — roadmap T17, not yet implemented)
+
+This section is the agreed design for the `!help` command (FR-38 to FR-40 in [`software-requirements.md`](software-requirements.md)). It should be folded into the descriptions above once implemented.
+
+**Help text on commands** — `ICommand` (`Commands/ICommand.cs`) is extended with two properties:
+
+- `string Description { get; }` — a one-line summary of what the command does (shown in the `!help` list).
+- `string Usage { get; }` — the argument summary, including the identifier-less invocation form, e.g. `commandpermission <name> [tier]` (shown in `!help <name>` detail output).
+
+Rationale: help text lives on the command implementation itself, so it cannot drift from the code or the registration chain, and no parallel registry/dictionary has to be kept in sync. Unit tests enforce that every registered command has non-empty, whitespace-trimmed `Description` and `Usage` (see FR-39).
+
+**`HelpCommand`** — a new `internal` command class in `Commands/SystemCommands/` (`Name` = `help`), registered through `RegisterSystemCommands` like any other command. It is subject to the normal permission check (default required tier 0).
+
+Behavior:
+
+- `!help` — lists every registered command available to the invoking user (required tier ≤ user's tier), one line per command: identifier + name, then the short description (e.g. `!hello — Greet the channel`). The list is per the tiers visible in the current database state, using the same default-0 semantics as the permission check (missing `CommandMetaData`/`User` rows default to tier 0).
+- `!help <commandName>` — looks up the command (name lowercased, identifier stripped, exactly like `CommandService.TryGetCommand`) and, if the user may run it, replies with the command's description, usage, and required permission tier. If the name is unknown **or** the user may not run it, the bot replies with the same generic message used for unavailable commands ("The requested command is unavailable") — deliberately identical for both cases so the reply does not reveal whether a higher-tier command exists (FR-40).
+
+**Permission-tier lookups** — `IPermissionsService` gains read accessors next to `CheckUserPermissions`:
+
+- `Task<int> GetUserTier(ulong userDiscordId, DatabaseContext database)` — user's tier, 0 if no row.
+- `Task<int> GetCommandTier(string commandName, DatabaseContext database)` — command's required tier, 0 if no row.
+
+`CheckUserPermissions` is refactored onto these accessors so the default-0 semantics exist in exactly one place. `HelpCommand` uses the accessors to build its output; it does not query the `DatabaseContext` directly.
+
+**Message size** — the `!help` list is one line per command and stays well within Discord's message-length limit at the current command count; if the command set grows large, the list can be chunked into multiple messages (out of scope for T17).
+
+**Testing** — `BotTests/` gains tests (MSTest + Moq, no database) covering: the `!help` list differing between a tier-0 user and a higher-tier user; `!help <name>` detail output for a permitted command; the generic reply for an unknown command and for a command above the user's tier; and the registration check that all commands have non-empty help text.
+
 ## 4. Configuration
 
 - `appsettings.json` (committed, non-secret): `BotConfiguration:BotName`, `BotConfiguration:LogFormat`, `BotConfiguration:CommandIdentifier` (default `!`), plus standard host logging configuration.
