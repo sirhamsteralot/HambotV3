@@ -8,6 +8,13 @@
 pipeline {
     agent any
 
+    environment {
+        DOTNET_ROOT = '/opt/dotnet10'
+        PATH = "/opt/dotnet10:${env.PATH}"
+        DOTNET_CLI_TELEMETRY_OPTOUT = '1'
+        DOTNET_NOLOGO = '1'
+    }
+
     options {
         // Log lines get a timestamp so gateway reconnects etc. are traceable.
         timestamps()
