@@ -60,7 +60,7 @@ The first two phases address the limitations recorded in [`software-design.md`](
 - Starting without a bot token fails immediately with an explicit message naming the missing key.
 - Unit tests cover the validation logic.
 
-### T5. Command parsing robustness
+### T5. [x] Command parsing robustness
 
 **Problem**: `DiscordClient` forwards any message starting with `!` (including a bare `!`), and `CommandService.TryGetCommand` assumes the first token has at least one character after the identifier — a bare identifier message can throw. Identifier comparison is case-sensitive and trimmed only partially.
 
@@ -72,7 +72,7 @@ The first two phases address the limitations recorded in [`software-design.md`](
 - A bare `!` message is ignored (or answered) without exceptions.
 - Unit tests cover identifier-only and whitespace-only messages.
 
-### T6. Clean up the persistence abstraction
+### T6. [x] Clean up the persistence abstraction
 
 **Problem**: `Connections/IDatabaseContext.cs` exists but is unused — everything injects the concrete `DatabaseContext`. This blocks unit-testing commands against a fake context and leaves dead code.
 
@@ -84,19 +84,9 @@ The first two phases address the limitations recorded in [`software-design.md`](
 - No dead abstraction remains; the choice is applied consistently.
 - (If kept) permission-management commands have unit tests using a mocked/fake context.
 
-### T7. Permission-management command UX
+**Note**: schedule before T16 and T7 — the mocked context is what makes the permission commands' behavior unit-testable without a database.
 
-**Problem**: `!userpermission` requires a raw numeric Discord ID. In practice, admins mention users (`@user`), which produces `<@123456>` and fails to parse. There is also dead code (unreachable `return`) in `UserPermission`.
-
-**Work**:
-- Accept both raw IDs and Discord mentions (`<@id>` / `<@!id>`) as the user argument.
-- Remove the unreachable code and share the "upsert tier" logic between the two commands if it keeps things simpler.
-
-**Acceptance criteria**:
-- `!userpermission @SomeUser 3` works the same as passing the numeric ID.
-- Unit tests cover mention parsing.
-
-### T16. Permission bootstrap, named role model, and escalation guard
+### T16. [x] Permission bootstrap, named role model, and escalation guard
 
 **Problem**: On a fresh guild every user and command defaults to tier 0 (FR-18/FR-19), which means *anyone* can run `!userpermission` and `!userpermission @themselves <max tier>` — permission management is effectively open until someone locks it, and there is no defined way for the first admin to exist. Tiers are also anonymous integers with no defined meaning, and there is no guard against privilege escalation.
 
@@ -113,7 +103,23 @@ The first two phases address the limitations recorded in [`software-design.md`](
 - Tier assignments outside the defined scale are rejected with an in-channel error.
 - All of the above is unit-tested.
 
-### T17. Help / command discovery
+**Note**: pick up after T6 (testability) and before T7/T17 — both build on the tier model this task defines.
+
+### T7. [x] Permission-management command UX
+
+**Problem**: `!userpermission` requires a raw numeric Discord ID. In practice, admins mention users (`@user`), which produces `<@123456>` and fails to parse. There is also dead code (unreachable `return`) in `UserPermission`.
+
+**Work**:
+- Accept both raw IDs and Discord mentions (`<@id>` / `<@!id>`) as the user argument.
+- Remove the unreachable code and share the "upsert tier" logic between the two commands if it keeps things simpler.
+
+**Acceptance criteria**:
+- `!userpermission @SomeUser 3` works the same as passing the numeric ID.
+- Unit tests cover mention parsing.
+
+**Note**: schedule after T16 — both rework the same permission commands, and the shared upsert logic is simpler against T16's tier model and escalation guard.
+
+### T17. [x] Help / command discovery
 
 **Problem**: There is no way to discover which commands exist or which of them the invoking user may run — a usability gap for users, moderators, and admins alike.
 
@@ -127,6 +133,8 @@ The first two phases address the limitations recorded in [`software-design.md`](
 - `!help <command>` shows that command's description and usage; `!help` on an unknown or insufficient-tier command does not leak the command's existence details.
 - Every registered command has help text; a command without it fails its unit test (or registration is rejected).
 - Behavior is unit-tested.
+
+**Note**: schedule after T16 — `!help` filters and displays the tier scale that T16 defines.
 
 ## Phase 2 — Operational base for a server-hosted bot
 
@@ -181,6 +189,8 @@ The first two phases address the limitations recorded in [`software-design.md`](
 **Acceptance criteria**:
 - `dotnet build HambotV2.sln` completes warning-free; the CI (T10) can optionally enforce it.
 
+**Note**: schedule after T10, so CI enforcement is already in place when the build goes warning-free.
+
 ## Phase 3 — Bot features & quality of life (after the base is solid)
 
 ### T12. Structured logging improvements
@@ -190,6 +200,16 @@ The first two phases address the limitations recorded in [`software-design.md`](
 - Consider Serilog with console+file sinks and a configurable log level via `appsettings.json`.
 
 **Acceptance criteria**: command usage is traceable from logs without debugging.
+
+### T15. Command argument-parsing framework
+
+**Problem**: Each command hand-parses `socketMessage.Content` (splitting, `TryParse`, argument-count checks) — repetitive and inconsistent.
+
+**Work**: Introduce a small argument-parsing helper (or adopt Discord.Net's built-in command framework) so commands declare their arguments and get typed values.
+
+**Acceptance criteria**: `CommandPermission`/`UserPermission` are refactored onto it and their tests still pass.
+
+**Note**: schedule early in this phase, before adding more commands — new feature work (e.g. T13's throttle responses) should use the framework instead of more hand-parsing.
 
 ### T13. Command cooldowns / rate limiting
 
@@ -212,21 +232,15 @@ The first two phases address the limitations recorded in [`software-design.md`](
 - DM behavior matches the agreed fallback (FR-25).
 - Behavior is covered by unit tests.
 
-### T15. Command argument-parsing framework
-
-**Problem**: Each command hand-parses `socketMessage.Content` (splitting, `TryParse`, argument-count checks) — repetitive and inconsistent.
-
-**Work**: Introduce a small argument-parsing helper (or adopt Discord.Net's built-in command framework) so commands declare their arguments and get typed values.
-
-**Acceptance criteria**: `CommandPermission`/`UserPermission` are refactored onto it and their tests still pass.
+**Note**: schedule last in this phase — it is the largest change (design + migration) and builds on the tier model from T16.
 
 ## Suggested pick-up order
 
-1. **T1** (error handling) and **T2** (DB init) — the two most impactful stability fixes.
-2. **T16** — closes the open-permissions security hole and defines the admin/moderator role model; needed before per-guild permission use makes sense.
-3. **T4**, **T5**, **T7** — small correctness/UX tasks, good warm-ups.
-4. **T3** + **T9** — container secrets, then write the README once deployment behavior is final (T9 depends on outcomes of T2 and T3).
-5. **T6**, **T8**, **T10**, **T11** — code health and operational safety.
-6. Phase 3 items (including **T17**, help command) as feature work picks up.
+Completed so far: **T1**–**T4** (error handling, DB init, container secrets, config validation), **T5**–**T7**, **T16**, **T17** (parsing robustness, persistence abstraction, permission bootstrap/escalation guard, mention parsing, help command) — Phase 1 is done — and **T9** (README).
+
+Remaining work, in dependency and risk order:
+
+1. **T8**, **T10**, **T11** — operational hardening: graceful shutdown; then CI (T10) before warning cleanup (T11), so enforcement is in place when the build goes clean.
+2. Phase 3 features: **T12** (logging) and **T15** (argument parsing) first — T15 removes hand-parsing before more commands are written — then **T13** (cooldowns), and **T14** (per-guild scoping) last as the largest change, building on T16's tier model.
 
 When a task is completed, tick it off here (e.g. `- [x]`) and update `software-design.md` / `software-requirements.md` so the docs keep describing the system as it actually is.

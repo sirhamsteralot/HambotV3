@@ -1,10 +1,7 @@
-﻿using Discord.WebSocket;
-using HambotV2.Connections;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace HambotV2.Commands
 {
@@ -15,6 +12,8 @@ namespace HambotV2.Commands
         private ILogger<CommandService> _logger;
         private IConfiguration _configuration;
         public bool CommandsRegistered { get; set; } = false;
+
+        public string CommandIdentifier => _configuration["BotConfiguration:CommandIdentifier"] ?? "!";
 
         public CommandService(ILogger<CommandService> logger, IConfiguration configuration)
         {
@@ -32,6 +31,23 @@ namespace HambotV2.Commands
 
         public void RegisterCommand(string commandName, ICommand command)
         {
+            // Registration is the single chokepoint for the command contract (roadmap T17): a
+            // command without help text or with an invalid tier/default never enters the registry.
+            if (string.IsNullOrWhiteSpace(commandName))
+                throw new ArgumentException("Command names must not be empty.", nameof(commandName));
+
+            if (commandName != commandName.ToLowerInvariant())
+                throw new ArgumentException($"Command name '{commandName}' must be lowercase (lookup lowercases input).", nameof(commandName));
+
+            if (string.IsNullOrWhiteSpace(command?.Description))
+                throw new ArgumentException($"Command '{commandName}' must declare a non-empty Description for the help system.", nameof(command));
+
+            if (string.IsNullOrWhiteSpace(command.Usage))
+                throw new ArgumentException($"Command '{commandName}' must declare a non-empty Usage for the help system.", nameof(command));
+
+            if (!PermissionTier.IsValid(command.DefaultPermissionTier))
+                throw new ArgumentException($"Command '{commandName}' declares invalid default permission tier {command.DefaultPermissionTier}.", nameof(command));
+
             Commands.Add(commandName, command);
         }
 
@@ -40,18 +56,21 @@ namespace HambotV2.Commands
             if (!CommandsRegistered)
                 RegisterCommands();
 
-            string[] strings = content.Trim().Split(" ");
-
-            string commandString = strings[0].Substring(1,strings[0].Length - 1).ToLower();
-
-            if (Commands.TryGetValue(commandString, out ICommand selectedCommand))
-            {
-                command = selectedCommand;
-                return true;
-            }
-
             command = null;
-            return false;
+
+            if (!CommandParsing.TryGetCommandName(content, CommandIdentifier, out string commandString))
+                return false;
+
+            if (!Commands.TryGetValue(commandString, out ICommand? selectedCommand))
+                return false;
+
+            command = selectedCommand;
+            return true;
+        }
+
+        public bool IsIdentifierOnlyMessage(string content)
+        {
+            return CommandParsing.IsIdentifierOnly(content, CommandIdentifier);
         }
     }
 }

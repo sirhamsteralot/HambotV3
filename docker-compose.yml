@@ -30,6 +30,8 @@ services:
     environment:
       Secrets__BotToken: ${DISCORD_BOT_TOKEN:?Set DISCORD_BOT_TOKEN in .env}
       ConnectionStrings__DefaultConnection: "Server=db;Port=5432;Database=${POSTGRES_DB:-hambotdb};User Id=${POSTGRES_USER:-hambot};Password=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}"
+      # Optional: the bot owner — the globally highest permission tier, above every guild (Permissions:BotOwnerDiscordId).
+      Permissions__BotOwnerDiscordId: ${BOT_OWNER_DISCORD_ID:-}
 
 volumes:
   db-data:

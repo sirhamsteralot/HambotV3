@@ -60,7 +60,7 @@ Key external dependencies:
 | `CommandService` | `ICommandService` | singleton |
 | `CommandHandler` | `ICommandHandler` | transient (resolved per message, disposed after use) |
 | `PermissionsService` | `IPermissionsService` | transient |
-| `DatabaseContext` | concrete `DbContext` | transient (both service and options lifetime) |
+| `DatabaseContext` | concrete `DbContext` and `IDatabaseContext` | transient (both service and options lifetime) |
 
 ## 3. Component Design
 
@@ -78,16 +78,21 @@ A `BackgroundService` that:
 
 **`ICommand`** (`Commands/ICommand.cs`) — the command contract:
 
-- `string Name` — must be lowercase (lookup lowercases input; tests enforce this).
+- `string Name` — must be lowercase (lookup lowercases input; registration rejects anything else).
+- `string Description` — one-line summary shown in the `!help` list.
+- `string Usage` — argument summary without the command identifier, e.g. `userpermission <user> [tier]`.
+- `int DefaultPermissionTier` — required tier when no `CommandMetaData` override exists in the database (see 3.3).
 - `Task ExecuteCommand(IMessage, ICommandContext)` — the command body. The pipeline operates on the `IMessage` interface (which `SocketMessage` implements) so the handler is unit-testable with mocks.
 
-**`ICommandContext` / `CommandContext`** — a thin wrapper exposing the per-message `DatabaseContext` to command implementations, keeping commands decoupled from DI.
+Help text lives on the command implementation itself, so it cannot drift from the code or the registration chain, and no parallel registry has to be kept in sync.
+
+**`ICommandContext` / `CommandContext`** — a thin wrapper exposing the per-message `IDatabaseContext` to command implementations, keeping commands decoupled from DI. It also carries a `TierOverrides` record (see 3.3) — the message's guild owner plus the configured bot owner id — and `GetUserEffectiveTier(userId)` computes a user's effective tier so commands share the exact semantics the permission check uses.
 
 **`CommandHandler`** (`ICommandHandler`) — per-message orchestrator, transient and disposable:
 
-1. Resolve the command via `ICommandService.TryGetCommand`; if unknown, reply "The requested command is unavailable".
-2. Check permissions via `IPermissionsService.CheckUserPermissions`; if insufficient, reply "You are not permitted to use that command".
-3. Execute the command with a `CommandContext` wrapping the per-message `DatabaseContext`.
+1. Resolve the command via `ICommandService.TryGetCommand`; identifier-only messages (a bare `!`) are ignored silently, unknown commands get "The requested command is unavailable".
+2. Check permissions via `IPermissionsService.CheckUserPermissions` (passing a `TierOverrides` built from the message's guild owner and the configured bot owner id); if insufficient, reply "You are not permitted to use that command".
+3. Execute the command with a `CommandContext` wrapping the per-message `IDatabaseContext` and the permission context.
 
 The whole pipeline is wrapped in a try/catch: on any failure (throwing command, database outage during the permission check, ...) the exception is logged with the command name and message content, and the user gets a generic in-channel error message ("An unexpected error occurred...") that never contains exception details. Each failing message is handled independently — a single failure never takes the bot down, and subsequent messages keep being processed. On disposal the handler also disposes its per-message `DatabaseContext`, so connections are released after every message regardless of success or failure.
 
@@ -95,7 +100,9 @@ The whole pipeline is wrapped in a try/catch: on any failure (throwing command, 
 
 - Holds a `Dictionary<string, ICommand>` keyed by command name.
 - Lazily populated on first lookup (`CommandsRegistered` flag) by calling `RegisterAllCommands.RegisterCommands`.
-- `TryGetCommand` parses the first space-delimited token, strips the identifier character, lowercases it, and does a dictionary lookup.
+- `RegisterCommand` is the single chokepoint for the command contract: it rejects non-lowercase or empty names, missing `Description`/`Usage`, and invalid `DefaultPermissionTier` values, so a command without help text can never enter the registry.
+- `TryGetCommand` parses via the shared `CommandParsing` helper. Parsing rules: the command identifier (`BotConfiguration:CommandIdentifier`, default `!`) is matched case-sensitively as an exact prefix of the trimmed message; any run of whitespace separates tokens; the command name is the first token after the identifier, lowercased. Bare identifier-only messages (e.g. `!` or `!   `) resolve to no command.
+- `IsIdentifierOnlyMessage` lets the handler distinguish "no command name given" (ignored silently) from "unknown command" (answered).
 
 **Command registration** — a small static registration chain:
 
@@ -104,12 +111,30 @@ The whole pipeline is wrapped in a try/catch: on any failure (throwing command, 
 
 ### 3.3 Permissions — `Commands/PermissionsService.cs`
 
-Tiered integer permission model:
+Tiered integer permission model with a named scale (roadmap T16, FR-33):
 
-- A command may run when `user.PermissionTier >= commandMetaData.PermissionTier`.
-- Missing `CommandMetaData` rows default to required tier 0; missing `User` rows default to tier 0.
-- Tiers are read from the database per message (two lookups: command metadata + user).
-- Tiers are managed at runtime via the `!commandpermission` and `!userpermission` commands (see below), so no code change or restart is needed to adjust access.
+| Tier | Name | Meaning |
+|---|---|---|
+| 0 | everyone | Default for users and most commands. |
+| 1 | moderator | Trusted helpers. |
+| 2 | admin | Can manage permissions (below their own tier). |
+| 3 | owner | Full control of a guild; held automatically by the guild owner. |
+| 4 | bot owner | Highest tier of all, above every guild. Configuration only — never assignable via commands. |
+
+The scale lives in `Commands/PermissionTier.cs` (constants, `IsValid`, `GetName`); inputs outside 0–4 are rejected with an in-channel error (FR-37).
+
+- A command may run when the user's **effective tier** ≥ the command's **required tier**.
+- A command's required tier is its database `CommandMetaData` override if present, otherwise the command's built-in `DefaultPermissionTier` (0 for most commands, **admin** for `!commandpermission`/`!userpermission`, FR-35).
+- A user's effective tier is the stored database tier (0 if no row), raised to **owner** for the guild owner of the message's guild (FR-34). This gives a fresh guild a working first admin without any database setup.
+- The **bot owner** configured under `Permissions:BotOwnerDiscordId` (in containers supplied via `BOT_OWNER_DISCORD_ID` in `.env` through compose) acts at tier 4 in every guild — the highest permission level of all, above guild owners. It is the designated tier for things that apply across guilds (currently the global command permission tiers; later per-guild settings fallbacks, roadmap T14). The tier is configuration-only: the escalation guard math (strictly-below-own-tier) makes it unassignable through commands.
+- `IPermissionsService` exposes `CheckUserPermissions` plus the read accessors `GetUserEffectiveTier` and `GetCommandRequiredTier`, so the default semantics exist in exactly one place and `HelpCommand` reuses them. The implicit-tier ids travel as a single `TierOverrides` record (`Commands/TierOverrides.cs`), which also owns the effective-tier computation (`EffectiveTierOf`) — no method needs a parameter per override source.
+
+**Escalation guard** (FR-36), enforced inside the permission-management commands:
+
+- `!userpermission <user> <tier>`: the invoker can never modify their own tier, can only modify users whose effective tier is strictly below their own, and can only assign tiers strictly below their own. Target arguments accept raw ids and Discord mentions (`<@id>`, `<@!id>`).
+- `!commandpermission <name> <tier>`: the invoker can only assign required tiers strictly below their own, and only to commands whose current required tier is strictly below their own — nobody can move a command gate to or past their own level.
+
+Tiers are read from the database per message and managed at runtime via the two commands, so no code change or restart is needed to adjust access.
 
 ### 3.4 Persistence — `Connections/DatabaseContext.cs`
 
@@ -124,7 +149,7 @@ EF Core migrations live in `HambotV2/Migrations/` (initial create only). Regener
 
 Migrations are applied automatically on startup: `Program.Main` runs `Database.Migrate()` before the Discord gateway starts. If the database is unreachable, a critical error is logged (naming the connection configuration) and the host exits with a non-zero code instead of starting a half-functional bot. No manual migration step is required.
 
-There is also an `Connections/IDatabaseContext.cs` abstraction; the current `DatabaseContext` is registered and injected concretely.
+There is also an `Connections/IDatabaseContext.cs` abstraction exposing the two `DbSet`s and `SaveChangesAsync`. The whole command pipeline (`CommandHandler`, `CommandContext`, `PermissionsService`) depends on `IDatabaseContext`, and `Program.cs` maps it onto the registered transient `DatabaseContext`. This is what lets the command tests run against the EF InMemory provider instead of PostgreSQL.
 
 ### 3.5 Commands currently implemented
 
@@ -133,43 +158,18 @@ All in `Commands/SystemCommands/`, registered by `RegisterSystemCommands`:
 | Command | Name | Behavior |
 |---|---|---|
 | `HelloWorld` | `!hello` | Replies "Hello World". |
-| `CommandPermission` | `!commandpermission <name> [tier]` | With 1 arg: prints the command's permission tier (defaults to 0 if absent). With 2 args: sets/creates the command's tier and saves to the database. |
-| `UserPermission` | `!userpermission <discordId> [tier]` | With 1 arg: prints the user's permission tier (defaults to 0 if absent). With 2 args: sets/creates the user's tier and saves to the database. |
+| `HelpCommand` | `!help [commandName]` | Lists the commands available to the invoking user (required tier ≤ their effective tier), one line per command: identifier + name — description. With an argument: detailed help (description, usage, required tier) for that command — only if the user can run it; unknown and insufficient-tier names get the same generic "The requested command is unavailable" reply, so the existence of higher-tier commands is never revealed (FR-40). |
+| `CommandPermission` | `!commandpermission <name> [tier]` | With 1 arg: prints the command's required tier (database override, or a hint that the built-in default applies). With 2 args: sets/creates the command's tier, guarded by the escalation rules in 3.3. Admin-only by default. |
+| `UserPermission` | `!userpermission <user> [tier]` | With 1 arg: prints the user's effective tier (with a "guild owner" / "bot owner" note where applicable). With 2 args: sets/creates the user's tier, guarded by the escalation rules in 3.3. `<user>` accepts raw ids and `@mentions`. Admin-only by default. |
 
-### 3.6 Help / command discovery (planned design — roadmap T17, not yet implemented)
-
-This section is the agreed design for the `!help` command (FR-38 to FR-40 in [`software-requirements.md`](software-requirements.md)). It should be folded into the descriptions above once implemented.
-
-**Help text on commands** — `ICommand` (`Commands/ICommand.cs`) is extended with two properties:
-
-- `string Description { get; }` — a one-line summary of what the command does (shown in the `!help` list).
-- `string Usage { get; }` — the argument summary, including the identifier-less invocation form, e.g. `commandpermission <name> [tier]` (shown in `!help <name>` detail output).
-
-Rationale: help text lives on the command implementation itself, so it cannot drift from the code or the registration chain, and no parallel registry/dictionary has to be kept in sync. Unit tests enforce that every registered command has non-empty, whitespace-trimmed `Description` and `Usage` (see FR-39).
-
-**`HelpCommand`** — a new `internal` command class in `Commands/SystemCommands/` (`Name` = `help`), registered through `RegisterSystemCommands` like any other command. It is subject to the normal permission check (default required tier 0).
-
-Behavior:
-
-- `!help` — lists every registered command available to the invoking user (required tier ≤ user's tier), one line per command: identifier + name, then the short description (e.g. `!hello — Greet the channel`). The list is per the tiers visible in the current database state, using the same default-0 semantics as the permission check (missing `CommandMetaData`/`User` rows default to tier 0).
-- `!help <commandName>` — looks up the command (name lowercased, identifier stripped, exactly like `CommandService.TryGetCommand`) and, if the user may run it, replies with the command's description, usage, and required permission tier. If the name is unknown **or** the user may not run it, the bot replies with the same generic message used for unavailable commands ("The requested command is unavailable") — deliberately identical for both cases so the reply does not reveal whether a higher-tier command exists (FR-40).
-
-**Permission-tier lookups** — `IPermissionsService` gains read accessors next to `CheckUserPermissions`:
-
-- `Task<int> GetUserTier(ulong userDiscordId, DatabaseContext database)` — user's tier, 0 if no row.
-- `Task<int> GetCommandTier(string commandName, DatabaseContext database)` — command's required tier, 0 if no row.
-
-`CheckUserPermissions` is refactored onto these accessors so the default-0 semantics exist in exactly one place. `HelpCommand` uses the accessors to build its output; it does not query the `DatabaseContext` directly.
-
-**Message size** — the `!help` list is one line per command and stays well within Discord's message-length limit at the current command count; if the command set grows large, the list can be chunked into multiple messages (out of scope for T17).
-
-**Testing** — `BotTests/` gains tests (MSTest + Moq, no database) covering: the `!help` list differing between a tier-0 user and a higher-tier user; `!help <name>` detail output for a permitted command; the generic reply for an unknown command and for a command above the user's tier; and the registration check that all commands have non-empty help text.
+`PermissionPersistence` holds the shared "upsert tier" logic of the two permission commands.
 
 ## 4. Configuration
 
 - `appsettings.json` (committed, non-secret): `BotConfiguration:BotName`, `BotConfiguration:LogFormat`, `BotConfiguration:CommandIdentifier` (default `!`), plus standard host logging configuration.
 - `HambotV2/appsecrets.json` (gitignored, optional): `Secrets:BotToken` (Discord bot token) and `ConnectionStrings:DefaultConnection` (PostgreSQL connection string). Loaded explicitly in `Program.cs` for local development. Its expected structure is documented in `README.md`. Secrets must never be committed.
 - Environment variables (e.g. `Secrets__BotToken`, `ConnectionStrings__DefaultConnection`) are the primary source in containers; `Program.cs` re-adds the environment provider after the secrets file so env vars take precedence. `appsecrets.json` is excluded from the Docker build context (`.dockerignore`), so the published image is secret-free.
+- Optional key: `Permissions:BotOwnerDiscordId` (`BOT_OWNER_DISCORD_ID` in `.env`, wired through docker-compose) — the bot owner, holding the globally highest tier (4). Unset by default; guild owners always act at owner tier without any configuration.
 - Required keys (`Secrets:BotToken`, `ConnectionStrings:DefaultConnection`, `BotConfiguration:BotName`, `BotConfiguration:LogFormat`, `BotConfiguration:CommandIdentifier`) are validated at startup (`ConfigurationValidator`): any missing key is logged by name and the host exits with a non-zero code before any connection attempt.
 
 ## 5. Deployment
@@ -195,9 +195,9 @@ docker run -d --name hambot-smoke -e Secrets__BotToken=... -e "ConnectionStrings
 
 ## 6. Testing
 
-- `BotTests/` contains MSTest + Moq tests: `TestCommandInfrastructure.cs`, `TestCommands.cs`, `TestPermissions.cs`, `TestCommandHandler.cs`, `TestConfigurationValidator.cs`.
-- Tests run without a database or Discord token (in-memory configuration, Moq for dependencies).
-- Coverage focuses on: command names being lowercase, system command registration, command lookup, permission tier logic, the `CommandHandler` failure paths (throwing command, throwing permission check, denied permissions, unknown command, `DatabaseContext` disposal), and startup configuration validation.
+- `BotTests/` contains MSTest + Moq tests: `TestCommandInfrastructure.cs`, `TestCommands.cs`, `TestPermissions.cs`, `TestCommandHandler.cs`, `TestConfigurationValidator.cs`, `TestPermissionCommands.cs`, `TestHelp.cs`, plus the shared `DiscordTestDoubles.cs`.
+- Tests run without a reachable database or Discord token: Moq doubles the Discord message surface, and command/permission tests run against the EF Core **InMemory** provider through the `IDatabaseContext` abstraction (isolated database per test).
+- Coverage focuses on: command registration contract (lowercase names, help text, valid default tiers), robust command parsing (bare identifier, whitespace variations, custom identifiers), command lookup, the permission tier scale with tier overrides and escalation guards, permission-management command behavior (mentions, tier validation, upserts, guard rejections), `!help` listing/detail/non-revealing denials, the `CommandHandler` failure paths (throwing command, throwing permission check, denied permissions, unknown command, bare-identifier ignore, `DatabaseContext` disposal), and startup configuration validation.
 - Build and run:
 
   ```bash
@@ -205,7 +205,7 @@ docker run -d --name hambot-smoke -e Secrets__BotToken=... -e "ConnectionStrings
   dotnet test HambotV2.sln
   ```
 
-- The build currently emits several pre-existing nullable warnings (CS8625, CS8604, CS8620, CS0162); these are not treated as failures, but new code should not add new ones.
+- The build currently emits several pre-existing nullable warnings (CS8618, CS8625, CS8600, CS8604); these are not treated as failures, but new code should not add new ones (see roadmap T11 for the cleanup).
 
 ## 7. Conventions
 
@@ -218,6 +218,7 @@ docker run -d --name hambot-smoke -e Secrets__BotToken=... -e "ConnectionStrings
 
 These are observations of the current implementation, not roadmap commitments:
 
-- **Command parsing**: `TryGetCommand` assumes the first token is at least one character long after the identifier; the identifier check is a simple `StartsWith` on raw content.
-- **Permission commands take raw IDs**: `!userpermission` expects a numeric Discord ID argument rather than a mention.
-- **`IDatabaseContext`** exists but is unused; injection is against the concrete `DatabaseContext`.
+- **State is global**: permission tiers and settings are shared across all guilds; per-guild scoping is roadmap task T14.
+- **Hand-parsed command arguments**: each command splits and parses `socketMessage.Content` itself; a shared argument-parsing framework is roadmap task T15.
+- **Shutdown/reconnect logging**: gateway disconnects are handled by Discord.Net's built-in reconnects but not logged explicitly, and shutdown does not explicitly dispose the Discord client — roadmap task T8.
+- **Pre-existing nullable warnings** (CS8618, CS8625, CS8600, CS8604) remain in a handful of places — roadmap task T11.

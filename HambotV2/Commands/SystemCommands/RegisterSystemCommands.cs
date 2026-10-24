@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -11,6 +11,7 @@ namespace HambotV2.Commands.SystemCommands
         public static void RegisterCommands(ICommandService commandService)
         {
             commandService.RegisterCommand("hello", new HelloWorld());
+            commandService.RegisterCommand("help", new HelpCommand(commandService, new PermissionsService()));
             commandService.RegisterCommand("commandpermission", new CommandPermission());
             commandService.RegisterCommand("userpermission", new UserPermission());
         }

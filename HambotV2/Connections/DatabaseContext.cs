@@ -9,7 +9,7 @@ using System.Threading.Tasks;
 
 namespace HambotV2.Connections
 {
-    public class DatabaseContext : DbContext
+    public class DatabaseContext : DbContext, IDatabaseContext
     {
         public DatabaseContext(DbContextOptions<DatabaseContext> options) : base(options) { }
 

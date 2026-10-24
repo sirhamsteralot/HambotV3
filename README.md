@@ -90,7 +90,7 @@ The unit tests (MSTest + Moq, in `BotTests/`) run without a database, Discord to
 dotnet test HambotV2.sln
 ```
 
-They cover command registration, command lookup, permission tier logic, startup configuration validation, and the command pipeline failure paths (throwing commands, database errors during permission checks).
+They cover command registration (lowercase names, help text, default tiers), command lookup and parsing edge cases, the permission tier scale with tier overrides and escalation guards, the permission-management and `!help` command behavior (against an in-memory database), startup configuration validation, and the command pipeline failure paths (throwing commands, database errors during permission checks).
 
 ## Running in production
 
@@ -135,7 +135,28 @@ If the token is wrong/missing you'll instead see a critical message naming the m
 | Command | Behavior |
 |---|---|
 | `!hello` | Replies "Hello World". |
-| `!commandpermission <name> [tier]` | Prints a command's required tier, or sets/creates it. |
-| `!userpermission <discordId> [tier]` | Prints a user's tier, or sets/creates it. |
+| `!help [commandName]` | Lists the commands you can use, or shows detailed help (description, usage, required tier) for one command. |
+| `!commandpermission <name> [tier]` | Prints a command's required tier, or sets/creates it. Admin-only by default. |
+| `!userpermission <user> [tier]` | Prints a user's tier, or sets/creates it. `<user>` is a raw Discord id or an @mention. Admin-only by default. |
 
-Users and commands default to permission tier 0, so every command is usable by everyone until tiers are raised (e.g. `!commandpermission userpermission 1`). Note that this means permission management is effectively **open on a fresh guild** until someone locks it down — a bootstrap admin/role model is planned as roadmap task T16.
+Permission tiers form a named scale:
+
+| Tier | Name | Meaning |
+|---|---|---|
+| 0 | everyone | Default for users and most commands. |
+| 1 | moderator | Trusted helpers. |
+| 2 | admin | Can manage permissions (below their own tier, see below). |
+| 3 | owner | Full control of a guild; held automatically by the guild owner. |
+| 4 | bot owner | Highest tier of all, above every guild. Configured per bot, not per guild. |
+
+On a fresh guild (empty database) **nobody can grant themselves permissions**: the permission-management commands require admin tier by default, and their escalation guard only allows assigning tiers strictly below your own — you can never modify your own tier or that of an equal/higher-tiered user.
+
+Bootstrap administrator (roadmap T16): the **guild owner** automatically acts at owner tier in their guild, without any database entry. That is how the first admin exists on a fresh guild; they can then grant tiers to others with `!userpermission`.
+
+The **bot owner** is configured in `.env` as `BOT_OWNER_DISCORD_ID` (wired through to `Permissions:BotOwnerDiscordId`). They hold tier 4 in every guild — the highest permission level of all, above guild owners — and are the designated operator for things that apply across guilds (today: global command permission tiers; later: per-guild settings fallbacks). The tier comes from configuration only: it can never be granted through commands, not even by the bot owner themselves.
+
+Tiers are then managed at runtime, e.g.:
+
+- `!userpermission @Someone 1` — grants moderator tier (as owner/admin).
+- `!commandpermission hello 1` — restricts `!hello` to moderators and above.
+

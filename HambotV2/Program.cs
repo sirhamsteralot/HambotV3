@@ -17,6 +17,9 @@ namespace HambotV2
             builder.Configuration.AddJsonFile("appsecrets.json", optional: true);
             builder.Configuration.AddEnvironmentVariables();
             builder.Services.AddDbContext<DatabaseContext>(options => options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")), ServiceLifetime.Transient, ServiceLifetime.Transient);
+            // The command pipeline depends on the IDatabaseContext abstraction (roadmap T6); this maps
+            // it onto the same transient DatabaseContext registration.
+            builder.Services.AddTransient<IDatabaseContext>(serviceProvider => serviceProvider.GetRequiredService<DatabaseContext>());
             builder.Services.AddHostedService<DiscordClient>();
             builder.Services.AddTransient<ICommandHandler, CommandHandler>();
             builder.Services.AddTransient<IPermissionsService, PermissionsService>();

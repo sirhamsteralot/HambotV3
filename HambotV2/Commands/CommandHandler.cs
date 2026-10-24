@@ -13,11 +13,11 @@ namespace HambotV2.Commands
         private ILogger<CommandHandler> _logger;
         private IConfiguration _configuration;
         private ICommandService _commandService;
-        private DatabaseContext _databaseContext;
+        private IDatabaseContext _databaseContext;
         private IPermissionsService _permissionsService;
 
-        public CommandHandler(ICommandService commandService, ILogger<CommandHandler> logger, IConfiguration configuration, DatabaseContext databaseContext, IPermissionsService permissionsService) 
-        { 
+        public CommandHandler(ICommandService commandService, ILogger<CommandHandler> logger, IConfiguration configuration, IDatabaseContext databaseContext, IPermissionsService permissionsService)
+        {
             _logger = logger;
             _configuration = configuration;
             _commandService = commandService;
@@ -31,19 +31,33 @@ namespace HambotV2.Commands
             try
             {
                 if (!_commandService.TryGetCommand(socketMessageCommand.Content, out command)) {
+                    // Identifier-only messages (e.g. a bare "!", roadmap T5) are ignored silently
+                    // instead of being answered like unknown commands.
+                    if (_commandService.IsIdentifierOnlyMessage(socketMessageCommand.Content))
+                        return;
+
                     _logger.LogInformation("Unavailable command executed! from message: {content}", socketMessageCommand.Content);
                     await socketMessageCommand.Channel.SendMessageAsync("The requested command is unavailable");
                     return;
                 }
 
-                if (!await _permissionsService.CheckUserPermissions(socketMessageCommand.Author.Id, command, _databaseContext))
+                // Tier overrides (roadmap T16): the guild owner acts at owner tier in their guild
+                // even without any database entry; the configured bot owner acts at the globally
+                // highest tier in every guild.
+                var overrides = new TierOverrides
+                {
+                    GuildOwnerId = socketMessageCommand.Channel is IGuildChannel guildChannel ? guildChannel.Guild.OwnerId : null,
+                    BotOwnerId = ParseConfiguredDiscordId(_configuration["Permissions:BotOwnerDiscordId"])
+                };
+
+                if (!await _permissionsService.CheckUserPermissions(socketMessageCommand.Author.Id, overrides, command, _databaseContext))
                 {
                     _logger.LogInformation("No sufficient permissions to execute command! from message: {content}", socketMessageCommand.Content);
                     await socketMessageCommand.Channel.SendMessageAsync("You are not permitted to use that command");
                     return;
                 }
 
-                await command.ExecuteCommand(socketMessageCommand, new CommandContext(_databaseContext));
+                await command.ExecuteCommand(socketMessageCommand, new CommandContext(_databaseContext, overrides));
             }
             catch (Exception ex)
             {
@@ -61,6 +75,11 @@ namespace HambotV2.Commands
                     _logger.LogError(replyEx, "Failed to send error reply for message: {content}", socketMessageCommand.Content);
                 }
             }
+        }
+
+        private static ulong? ParseConfiguredDiscordId(string? configuredId)
+        {
+            return ulong.TryParse(configuredId, out ulong parsedId) ? parsedId : null;
         }
 
         public void Dispose()

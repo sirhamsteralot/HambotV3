@@ -17,6 +17,9 @@ namespace BotTests
         private class ThrowingCommand : ICommand
         {
             public string Name => "boom";
+            public string Description => "Throws for testing the failure path";
+            public string Usage => "boom";
+            public int DefaultPermissionTier => 0;
 
             public Task ExecuteCommand(IMessage socketMessage, ICommandContext context)
                 => throw new InvalidOperationException("kaboom");
@@ -86,7 +89,7 @@ namespace BotTests
             public void AllowPermissions()
             {
                 Permissions
-                    .Setup(p => p.CheckUserPermissions(It.IsAny<ulong>(), It.IsAny<ICommand>(), It.IsAny<DatabaseContext>()))
+                    .Setup(p => p.CheckUserPermissions(It.IsAny<ulong>(), It.IsAny<TierOverrides>(), It.IsAny<ICommand>(), It.IsAny<IDatabaseContext>()))
                     .ReturnsAsync(true);
             }
         }
@@ -121,11 +124,10 @@ namespace BotTests
         public async Task HandleCommand_PermissionServiceThrows_RepliesWithGenericErrorWithoutExceptionDetails()
         {
             var pipeline = new TestPipeline("!greet");
-            var command = new Mock<ICommand>();
-            command.SetupGet(c => c.Name).Returns("greet");
+            var command = DiscordTestDoubles.CreateMockCommand("greet");
             pipeline.CommandService.RegisterCommand("greet", command.Object);
             pipeline.Permissions
-                .Setup(p => p.CheckUserPermissions(It.IsAny<ulong>(), command.Object, It.IsAny<DatabaseContext>()))
+                .Setup(p => p.CheckUserPermissions(It.IsAny<ulong>(), It.IsAny<TierOverrides>(), command.Object, It.IsAny<IDatabaseContext>()))
                 .ThrowsAsync(new InvalidOperationException("database outage"));
 
             await pipeline.CreateHandler().HandleCommand(pipeline.Message.Object);
@@ -155,11 +157,10 @@ namespace BotTests
         public async Task HandleCommand_PermissionDenied_RepliesAndSkipsCommand()
         {
             var pipeline = new TestPipeline("!greet");
-            var command = new Mock<ICommand>();
-            command.SetupGet(c => c.Name).Returns("greet");
+            var command = DiscordTestDoubles.CreateMockCommand("greet");
             pipeline.CommandService.RegisterCommand("greet", command.Object);
             pipeline.Permissions
-                .Setup(p => p.CheckUserPermissions(It.IsAny<ulong>(), command.Object, It.IsAny<DatabaseContext>()))
+                .Setup(p => p.CheckUserPermissions(It.IsAny<ulong>(), It.IsAny<TierOverrides>(), command.Object, It.IsAny<IDatabaseContext>()))
                 .ReturnsAsync(false);
 
             await pipeline.CreateHandler().HandleCommand(pipeline.Message.Object);
@@ -180,16 +181,38 @@ namespace BotTests
             Assert.AreEqual(1, pipeline.SentMessages.Count);
             StringAssert.Contains(pipeline.SentMessages[0], "unavailable");
             pipeline.Permissions.Verify(
-                p => p.CheckUserPermissions(It.IsAny<ulong>(), It.IsAny<ICommand>(), It.IsAny<DatabaseContext>()),
+                p => p.CheckUserPermissions(It.IsAny<ulong>(), It.IsAny<TierOverrides>(), It.IsAny<ICommand>(), It.IsAny<IDatabaseContext>()),
                 Times.Never);
+        }
+
+        [TestMethod]
+        public async Task HandleCommand_BareIdentifier_IsIgnoredSilently()
+        {
+            var pipeline = new TestPipeline("!");
+
+            await pipeline.CreateHandler().HandleCommand(pipeline.Message.Object);
+
+            Assert.AreEqual(0, pipeline.SentMessages.Count, "A bare identifier message must not be answered");
+            pipeline.Permissions.Verify(
+                p => p.CheckUserPermissions(It.IsAny<ulong>(), It.IsAny<TierOverrides>(), It.IsAny<ICommand>(), It.IsAny<IDatabaseContext>()),
+                Times.Never);
+        }
+
+        [TestMethod]
+        public async Task HandleCommand_IdentifierWithWhitespaceOnly_IsIgnoredSilently()
+        {
+            var pipeline = new TestPipeline("!    ");
+
+            await pipeline.CreateHandler().HandleCommand(pipeline.Message.Object);
+
+            Assert.AreEqual(0, pipeline.SentMessages.Count, "An identifier-plus-whitespace message must not be answered");
         }
 
         [TestMethod]
         public async Task HandleCommand_Allowed_ExecutesCommandWithoutReply()
         {
             var pipeline = new TestPipeline("!greet");
-            var command = new Mock<ICommand>();
-            command.SetupGet(c => c.Name).Returns("greet");
+            var command = DiscordTestDoubles.CreateMockCommand("greet");
             pipeline.CommandService.RegisterCommand("greet", command.Object);
             pipeline.AllowPermissions();
 
