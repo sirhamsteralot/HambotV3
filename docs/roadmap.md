@@ -213,7 +213,7 @@ The first two phases address the limitations recorded in [`software-design.md`](
 
 ### T13. Command cooldowns / rate limiting
 
-**Work**: Per-user/per-command cooldown to prevent spam (e.g. a simple in-memory cache in the command pipeline).
+**Work**: Per-user/per-command cooldown to prevent spam (e.g. a simple in-memory cache in the command pipeline). The cooldown window is resolved per permission tier: global per-tier defaults in `appsettings.json`, plus per-guild overrides configurable at runtime via `!settings cooldown` (persisted in T14's `GuildSetting` entity; staged — see the design in `software-design.md` §9.2).
 
 **Acceptance criteria**: repeated `!hello` spam is throttled with a user-friendly response; behavior is unit-tested.
 

@@ -83,7 +83,7 @@ HambotV2 ("HamBot") is a Discord chat bot. It listens to messages in the guilds 
 - **NFR-9 Extensibility**: New commands shall be addable by implementing `ICommand` and registering it in the appropriate `Register*Commands` class, without modifying the command pipeline.
 - **NFR-10 Resource isolation**: Command handling shall use per-message, transient services (handler, permission service, database context), disposed after each message.
 - **NFR-11 Audit logging (roadmap T12)**: Command executions (user, command, outcome) shall be traceable from logs without debugging.
-- **NFR-12 Rate limiting (roadmap T13)**: Command spam shall be throttled per user/command with a user-friendly response.
+- **NFR-12 Rate limiting (roadmap T13)**: Command spam shall be throttled per user/command with a user-friendly response. The cooldown window shall be configurable per permission tier, with global per-tier defaults in `appsettings.json` and per-guild overrides adjustable at runtime via a chat command (design in [`software-design.md`](software-design.md) §9.2).
 - **NFR-13 Argument parsing (roadmap T15)**: Commands shall receive typed, validated arguments through a shared parsing mechanism instead of hand-rolled `Split`/`TryParse` code.
 
 ## 4. Constraints
