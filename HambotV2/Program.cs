@@ -2,6 +2,7 @@ using HambotV2.Commands;
 using HambotV2.Connections;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Serilog;
 
 namespace HambotV2
 {
@@ -16,6 +17,14 @@ namespace HambotV2
             // precedence, so a container never depends on the (excluded) secrets file.
             builder.Configuration.AddJsonFile("appsecrets.json", optional: true);
             builder.Configuration.AddEnvironmentVariables();
+            // Serilog replaces the default providers as the logging backend (roadmap T12). All bot
+            // code keeps using ILogger<T>; the sinks and levels come from the "Serilog" section of
+            // appsettings.json / environment variables, so the log level is adjustable without a
+            // rebuild. Everything logged before the host starts (validation, migrations) uses the
+            // same configuration because the provider is registered before the host is built.
+            builder.Logging.ClearProviders();
+            builder.Services.AddSerilog((services, loggerConfiguration) => loggerConfiguration
+                .ReadFrom.Configuration(builder.Configuration));
             builder.Services.AddDbContext<DatabaseContext>(options => options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")), ServiceLifetime.Transient, ServiceLifetime.Transient);
             // The command pipeline depends on the IDatabaseContext abstraction (roadmap T6); this maps
             // it onto the same transient DatabaseContext registration.

@@ -105,6 +105,107 @@ namespace BotTests
                 Times.Once);
         }
 
+        /// <summary>
+        /// Verifies the structured command audit event (roadmap T12): exactly one Information-level
+        /// log whose rendered state matches the predicate — the single audit line per handled message.
+        /// </summary>
+        private static void VerifyAuditEvent(Mock<ILogger<CommandHandler>> logger, Func<string, bool> statePredicate, Func<Times> times)
+        {
+            logger.Verify(l => l.Log(
+                LogLevel.Information,
+                It.IsAny<EventId>(),
+                It.Is<It.IsAnyType>((state, _) => state != null && statePredicate(state.ToString()!)),
+                It.IsAny<Exception?>(),
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+                times);
+        }
+
+        [TestMethod]
+        public async Task HandleCommand_Allowed_LogsExecutedAuditEvent()
+        {
+            var pipeline = new TestPipeline("!greet");
+            var command = DiscordTestDoubles.CreateMockCommand("greet");
+            pipeline.CommandService.RegisterCommand("greet", command.Object);
+            pipeline.AllowPermissions();
+
+            await pipeline.CreateHandler().HandleCommand(pipeline.Message.Object);
+
+            VerifyAuditEvent(pipeline.Logger,
+                state => state.Contains("Command greet handled with outcome Executed", StringComparison.Ordinal),
+                Times.Once);
+        }
+
+        [TestMethod]
+        public async Task HandleCommand_AuditEvent_DoesNotContainMessageContent()
+        {
+            var pipeline = new TestPipeline("!greet secret user text");
+            var command = DiscordTestDoubles.CreateMockCommand("greet");
+            pipeline.CommandService.RegisterCommand("greet", command.Object);
+            pipeline.AllowPermissions();
+
+            await pipeline.CreateHandler().HandleCommand(pipeline.Message.Object);
+
+            VerifyAuditEvent(pipeline.Logger,
+                state => !state.Contains("secret", StringComparison.Ordinal),
+                Times.Once);
+        }
+
+        [TestMethod]
+        public async Task HandleCommand_PermissionDenied_LogsDeniedPermissionAuditEvent()
+        {
+            var pipeline = new TestPipeline("!greet");
+            var command = DiscordTestDoubles.CreateMockCommand("greet");
+            pipeline.CommandService.RegisterCommand("greet", command.Object);
+            pipeline.Permissions
+                .Setup(p => p.CheckUserPermissions(It.IsAny<ulong>(), It.IsAny<TierOverrides>(), command.Object, It.IsAny<IDatabaseContext>()))
+                .ReturnsAsync(false);
+
+            await pipeline.CreateHandler().HandleCommand(pipeline.Message.Object);
+
+            VerifyAuditEvent(pipeline.Logger,
+                state => state.Contains("outcome DeniedPermission", StringComparison.Ordinal),
+                Times.Once);
+        }
+
+        [TestMethod]
+        public async Task HandleCommand_UnknownCommand_LogsUnknownCommandAuditEvent()
+        {
+            var pipeline = new TestPipeline("!gibberish");
+
+            await pipeline.CreateHandler().HandleCommand(pipeline.Message.Object);
+
+            VerifyAuditEvent(pipeline.Logger,
+                state => state.Contains("outcome UnknownCommand", StringComparison.Ordinal),
+                Times.Once);
+        }
+
+        [TestMethod]
+        public async Task HandleCommand_BareIdentifier_LogsIgnoredAuditEvent()
+        {
+            var pipeline = new TestPipeline("!");
+
+            await pipeline.CreateHandler().HandleCommand(pipeline.Message.Object);
+
+            VerifyAuditEvent(pipeline.Logger,
+                state => state.Contains("outcome Ignored", StringComparison.Ordinal),
+                Times.Once);
+        }
+
+        [TestMethod]
+        public async Task HandleCommand_CommandThrows_LogsFailedAuditEvent()
+        {
+            var pipeline = new TestPipeline("!boom");
+            pipeline.CommandService.RegisterCommand("boom", new ThrowingCommand());
+            pipeline.AllowPermissions();
+
+            await pipeline.CreateHandler().HandleCommand(pipeline.Message.Object);
+
+            VerifyAuditEvent(pipeline.Logger,
+                state => state.Contains("outcome Failed", StringComparison.Ordinal),
+                Times.Once);
+            VerifyErrorLoggedOnce(pipeline.Logger);
+        }
+
         [TestMethod]
         public async Task HandleCommand_CommandThrows_RepliesWithGenericErrorWithoutExceptionDetails()
         {

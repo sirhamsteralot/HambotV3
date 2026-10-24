@@ -2,6 +2,7 @@ using Discord;
 using HambotV2.Connections;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -28,6 +29,8 @@ namespace HambotV2.Commands
         public async Task HandleCommand(IMessage socketMessageCommand)
         {
             ICommand? command = null;
+            var outcome = CommandOutcome.Ignored;
+            var stopwatch = Stopwatch.StartNew();
             try
             {
                 if (!_commandService.TryGetCommand(socketMessageCommand.Content, out command)) {
@@ -36,8 +39,8 @@ namespace HambotV2.Commands
                     if (_commandService.IsIdentifierOnlyMessage(socketMessageCommand.Content))
                         return;
 
-                    _logger.LogInformation("Unavailable command executed! from message: {content}", socketMessageCommand.Content);
                     await socketMessageCommand.Channel.SendMessageAsync("The requested command is unavailable");
+                    outcome = CommandOutcome.UnknownCommand;
                     return;
                 }
 
@@ -52,18 +55,20 @@ namespace HambotV2.Commands
 
                 if (!await _permissionsService.CheckUserPermissions(socketMessageCommand.Author.Id, overrides, command, _databaseContext))
                 {
-                    _logger.LogInformation("No sufficient permissions to execute command! from message: {content}", socketMessageCommand.Content);
                     await socketMessageCommand.Channel.SendMessageAsync("You are not permitted to use that command");
+                    outcome = CommandOutcome.DeniedPermission;
                     return;
                 }
 
                 await command.ExecuteCommand(socketMessageCommand, new CommandContext(_databaseContext, overrides));
+                outcome = CommandOutcome.Executed;
             }
             catch (Exception ex)
             {
                 // A single failing message (throwing command, database outage, ...) must never take the
                 // bot down: every failure is handled independently and the pipeline stays usable for
                 // subsequent messages. Exception details are logged but never sent to Discord.
+                outcome = CommandOutcome.Failed;
                 _logger.LogError(ex, "Command '{commandName}' failed while processing message: {content}", command?.Name ?? "unknown", socketMessageCommand.Content);
 
                 try
@@ -74,6 +79,16 @@ namespace HambotV2.Commands
                 {
                     _logger.LogError(replyEx, "Failed to send error reply for message: {content}", socketMessageCommand.Content);
                 }
+            }
+            finally
+            {
+                // One structured audit event per handled message (roadmap T12, NFR-11): command usage
+                // is traceable from logs without debugging. Named placeholders keep the fields
+                // filterable; message content is deliberately absent (only the failure path logs it).
+                var guildId = socketMessageCommand.Channel is IGuildChannel handledGuildChannel ? (ulong?)handledGuildChannel.GuildId : null;
+                _logger.LogInformation(
+                    "Command {CommandName} handled with outcome {Outcome} for user {UserId} in guild {GuildId}, channel {ChannelId} within {DurationMs} ms",
+                    command?.Name, outcome, socketMessageCommand.Author.Id, guildId, socketMessageCommand.Channel.Id, stopwatch.Elapsed.TotalMilliseconds);
             }
         }
 

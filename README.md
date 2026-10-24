@@ -29,6 +29,7 @@ Non-secret settings live in `appsettings.json` (committed):
 | `BotConfiguration:BotName` | `HamBot` | Bot display name. |
 | `BotConfiguration:LogFormat` | `{0}: {1}` | Format string used to bridge Discord.Net log events. |
 | `BotConfiguration:CommandIdentifier` | `!` | Prefix that marks a message as a command. |
+| `Serilog` section | Console + daily `logs/` file sink | Logging configuration: minimum level (with per-namespace overrides) and sinks. Change the log level without rebuilding; log files are written to `logs/` (gitignored). |
 
 Secrets are provided differently depending on how you run the bot:
 

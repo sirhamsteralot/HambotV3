@@ -1,6 +1,6 @@
 # Software Design
 
-This document describes the current design of HambotV2 as implemented today. It is a snapshot of the existing system, intended as an overview for contributors and as a baseline for future changes. Section 9 is the exception: it records the agreed designs for the not-yet-implemented Phase 3 roadmap tasks (T12–T14).
+This document describes the current design of HambotV2 as implemented today. It is a snapshot of the existing system, intended as an overview for contributors and as a baseline for future changes. Section 9 is the exception: it records the agreed designs for the not-yet-implemented Phase 3 roadmap tasks (T13, T14).
 
 ## 1. System Overview
 
@@ -18,6 +18,7 @@ Key external dependencies:
 - `Discord.Net` 3.20.2 — gateway connection, message events
 - `Microsoft.EntityFrameworkCore` 10 / `Npgsql.EntityFrameworkCore.PostgreSQL` — persistence
 - `Microsoft.Extensions.Hosting` — DI, logging, configuration, hosted services
+- `Serilog` (+ `Serilog.Extensions.Hosting`, `Serilog.Settings.Configuration`, console/file sinks) — logging backend (roadmap T12)
 - `MSTest` + `Moq` (test project only)
 
 ## 2. Runtime Architecture
@@ -52,6 +53,7 @@ Key external dependencies:
 ### 2.1 Composition root — `HambotV2/Program.cs`
 
 - Registers `appsecrets.json` as an additional configuration source.
+- Replaces the default logging providers with Serilog (`builder.Logging.ClearProviders()` + `AddSerilog`), configured via `ReadFrom.Configuration` from the `Serilog` configuration section, so sinks and levels come from `appsettings.json` / environment variables (see §4).
 - DI registrations:
 
 | Service | Interface | Lifetime |
@@ -96,6 +98,8 @@ Help text lives on the command implementation itself, so it cannot drift from th
 3. Execute the command with a `CommandContext` wrapping the per-message `IDatabaseContext` and the permission context.
 
 The whole pipeline is wrapped in a try/catch: on any failure (throwing command, database outage during the permission check, ...) the exception is logged with the command name and message content, and the user gets a generic in-channel error message ("An unexpected error occurred...") that never contains exception details. Each failing message is handled independently — a single failure never takes the bot down, and subsequent messages keep being processed. On disposal the handler also disposes its per-message `DatabaseContext`, so connections are released after every message regardless of success or failure.
+
+**Command audit event** (roadmap T12, NFR-11) — `HandleCommand` emits exactly one structured Information-level event per handled message, in a `finally` block so every exit path is covered (including throws). The event carries named fields for filterability: `CommandName` (resolved name, null when unknown/identifier-only), `Outcome` (the `CommandOutcome` enum in `Commands/CommandOutcome.cs`: `Executed`, `DeniedPermission`, `UnknownCommand`, `Ignored` for bare-identifier messages, `Failed`; `Throttled` and `DmRejected` are reserved for roadmap T13/T14), `GuildId` (null in DMs), `ChannelId`, `UserId`, and `DurationMs` (handler wall time). Message content never appears in the audit event — only the Error-level failure log contains it — keeping routine usage logs free of user text. This single event replaces the former per-branch log lines, making command usage traceable from logs without debugging.
 
 **`CommandService`** (`ICommandService`) — singleton command registry:
 
@@ -167,7 +171,8 @@ All in `Commands/SystemCommands/`, registered by `RegisterSystemCommands`:
 
 ## 4. Configuration
 
-- `appsettings.json` (committed, non-secret): `BotConfiguration:BotName`, `BotConfiguration:LogFormat`, `BotConfiguration:CommandIdentifier` (default `!`), plus standard host logging configuration.
+- `appsettings.json` (committed, non-secret): `BotConfiguration:BotName`, `BotConfiguration:LogFormat`, `BotConfiguration:CommandIdentifier` (default `!`), plus the `Serilog` section.
+- **Logging (roadmap T12)**: Serilog replaces the host's default logging providers (registered in `Program.cs` via `ClearProviders()` + `AddSerilog`, configured with `ReadFrom.Configuration`). The `Serilog` section defines the minimum level (with per-namespace overrides, e.g. `Microsoft`/`System` at Warning) and the sinks: Console and a daily-rolling File sink to `logs/hambot-.log` with 31 days retention (the `logs/` output is gitignored; in containers it lives in the container filesystem — mount a volume if retention matters). The level is adjustable at deploy time via `appsettings.json` or environment variables without a rebuild; `appsettings.Development.json` raises the default to Debug for local development. `BotConfiguration:LogFormat` is unrelated to the sinks: it remains the format string for bridging Discord.Net's `Discord.Log` events (§3.1). All bot code keeps using `ILogger<T>`; Serilog is an implementation detail of the composition root.
 - `HambotV2/appsecrets.json` (gitignored, optional): `Secrets:BotToken` (Discord bot token) and `ConnectionStrings:DefaultConnection` (PostgreSQL connection string). Loaded explicitly in `Program.cs` for local development. Its expected structure is documented in `README.md`. Secrets must never be committed.
 - Environment variables (e.g. `Secrets__BotToken`, `ConnectionStrings__DefaultConnection`) are the primary source in containers; `Program.cs` re-adds the environment provider after the secrets file so env vars take precedence. `appsecrets.json` is excluded from the Docker build context (`.dockerignore`), so the published image is secret-free.
 - Optional key: `Permissions:BotOwnerDiscordId` (`BOT_OWNER_DISCORD_ID` in `.env`, wired through docker-compose) — the bot owner, holding the globally highest tier (4). Unset by default; guild owners always act at owner tier without any configuration.
@@ -198,7 +203,7 @@ docker run -d --name hambot-smoke -e Secrets__BotToken=... -e "ConnectionStrings
 
 - `BotTests/` contains MSTest + Moq tests: `TestCommandInfrastructure.cs`, `TestCommands.cs`, `TestPermissions.cs`, `TestCommandHandler.cs`, `TestConfigurationValidator.cs`, `TestPermissionCommands.cs`, `TestHelp.cs`, plus the shared `DiscordTestDoubles.cs`.
 - Tests run without a reachable database or Discord token: Moq doubles the Discord message surface, and command/permission tests run against the EF Core **InMemory** provider through the `IDatabaseContext` abstraction (isolated database per test).
-- Coverage focuses on: command registration contract (lowercase names, help text, valid default tiers), robust command parsing (bare identifier, whitespace variations, custom identifiers), command lookup, the permission tier scale with tier overrides and escalation guards, permission-management command behavior (mentions, tier validation, upserts, guard rejections), `!help` listing/detail/non-revealing denials, the `CommandHandler` failure paths (throwing command, throwing permission check, denied permissions, unknown command, bare-identifier ignore, `DatabaseContext` disposal), and startup configuration validation.
+- Coverage focuses on: command registration contract (lowercase names, help text, valid default tiers), robust command parsing (bare identifier, whitespace variations, custom identifiers), command lookup, the permission tier scale with tier overrides and escalation guards, permission-management command behavior (mentions, tier validation, upserts, guard rejections), `!help` listing/detail/non-revealing denials, the `CommandHandler` failure paths (throwing command, throwing permission check, denied permissions, unknown command, bare-identifier ignore, `DatabaseContext` disposal), the structured command audit event (exactly one Information event per message with the expected `CommandOutcome`, no message content in the audit line), and startup configuration validation.
 - Build and run:
 
   ```bash
@@ -206,7 +211,7 @@ docker run -d --name hambot-smoke -e Secrets__BotToken=... -e "ConnectionStrings
   dotnet test HambotV2.sln
   ```
 
-- The build currently emits several pre-existing nullable warnings (CS8618, CS8625, CS8600, CS8604); these are not treated as failures, but new code should not add new ones (see roadmap T11 for the cleanup).
+- The build is warning-free (roadmap T11) and CI treats warnings as errors; new code must not add any.
 
 ## 7. Conventions
 
@@ -219,53 +224,15 @@ docker run -d --name hambot-smoke -e Secrets__BotToken=... -e "ConnectionStrings
 
 These are observations of the current implementation, not roadmap commitments:
 
-- **State is global**: permission tiers and settings are shared across all guilds; per-guild scoping is roadmap task T14 (agreed design in §9.3).
+- **State is global**: permission tiers and settings are shared across all guilds; per-guild scoping is roadmap task T14 (agreed design in §9.2).
 - **Hand-parsed command arguments**: each command splits and parses `socketMessage.Content` itself; a shared argument-parsing framework is roadmap task T15.
 - **CI**: a declarative `Jenkinsfile` at the repository root builds the solution and runs the tests (with nullable warnings treated as errors); the Jenkins job must be configured as "Pipeline script from SCM" pointing at it.
 
-## 9. Planned Designs — Phase 3 (T12, T13, T14)
+## 9. Planned Designs — Phase 3 (T13, T14)
 
-This section records the **agreed designs for the not-yet-implemented Phase 3 roadmap tasks** (T12 structured logging, T13 command cooldowns, T14 per-guild scoping). Roadmap T14 explicitly requires the design to be documented before implementation starts; the same convention is applied to T12 and T13 here. When a task is implemented, fold its subsection into the component/ configuration sections above (§2–§7) and remove it from here. The designs do not depend on T15 (argument-parsing framework); they only assume it may already be in place. T13's *per-guild runtime* configuration does depend on T14's `GuildSetting` storage and is staged accordingly (§9.2).
+This section records the **agreed designs for the not-yet-implemented Phase 3 roadmap tasks** (T13 command cooldowns, T14 per-guild scoping). Roadmap T14 explicitly requires the design to be documented before implementation starts; the same convention is applied to T13 here. When a task is implemented, fold its subsection into the component/ configuration sections above (§2–§7) and remove it from here. The designs do not depend on T15 (argument-parsing framework); they only assume it may already be in place. T13's *per-guild runtime* configuration depends on T14's `GuildSetting` storage and is staged accordingly (§9.1). T12 (structured logging) has been implemented and folded into §3.2/§4.
 
-### 9.1 T12 — Structured logging (FR/NFR-11)
-
-**Goal**: command usage is traceable from logs without debugging (roadmap T12, NFR-11).
-
-**Decision — Serilog as the logging backend, `ILogger` as the API.** All bot code keeps using `ILogger<T>` via Microsoft.Extensions.Logging; Serilog is plugged in only at the composition root. This keeps components (and their unit tests) decoupled from the logging backend.
-
-- **Packages** (main project): `Serilog.Extensions.Hosting`, `Serilog.Settings.Configuration`, `Serilog.Sinks.Console`, `Serilog.Sinks.File`.
-- **Composition root**: `Program.Main` clears the default providers and registers Serilog via `builder.Services.AddSerilog(...)`, configured with `ReadFrom.Configuration(builder.Configuration)` so the sinks and levels come from `appsettings.json` / environment variables — no rebuild needed to change the log level:
-
-  ```json
-  "Serilog": {
-    "MinimumLevel": {
-      "Default": "Information",
-      "Override": { "Microsoft": "Warning", "System": "Warning" }
-    },
-    "WriteTo": [
-      { "Name": "Console" },
-      { "Name": "File", "Args": { "path": "logs/hambot-.log", "rollingInterval": "Day", "retainedFileCountLimit": 31 } }
-    ]
-  }
-  ```
-
-  The `Logging:LogLevel` section and the host's default providers are removed in favor of this single source. In containers the file sink writes inside the container filesystem (ephemeral, acceptable for audit logs; mount a volume if retention matters).
-
-- **Command audit event.** `CommandHandler` emits exactly one structured Information-level event per handled command message, with named fields (not string interpolation) so it is filterable in the file/console output:
-
-  | Field | Content |
-  |---|---|
-  | `CommandName` | resolved command name, or `null` when unknown/identifier-only |
-  | `Outcome` | `Executed`, `DeniedPermission`, `UnknownCommand`, `Throttled` (T13), `DmRejected` (T14), or `Failed` |
-  | `GuildId`, `ChannelId`, `UserId` | ids from the message (`GuildId` null in DMs) |
-  | `DurationMs` | handler wall time |
-
-  The existing per-branch log lines in `CommandHandler` ("Unavailable command executed!", "No sufficient permissions...") are folded into this single event. The failure path keeps its Error-level exception log (including message content, as today); the Information audit event never contains message content, keeping routine usage logs free of user text.
-
-- `BotConfiguration:LogFormat` is unaffected: it remains the format string for bridging Discord.Net's `Discord.Log` events (§3.1), not the sink format. Startup validation (FR-32) of the key stays as is.
-- **Acceptance check**: every `!hello` invocation produces one `CommandName=hello, Outcome=Executed` line in console and `logs/` output.
-
-### 9.2 T13 — Command cooldowns / rate limiting (NFR-12)
+### 9.1 T13 — Command cooldowns / rate limiting (NFR-12)
 
 **Decision — per-(guild, user, command) in-memory cooldown; the cooldown window is configured per permission tier, per guild, at runtime.**
 
@@ -273,24 +240,24 @@ This section records the **agreed designs for the not-yet-implemented Phase 3 ro
 - **Time source**: an injected `TimeProvider` (.NET built-in abstraction) instead of `DateTimeOffset.UtcNow`, so unit tests advance time deterministically (`Microsoft.Extensions.TimeProvider.Testing`'s `FakeTimeProvider` in the test project).
 - **Window resolution (per tier, per guild)** — the window applied to an invocation is resolved from the invoking user's **effective tier** in that guild (§3.3), looked up in this order:
 
-  1. The guild's per-tier override stored in its `GuildSetting` row (§9.3), if present for that tier.
+  1. The guild's per-tier override stored in its `GuildSetting` row (§9.2), if present for that tier.
   2. Otherwise the global per-tier default from `BotConfiguration:CooldownSecondsByTier` in `appsettings.json` (container override via `BotConfiguration__CooldownSecondsByTier__0` etc.).
 
   A value of `0` (or negative) disables the cooldown for that tier in that scope. **Tier 4 (bot owner) is excluded from per-guild configuration** — it is a global, configuration-only role (FR-41), so a single guild's settings must not bind it; tier 4 always uses the global default. Configurable tiers are therefore 0–3, validated against the `PermissionTier` scale (FR-37 style).
 
 - **Pipeline placement**: in `CommandHandler`, **after** the permission check and **before** `ExecuteCommand`. The permission check already computes the user's effective tier (§3.3), so the cooldown check consumes that result with no extra database lookup. Trade-off accepted: denied invocations are not throttled (they are answered by the same cheap denial path as before) — but the window cannot be bypassed via permission lookups either, because the tier used for resolution is the guarded one. The throttle key is per command, so a user hitting `!hello` is not blocked from `!help`.
-- **Behavior on throttle**: reply in-channel with a user-friendly message naming the remaining wait, e.g. *"You're using commands too quickly — please wait 2 more seconds."* The invocation is logged with `Outcome=Throttled` (§9.1) and the command does not execute.
+- **Behavior on throttle**: reply in-channel with a user-friendly message naming the remaining wait, e.g. *"You're using commands too quickly — please wait 2 more seconds."* The invocation is logged with `Outcome=Throttled` (§3.2) and the command does not execute.
 - **Runtime configuration** — managed per guild, no restart or code change:
   - **Global defaults** live in `appsettings.json` as a map, e.g. `"CooldownSecondsByTier": { "0": 3, "1": 3, "2": 2, "3": 1 }` (default 3 seconds for every tier when the map or a tier entry is absent).
-  - **Per-guild overrides** are persisted in the `GuildSetting` entity (§9.3) as one nullable int column per configurable tier (`CooldownSecondsTier0`–`CooldownSecondsTier3`; `null` = inherit the global default for that tier).
-  - **Management command**: `!settings cooldown <tier> <seconds>` sets and `!settings cooldown <tier> reset` clears the invoking guild's override (part of the `!settings` command defined in §9.3; tier input validated against the scale, seconds ≥ 0). The **escalation guard applies, mirroring FR-36**: an invoker may only configure cooldowns for tiers strictly below their own effective tier — nobody can loosen the throttle that governs their own level — while the bot owner (tier 4) may configure any tier's cooldown in any guild.
+  - **Per-guild overrides** are persisted in the `GuildSetting` entity (§9.2) as one nullable int column per configurable tier (`CooldownSecondsTier0`–`CooldownSecondsTier3`; `null` = inherit the global default for that tier).
+  - **Management command**: `!settings cooldown <tier> <seconds>` sets and `!settings cooldown <tier> reset` clears the invoking guild's override (part of the `!settings` command defined in §9.2; tier input validated against the scale, seconds ≥ 0). The **escalation guard applies, mirroring FR-36**: an invoker may only configure cooldowns for tiers strictly below their own effective tier — nobody can loosen the throttle that governs their own level — while the bot owner (tier 4) may configure any tier's cooldown in any guild.
 - **Staging (roadmap order)**: T13 ships before T14, so the rollout is two steps:
   1. **With T13**: the in-memory throttle plus the window resolution above, with the global `CooldownSecondsByTier` defaults only (config-file sourced).
   2. **With T14**: the per-guild runtime override — the `GuildSetting` columns and the `!settings cooldown` subcommand — plugged into the same resolution chain as its highest-priority source. The tier-resolution logic from step 1 is reused unchanged.
 - **Memory bound**: expired entries are removed opportunistically when their key is next checked, so the dictionary stays bounded by the number of distinct (guild, user, command) triples recently seen.
 - **Tests**: second invocation inside the window is throttled and answered with the remaining-wait message; invocation after `FakeTimeProvider.Advance(window)` succeeds; windows are independent per user, per command, and per guild; different tiers get their configured windows (global map, and — once T14 lands — guild override beats global default, `reset` falls back); `0` disables throttling for that tier; the escalation guard rejects configuring one's own or higher tiers; tier 4 is never bound by a guild override.
 
-### 9.3 T14 — Per-guild configuration and permission scoping (FR-24, FR-25, FR-26)
+### 9.2 T14 — Per-guild configuration and permission scoping (FR-24, FR-25, FR-26)
 
 **Goal**: all persisted state scoped per guild; guild-scoped settings with global defaults; a defined DM fallback. This is the largest Phase 3 change — schema migration plus pipeline changes — and builds on the T16 tier model (§3.3).
 
@@ -302,7 +269,7 @@ This section records the **agreed designs for the not-yet-implemented Phase 3 ro
 |---|---|---|
 | `User` | `DiscordId` | `(GuildId ulong, DiscordId ulong)` |
 | `CommandMetaData` | `CommandName` | `(GuildId ulong, CommandName string)` |
-| `GuildSetting` (new) | — | `GuildId ulong`, with `CommandIdentifier` (string, null until overridden) and the per-tier cooldown overrides `CooldownSecondsTier0`–`CooldownSecondsTier3` (nullable int, null = inherit the global default; see §9.2) |
+| `GuildSetting` (new) | — | `GuildId ulong`, with `CommandIdentifier` (string, null until overridden) and the per-tier cooldown overrides `CooldownSecondsTier0`–`CooldownSecondsTier3` (nullable int, null = inherit the global default; see §9.1) |
 
 `IDatabaseContext` exposes the new `GuildSettings` DbSet alongside the existing two. One new migration (`dotnet ef migrations add PerGuildScoping` from the `HambotV2/` project) adds the columns, switches the primary keys to composites, and creates the `GuildSetting` table. Pre-existing rows cannot be attributed to a guild, so the migration keeps them under the sentinel `GuildId = 0`, where they match no real guild; they are inert and can be cleaned up manually. Fresh guilds need no data anyway: the guild owner already bootstraps at owner tier (FR-34).
 
@@ -315,18 +282,18 @@ This section records the **agreed designs for the not-yet-implemented Phase 3 ro
 
 #### DM fallback (FR-25) — settled: reject
 
-Command invocations received in direct messages are **not executed**: the bot replies with a clear in-channel message ("Commands are only available in servers — run them in a guild I am a member of.") and logs the invocation with `Outcome=DmRejected` (§9.1). The `DirectMessages` gateway intent stays enabled precisely so this rejection can be delivered. Consequences: there is no global/default permission scope to reason about, permission management cannot leak across guilds via DMs, and `GuildId` is never null in a permission lookup.
+Command invocations received in direct messages are **not executed**: the bot replies with a clear in-channel message ("Commands are only available in servers — run them in a guild I am a member of.") and logs the invocation with `Outcome=DmRejected` (§3.2). The `DirectMessages` gateway intent stays enabled precisely so this rejection can be delivered. Consequences: there is no global/default permission scope to reason about, permission management cannot leak across guilds via DMs, and `GuildId` is never null in a permission lookup.
 
 #### Guild-scoped settings (FR-26)
 
 - New `IGuildSettingsService` (singleton, `Commands/GuildSettingsService.cs`): `GetCommandIdentifier(guildId)` returns the guild's `GuildSetting` override if present, otherwise the global default from `BotConfiguration:CommandIdentifier`. Results are cached per guild and invalidated when a setting is written, so the per-message path stays a memory lookup.
 - **Detection flow change**: today `DiscordClient` pre-filters on the global identifier straight from configuration (§3.1). With per-guild identifiers the pre-filter instead asks `IGuildSettingsService` for the *effective identifier of the message's guild* (DMs use the global default) and forwards matching messages; `CommandService.TryGetCommand` / `CommandParsing` receive that same identifier as a parameter instead of reading configuration. One source of truth for the effective identifier, same parsing rules as §3.2.
-- **Management command**: a `!settings` command (system command, default tier **admin**, mirroring FR-35's rationale) manages the invoking guild's overrides: `!settings` lists current values and the global defaults; `!settings commandidentifier <value>` sets the guild's identifier override (validated non-empty, ≤ a few characters); `!settings commandidentifier reset` clears it; `!settings cooldown <tier> <seconds|reset>` manages the per-tier cooldown overrides exactly as designed in §9.2 (escalation guard: tiers strictly below the invoker's own only). The bot owner (tier 4) can manage any guild's settings by running the command there. Help text follows the FR-39/registration contract like any other command.
+- **Management command**: a `!settings` command (system command, default tier **admin**, mirroring FR-35's rationale) manages the invoking guild's overrides: `!settings` lists current values and the global defaults; `!settings commandidentifier <value>` sets the guild's identifier override (validated non-empty, ≤ a few characters); `!settings commandidentifier reset` clears it; `!settings cooldown <tier> <seconds|reset>` manages the per-tier cooldown overrides exactly as designed in §9.1 (escalation guard: tiers strictly below the invoker's own only). The bot owner (tier 4) can manage any guild's settings by running the command there. Help text follows the FR-39/registration contract like any other command.
 
 #### Tests
 
 - A user's tier and a command's required tier in one guild have no effect in another guild (same user/command, two guild ids, different rows).
 - Guild identifier override changes detection/parsing; unset guilds fall back to the global default.
 - DM invocations are rejected with the defined message.
-- `!settings` set/reset/permission behavior for both managed settings (identifier, per-tier cooldowns — including the §9.2 escalation guard and tier-4 exclusion).
+- `!settings` set/reset/permission behavior for both managed settings (identifier, per-tier cooldowns — including the §9.1 escalation guard and tier-4 exclusion).
 - Migration: existing command/permission tests keep running against the EF InMemory provider via `IDatabaseContext`; the startup auto-migration path (§3.4) is unchanged.

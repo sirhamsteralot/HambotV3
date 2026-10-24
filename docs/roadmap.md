@@ -193,7 +193,7 @@ The first two phases address the limitations recorded in [`software-design.md`](
 
 ## Phase 3 — Bot features & quality of life (after the base is solid)
 
-### T12. Structured logging improvements
+### T12. [x] Structured logging improvements
 
 **Work**:
 - Log command executions (user, command, result) at Information level for auditability.
@@ -236,10 +236,10 @@ The first two phases address the limitations recorded in [`software-design.md`](
 
 ## Suggested pick-up order
 
-Completed so far: **T1**–**T4** (error handling, DB init, container secrets, config validation), **T5**–**T7**, **T16**, **T17** (parsing robustness, persistence abstraction, permission bootstrap/escalation guard, mention parsing, help command) — Phase 1 is done — and **T9** (README), **T11** (nullable-warning cleanup), **T8** (graceful shutdown/reconnect logging), **T10** (Jenkinsfile CI pipeline).
+Completed so far: **T1**–**T4** (error handling, DB init, container secrets, config validation), **T5**–**T7**, **T16**, **T17** (parsing robustness, persistence abstraction, permission bootstrap/escalation guard, mention parsing, help command) — Phase 1 is done — and **T9** (README), **T11** (nullable-warning cleanup), **T8** (graceful shutdown/reconnect logging), **T10** (Jenkinsfile CI pipeline), and **T12** (Serilog structured logging with command audit events).
 
 Remaining work, in dependency and risk order:
 
-1. Phase 3 features: **T12** (logging) and **T15** (argument parsing) first — T15 removes hand-parsing before more commands are written — then **T13** (cooldowns), and **T14** (per-guild scoping) last as the largest change, building on T16's tier model.
+1. Phase 3 features: **T15** (argument parsing) first — it removes hand-parsing before more commands are written — then **T13** (cooldowns), and **T14** (per-guild scoping) last as the largest change, building on T16's tier model.
 
 When a task is completed, tick it off here (e.g. `- [x]`) and update `software-design.md` / `software-requirements.md` so the docs keep describing the system as it actually is.

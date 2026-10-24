@@ -35,5 +35,6 @@ HambotV2/appsecrets.json
 
 # Not needed to build or run the bot image
 **/TestResults
+**/logs
 BotTests
 docs
