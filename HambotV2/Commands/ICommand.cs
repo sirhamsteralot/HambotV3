@@ -1,4 +1,4 @@
-﻿using Discord.WebSocket;
+using Discord;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -10,6 +10,6 @@ namespace HambotV2.Commands
     internal interface ICommand
     {
         string Name { get; }
-        public Task ExecuteCommand(SocketMessage socketMessage, ICommandContext context);
+        public Task ExecuteCommand(IMessage socketMessage, ICommandContext context);
     }
 }

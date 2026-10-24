@@ -1,4 +1,4 @@
-﻿using Discord.WebSocket;
+﻿using Discord;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -11,7 +11,7 @@ namespace HambotV2.Commands.SystemCommands
     {
         public string Name => "commandpermission";
 
-        public async Task ExecuteCommand(SocketMessage socketMessage, ICommandContext context)
+        public async Task ExecuteCommand(IMessage socketMessage, ICommandContext context)
         {
             string[] arguments = socketMessage.Content.Split(' ');
 

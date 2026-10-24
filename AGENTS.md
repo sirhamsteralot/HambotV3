@@ -25,27 +25,35 @@ dotnet test HambotV2.sln
 
 - Building requires the .NET 10 SDK (`10.0.x`).
 
-- Tests run without a database or Discord token; they use Moq and in-memory configuration. All tests are in `BotTests/` (`TestCommandInfrastructure.cs`, `TestCommands.cs`, `TestPermissions.cs`).
+- Tests run without a database or Discord token; they use Moq and in-memory configuration. All tests are in `BotTests/` (`TestCommandInfrastructure.cs`, `TestCommands.cs`, `TestPermissions.cs`, `TestCommandHandler.cs`, `TestConfigurationValidator.cs`).
 - The build currently emits several pre-existing nullable warnings (CS8625, CS8604, CS8620, CS0162) — don't treat them as new failures, but avoid adding new ones.
 
 ## Docker
 
-The bot is containerized via `HambotV2/Dockerfile` (multi-stage .NET 10 build → `dotnet publish` → runtime-only final image). **The build context is the repository root**, not the project directory:
+The bot is containerized via `HambotV2/Dockerfile` (multi-stage .NET 10 build → `dotnet publish` → runtime-only final image). **The build context is the repository root**, not the project directory. The recommended way to run everything (bot + PostgreSQL) is `docker-compose.yml` at the repo root:
+
+```bash
+# configure secrets (see .env.example)
+cp .env.example .env   # fill in DISCORD_BOT_TOKEN and POSTGRES_PASSWORD
+
+# build & run bot + database
+docker compose up -d --build
+docker compose logs -f bot   # should log "Database migrations applied successfully", then "Initializing Discord connection..."
+```
+
+Plain Docker works too, with secrets passed as environment variables (`Secrets__BotToken`, `ConnectionStrings__DefaultConnection`):
 
 ```bash
 # build (from repo root)
 docker build -f HambotV2/Dockerfile -t hambotv2:latest .
 
-# smoke test: container should log "Initializing Discord connection..." and reach "Gateway: Ready"
-docker run -d --name hambot-smoke hambotv2:latest
+# smoke test
+docker run -d --name hambot-smoke -e Secrets__BotToken=... -e "ConnectionStrings__DefaultConnection=..." hambotv2:latest
 docker logs -f hambot-smoke
-
-# inspect the image contents if needed
-docker run --rm --entrypoint ls hambotv2:latest -la /app
 ```
 
-- Running the container performs a real Discord login using `appsecrets.json`; it does not touch the database until a command executes (Postgres at `host.docker.internal:5432` per the connection string).
-- Note: files under `HambotV2/` matching the SDK's publish rules (including the gitignored `appsecrets.json`) are currently copied into the image. Do not push this image to a shared registry without checking what secrets are baked in.
+- Startup applies EF Core migrations automatically and validates required configuration; missing keys or an unreachable database exit with a non-zero code and a critical log line.
+- The image is secret-free: `appsecrets.json` and `.env` are excluded from the build context via `.dockerignore` (local dev file loading remains a fallback for source runs).
 
 ## Architecture
 
@@ -86,4 +94,4 @@ EF Core migrations live in `HambotV2/Migrations/`. Regenerate with `dotnet ef mi
 - C# with nullable reference types and implicit usings enabled; `LangVersion` is `latest` in the test project.
 - Most bot-internal types are `internal` (tests rely on `InternalsVisibleTo`); keep new command implementations `internal` too.
 - DI lifetimes: `CommandService` is a singleton; `CommandHandler`, `PermissionsService`, and `DatabaseContext` are transient. The handler is resolved per message and disposed after use.
-- Container deployment via `HambotV2/Dockerfile` (targets the `HambotV2` project; connection string defaults assume `host.docker.internal:5432`).
+- Container deployment via `HambotV2/Dockerfile` (targets the `HambotV2` project) or `docker-compose.yml` (bot + PostgreSQL; connection string defaults to the compose `db` service, plain containers use `host.docker.internal:5432`).

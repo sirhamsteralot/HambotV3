@@ -79,7 +79,7 @@ A `BackgroundService` that:
 **`ICommand`** (`Commands/ICommand.cs`) — the command contract:
 
 - `string Name` — must be lowercase (lookup lowercases input; tests enforce this).
-- `Task ExecuteCommand(SocketMessage, ICommandContext)` — the command body.
+- `Task ExecuteCommand(IMessage, ICommandContext)` — the command body. The pipeline operates on the `IMessage` interface (which `SocketMessage` implements) so the handler is unit-testable with mocks.
 
 **`ICommandContext` / `CommandContext`** — a thin wrapper exposing the per-message `DatabaseContext` to command implementations, keeping commands decoupled from DI.
 
@@ -88,6 +88,8 @@ A `BackgroundService` that:
 1. Resolve the command via `ICommandService.TryGetCommand`; if unknown, reply "The requested command is unavailable".
 2. Check permissions via `IPermissionsService.CheckUserPermissions`; if insufficient, reply "You are not permitted to use that command".
 3. Execute the command with a `CommandContext` wrapping the per-message `DatabaseContext`.
+
+The whole pipeline is wrapped in a try/catch: on any failure (throwing command, database outage during the permission check, ...) the exception is logged with the command name and message content, and the user gets a generic in-channel error message ("An unexpected error occurred...") that never contains exception details. Each failing message is handled independently — a single failure never takes the bot down, and subsequent messages keep being processed. On disposal the handler also disposes its per-message `DatabaseContext`, so connections are released after every message regardless of success or failure.
 
 **`CommandService`** (`ICommandService`) — singleton command registry:
 
@@ -120,6 +122,8 @@ EF Core `DbContext` against PostgreSQL with two nested entity classes:
 
 EF Core migrations live in `HambotV2/Migrations/` (initial create only). Regenerate with `dotnet ef migrations add <Name>` from the `HambotV2/` project directory.
 
+Migrations are applied automatically on startup: `Program.Main` runs `Database.Migrate()` before the Discord gateway starts. If the database is unreachable, a critical error is logged (naming the connection configuration) and the host exits with a non-zero code instead of starting a half-functional bot. No manual migration step is required.
+
 There is also an `Connections/IDatabaseContext.cs` abstraction; the current `DatabaseContext` is registered and injected concretely.
 
 ### 3.5 Commands currently implemented
@@ -135,25 +139,36 @@ All in `Commands/SystemCommands/`, registered by `RegisterSystemCommands`:
 ## 4. Configuration
 
 - `appsettings.json` (committed, non-secret): `BotConfiguration:BotName`, `BotConfiguration:LogFormat`, `BotConfiguration:CommandIdentifier` (default `!`), plus standard host logging configuration.
-- `HambotV2/appsecrets.json` (gitignored): `Secrets:BotToken` (Discord bot token) and `ConnectionStrings:DefaultConnection` (PostgreSQL connection string). Loaded explicitly in `Program.cs`. Its expected structure is documented in `README.md`. Secrets must never be committed.
+- `HambotV2/appsecrets.json` (gitignored, optional): `Secrets:BotToken` (Discord bot token) and `ConnectionStrings:DefaultConnection` (PostgreSQL connection string). Loaded explicitly in `Program.cs` for local development. Its expected structure is documented in `README.md`. Secrets must never be committed.
+- Environment variables (e.g. `Secrets__BotToken`, `ConnectionStrings__DefaultConnection`) are the primary source in containers; `Program.cs` re-adds the environment provider after the secrets file so env vars take precedence. `appsecrets.json` is excluded from the Docker build context (`.dockerignore`), so the published image is secret-free.
+- Required keys (`Secrets:BotToken`, `ConnectionStrings:DefaultConnection`, `BotConfiguration:BotName`, `BotConfiguration:LogFormat`, `BotConfiguration:CommandIdentifier`) are validated at startup (`ConfigurationValidator`): any missing key is logged by name and the host exits with a non-zero code before any connection attempt.
 
 ## 5. Deployment
 
-The bot is containerized via `HambotV2/Dockerfile` (multi-stage .NET 10 build → `dotnet publish` → runtime-only final image). The build context is the repository root:
+The bot is containerized via `HambotV2/Dockerfile` (multi-stage .NET 10 build → `dotnet publish` → runtime-only final image). The build context is the repository root, and the image is secret-free: `appsecrets.json` is excluded via `.dockerignore`, secrets are supplied as environment variables (`Secrets__BotToken`, `ConnectionStrings__DefaultConnection`).
+
+The recommended deployment is `docker-compose.yml` at the repository root, which brings up PostgreSQL (`postgres:17` with a healthcheck and persistent `db-data` volume) and the bot (waiting for the database to become healthy). Compose variables come from a gitignored `.env` file (structure in `.env.example`):
+
+```bash
+cp .env.example .env   # fill in DISCORD_BOT_TOKEN and POSTGRES_PASSWORD
+docker compose up -d --build
+```
+
+Plain Docker is also possible:
 
 ```bash
 docker build -f HambotV2/Dockerfile -t hambotv2:latest .
-docker run -d --name hambot-smoke hambotv2:latest
+docker run -d --name hambot-smoke -e Secrets__BotToken=... -e "ConnectionStrings__DefaultConnection=..." hambotv2:latest
 ```
 
-- The container performs a real Discord login using `appsecrets.json`; the database is only touched when a command executes. The default connection string assumes Postgres at `host.docker.internal:5432`.
-- Caution: files under `HambotV2/` matching SDK publish rules (including the gitignored `appsecrets.json`) are copied into the image. Do not push the image to a shared registry without checking what secrets are baked in.
+- Startup order: configuration validation → database migration → Discord gateway login. A missing required key or an unreachable database fails fast with a critical log line and a non-zero exit code.
+- `docker-compose.yml` defaults the connection string to the compose `db` service (`host.docker.internal` is the equivalent for a plain container against Postgres on the Docker host).
 
 ## 6. Testing
 
-- `BotTests/` contains MSTest + Moq tests: `TestCommandInfrastructure.cs`, `TestCommands.cs`, `TestPermissions.cs`.
+- `BotTests/` contains MSTest + Moq tests: `TestCommandInfrastructure.cs`, `TestCommands.cs`, `TestPermissions.cs`, `TestCommandHandler.cs`, `TestConfigurationValidator.cs`.
 - Tests run without a database or Discord token (in-memory configuration, Moq for dependencies).
-- Coverage focuses on: command names being lowercase, system command registration, command lookup, and permission tier logic.
+- Coverage focuses on: command names being lowercase, system command registration, command lookup, permission tier logic, the `CommandHandler` failure paths (throwing command, throwing permission check, denied permissions, unknown command, `DatabaseContext` disposal), and startup configuration validation.
 - Build and run:
 
   ```bash
@@ -174,9 +189,6 @@ docker run -d --name hambot-smoke hambotv2:latest
 
 These are observations of the current implementation, not roadmap commitments:
 
-- **Error handling**: exceptions thrown inside a command or the handler are not caught explicitly at the message-processing level; a failing command surfaces as an unhandled Discord event handler exception rather than a user-facing error.
-- **Database initialization**: migrations exist but are not applied automatically at startup; the database must be prepared out-of-band.
 - **Command parsing**: `TryGetCommand` assumes the first token is at least one character long after the identifier; the identifier check is a simple `StartsWith` on raw content.
 - **Permission commands take raw IDs**: `!userpermission` expects a numeric Discord ID argument rather than a mention.
-- **Secrets in image**: the Docker publish step currently copies `appsecrets.json` into the image (see §5).
 - **`IDatabaseContext`** exists but is unused; injection is against the concrete `DatabaseContext`.

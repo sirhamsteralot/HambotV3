@@ -6,7 +6,7 @@ The first two phases address the limitations recorded in [`software-design.md`](
 
 ## Phase 1 — Stability & Correctness (current limitations)
 
-### T1. Error handling in the command pipeline
+### T1. [x] Error handling in the command pipeline
 
 **Problem**: Exceptions thrown inside a command, the permission check, or the database are not caught at the message-processing level. A failing command surfaces as an unhandled Discord event handler exception; the user gets no feedback and the handler's disposal behavior is not guaranteed on the failure path.
 
@@ -21,7 +21,7 @@ The first two phases address the limitations recorded in [`software-design.md`](
 - A database outage during a permission check produces a user-facing error and the bot keeps processing subsequent messages.
 - Unit tests cover the failure path of `CommandHandler` (command throws, permission service throws).
 
-### T2. Database initialization (migrations at startup)
+### T2. [x] Database initialization (migrations at startup)
 
 **Problem**: Migrations exist (`HambotV2/Migrations/`, initial create only) but are never applied automatically. The database must be prepared manually out-of-band, otherwise every command that touches persistence fails.
 
@@ -34,7 +34,7 @@ The first two phases address the limitations recorded in [`software-design.md`](
 - If the database is unreachable, startup logs a clear error and the host exits with a non-zero code.
 - Documented in the README (see T9) that no manual migration step is required.
 
-### T3. Secrets in the Docker image
+### T3. [x] Secrets in the Docker image
 
 **Problem**: `COPY . .` in the Docker build stage copies everything under `HambotV2/` matching publish rules — including the gitignored `appsecrets.json` — into the published image. The image cannot be pushed to any shared registry without leaking the bot token and database password.
 
@@ -48,7 +48,7 @@ The first two phases address the limitations recorded in [`software-design.md`](
 - The container runs correctly with secrets provided via environment variables.
 - Documented in the README (see T9).
 
-### T4. Startup configuration validation (fail fast)
+### T4. [x] Startup configuration validation (fail fast)
 
 **Problem**: A missing `Secrets:BotToken` or connection string is only discovered at login/connection time with unclear errors. `LogFormat` is read with `!` and would throw a startup `NullReferenceException` if absent.
 
@@ -138,7 +138,7 @@ The first two phases address the limitations recorded in [`software-design.md`](
 - Stopping the host logs a clean Discord logout instead of dying mid-connection.
 - Gateway disconnects are visible in logs.
 
-### T9. README: server run instructions
+### T9. [x] README: server run instructions
 
 **Problem**: `README.md` currently only documents the `appsecrets.json` structure. There are no instructions for getting the bot running on a server.
 

@@ -1,4 +1,4 @@
-﻿using Discord.WebSocket;
+using Discord;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -9,6 +9,6 @@ namespace HambotV2.Commands
 {
     internal interface ICommandHandler : IDisposable
     {
-        public Task HandleCommand(SocketMessage socketMessage);
+        public Task HandleCommand(IMessage socketMessage);
     }
 }
