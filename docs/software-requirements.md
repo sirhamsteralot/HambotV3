@@ -22,7 +22,7 @@ HambotV2 ("HamBot") is a Discord chat bot. It listens to messages in the guilds 
 - **FR-7**: The bot shall treat any received message starting with the effective command identifier of its guild as a command invocation (per-guild override, global default `BotConfiguration:CommandIdentifier`, default `!`; see FR-26). Direct messages use the global default.
 - **FR-8**: The command name shall be the first space-delimited token of the message, with the identifier stripped and the remainder lowercased before lookup.
 - **FR-9**: Degenerate command invocations — identifier-only messages (e.g. a bare `!`), whitespace-only content, or empty tokens — shall be handled safely, without exceptions.
-- **FR-10**: If the command name is not registered, the bot shall reply in-channel that the requested command is unavailable.
+- **FR-10**: If the command name is not registered, the bot shall consult the invoking guild's custom responses (FR-54) before replying in-channel that the requested command is unavailable.
 - **FR-11**: Registered commands shall be looked up by name; command names must be lowercase (enforced by unit tests).
 
 ### 2.3 Command execution & error handling
@@ -70,6 +70,45 @@ HambotV2 ("HamBot") is a Discord chat bot. It listens to messages in the guilds 
 - **FR-31**: If the database is unreachable at startup, the bot shall fail fast with a clear error message and a non-zero exit code, instead of starting in a degraded state.
 - **FR-32**: Missing or invalid required configuration keys (`Secrets:BotToken`, `ConnectionStrings:DefaultConnection`, `BotConfiguration:BotName`, `BotConfiguration:LogFormat`, `BotConfiguration:CommandIdentifier`) shall be detected at startup, before any connection attempt, and reported with an explicit error naming the offending key.
 
+### 2.6 Quotes (per guild)
+
+- **FR-42**: The bot shall store quotes scoped per guild: a `Quote` entity shall be persisted via EF Core in PostgreSQL (covered by the automatic startup migrations, FR-30), recording the quote text, the Discord ID of the user who added it, and the timestamp of the adding message. A quote created in one guild shall never be visible, searchable, or removable in any other guild (per-guild scoping, FR-24).
+- **FR-43**: Each quote shall carry a per-guild number that acts as a simple sequential index: every new quote is assigned one greater than the guild's current maximum number (the first quote is number 1), so the number increases by exactly one with each quote added. Removing a quote shall never change the numbers of the remaining quotes.
+- **FR-44**: `!quote` with no arguments shall reply in-channel with a random quote from the invoking guild, prefixed with its number. If the invoking guild has no quotes, the bot shall reply with a friendly "no quotes yet" message instead of an error.
+- **FR-45**: `!quote <number>` shall reply in-channel with that exact quote, prefixed with its number. An unknown number shall produce an in-channel error message, never an exception or an empty reply. An argument that does not parse as a number (including numeric-looking values outside the representable range) shall be treated as quote text to add (see FR-47).
+- **FR-46**: `!searchquotes <text...>` shall reply in-channel with the invoking guild's quotes whose text contains the search string, matched case-insensitively, each result prefixed with its number, capped at 10 results. If no quotes match, the bot shall reply with a "no matching quotes" message. Empty search text shall be rejected with an in-channel error.
+- **FR-47**: `!quote <text...>` — any argument that is not a number — shall add the text as a new quote in the invoking guild (quoting is a single, immediate action) and reply with the assigned number. Text longer than 500 characters shall be rejected with an in-channel error.
+- **FR-48**: `!removequote <number>` shall remove that quote from the invoking guild and confirm in-channel; an unknown number shall produce an in-channel error. `!removequote` shall have a built-in default required tier of moderator (FR-33), overriding the general default of FR-19; `quote` (both fetching and adding) and `searchquotes` shall default to tier 0 (everyone).
+- **FR-49**: Quote commands shall be subject to the standard command pipeline behavior: runtime permission adjustment via `!commandpermission` (FR-21), per-tier cooldown throttling (NFR-12), typed argument parsing through the shared mechanism (NFR-13), help text (FR-39, FR-40), and lowercase names (C-4).
+- **FR-50**: Quote commands manage per-guild state and shall therefore decline in direct messages with the established "only available in servers" message (consistent with FR-25).
+
+### 2.7 Custom command responses (per guild)
+
+- **FR-51**: The bot shall support user-defined text responses scoped per guild: a `CustomResponse` entity shall be persisted via EF Core in PostgreSQL (covered by the automatic startup migrations, FR-30), recording the response name, its content, the Discord ID of the user who last modified it, and created/updated timestamps. A response defined in one guild shall have no effect in any other guild (per-guild scoping, FR-24).
+- **FR-52**: Response names shall be a single lowercase token of 1–32 characters, consisting only of lowercase letters, digits, hyphens, and underscores. Invalid names shall be rejected with an in-channel error.
+- **FR-53**: A response shall not take the name of a registered built-in command: creation shall reject such names with an in-channel error. Built-in commands shall always win dispatch — a custom response can never shadow a built-in, including built-ins added later.
+- **FR-54**: When a command token matches no built-in command, the bot shall look up the invoking guild's custom responses before replying "unavailable"; a match shall reply in-channel with the stored content.
+- **FR-55**: Custom response invocations shall go through the same checks as built-in commands: the per-(guild, user, command) cooldown throttle keyed on the response name (NFR-12), and a permission check defaulting to tier 0 whose required tier shall be adjustable at runtime via `!commandpermission` (FR-21), stored as regular `CommandMetaData` (FR-19, FR-28).
+- **FR-56**: `!addresponse <name> <content...>` shall create the response, or — if the name already exists in the guild — update its content and modification fields; the reply shall distinguish "created" from "updated". Empty content shall be rejected with an in-channel error; content shall be capped at 1000 characters. The command shall have a built-in default required tier of moderator (FR-33), overriding the general default of FR-19.
+- **FR-57**: `!removeresponse <name>` shall delete that response from the guild and confirm in-channel; an unknown name shall produce an in-channel error. The command shall have a built-in default required tier of moderator (FR-33), overriding the general default of FR-19.
+- **FR-58**: `!listresponses` shall list the invoking guild's response names alphabetically; a guild with no responses shall get a message saying so. The command shall default to tier 0 (everyone).
+- **FR-59**: Custom responses shall not apply in direct messages (they are guild state): in DMs an unknown token shall keep the normal "unavailable" reply. The response-management commands (`!addresponse`, `!removeresponse`, `!listresponses`) manage per-guild state and shall decline in direct messages with the established "only available in servers" message (consistent with FR-25).
+- **FR-60**: A custom response shall consist of text content only. File or image attachments on the `!addresponse` invocation shall be neither stored nor replayed — such invocations shall be rejected with an in-channel error — and a dispatched response shall never include an uploaded file. Links in the content (e.g. `!addresponse <name> <image link>`, the expected most common use case) are ordinary text: they are stored verbatim and sent as a plain text reply, with any link preview or embed rendered by Discord client-side. The bot shall upload no files itself.
+
+### 2.8 Reminders (user-scoped)
+
+- **FR-61**: The bot shall support timed reminders scoped per user: a `Reminder` entity shall be persisted via EF Core in PostgreSQL (covered by the automatic startup migrations, FR-30), recording the reminder message, the due time in UTC, the owner's Discord ID, and the guild ID of creation (null when created in a direct message). Reminders are personal (user-scoped, not guild-scoped) and work from both guild channels and direct messages.
+- **FR-62**: `!remindme <duration> <message...>` shall parse the duration from leading number+unit tokens: units `s`, `m`, `h`, `d`, `w` with long forms (`seconds` … `weeks`) accepted, compact (`10d 5h`) and spaced (`10 d 5 h`) forms both valid, and multiple tokens summed (e.g. `!remindme 1d 12h water the plants`). The message shall be the remainder of the invocation, non-empty and capped at 500 characters.
+- **FR-63**: The total duration shall be positive — there shall be no minimum or maximum bound: durations of years are accepted. Anything unparsable or non-positive shall produce an in-channel error with a usage hint, and nothing shall be stored.
+- **FR-64**: On success the reminder shall be persisted (FR-61) and the bot shall confirm in-channel, echoing the message and the due time.
+- **FR-65**: A hosted background service shall deliver each due reminder as a direct message to the owner containing the reminder message, second-accurate: it shall schedule its next wake-up at the earliest pending due time instead of polling on a fixed coarse interval, re-scheduling when a newly created (or cancelled) reminder becomes the earliest, with a bounded fallback poll (every 10 seconds) to cover clock drift and missed wake-ups. Delivered reminders shall be removed from the pending set. Delivery shall never block or crash the service.
+- **FR-66**: Reminders shall survive restarts: the pending set is persisted, and a reminder that became due while the bot was down shall be delivered once the service starts.
+- **FR-67**: A delivery failure (e.g. closed DMs) shall be retried a bounded number of times and then marked failed and logged; it shall never block other reminders and never produce a user-facing crash.
+- **FR-68**: `!reminders` shall list the invoking user's pending reminders (number, due time, message), soonest first, capped at 10 entries.
+- **FR-69**: `!cancelreminder <number>` shall cancel one of the invoking user's own pending reminders (numbers from `!reminders`) and confirm; users shall never be able to see or cancel another user's reminders. Unknown or foreign numbers shall produce an in-channel error.
+- **FR-70**: A per-user cap of 10 pending reminders shall be enforced; exceeding it shall produce an in-channel error instead of storing the reminder.
+- **FR-71**: The reminder commands (`!remindme`, `!reminders`, `!cancelreminder`) shall default to tier 0 (everyone) and be subject to the standard command pipeline behavior: per-tier cooldown throttling (NFR-12) and help text (FR-39, FR-40). Because reminders are user-scoped, not guild-scoped, all three shall remain fully usable in direct messages (DM scope, FR-25).
+
 ## 3. Non-Functional Requirements
 
 - **NFR-1 Platform**: The bot targets .NET 10 (`net10.0`) and runs as a long-lived worker service (generic host).
@@ -85,6 +124,9 @@ HambotV2 ("HamBot") is a Discord chat bot. It listens to messages in the guilds 
 - **NFR-11 Audit logging**: Command executions (user, command, outcome) shall be traceable from logs without debugging.
 - **NFR-12 Rate limiting**: Command spam shall be throttled per user/command with a user-friendly response. The cooldown window shall be configurable per permission tier, with global per-tier defaults in `appsettings.json` and per-guild overrides adjustable at runtime via a chat command (design in [`software-design.md`](software-design.md) §3.2).
 - **NFR-13 Argument parsing**: Commands shall receive typed, validated arguments through a shared parsing mechanism instead of hand-rolled `Split`/`TryParse` code.
+- **NFR-14 Quotes testability**: The quotes feature shall be covered by unit tests that run without a live database or Discord connection (MSTest + Moq, EF InMemory), including: add/get/remove lifecycle with sequential numbering (including number reuse when the highest-numbered quote is removed), per-guild isolation, random fetch on a populated guild and the empty-guild message, fetch-by-number, add-by-text (including a numeric-looking argument that is out of range), search behavior and its result cap, text validation, permission gating, and DM declines.
+- **NFR-15 Custom-response testability**: The custom-response feature shall be covered by unit tests that run without a live database or Discord connection, including: name/content validation, built-in collision rejection, create-vs-update behavior, removal, per-guild isolation, dispatch order (built-in wins over custom, custom wins over "unavailable"), cooldown and permission gating of response dispatch, attachment rejection (FR-60), and DM behavior.
+- **NFR-16 Reminders testability**: The reminders feature shall be covered by unit tests that run without a live database or Discord connection (using `FakeTimeProvider` and EF InMemory), including: duration parsing (units, long/compact/spaced forms, sums, invalid input, non-positive durations, multi-year durations), message validation, confirmation reply, per-user isolation and caps, list and cancel behavior, due-vs-not-due delivery as time advances (including re-scheduling when an earlier reminder is added), restart recovery (a persisted due reminder is delivered when the service starts), and the bounded-failure path.
 
 ## 4. Constraints
 
@@ -109,8 +151,19 @@ HambotV2 ("HamBot") is a Discord chat bot. It listens to messages in the guilds 
 | `!settings commandidentifier reset` | — | Clears the guild's identifier override back to the global default. |
 | `!settings cooldown <tier> <seconds>` | integer tier (0–3), integer seconds | Sets the guild's per-tier cooldown override (`0` disables throttling for that tier). |
 | `!settings cooldown <tier> reset` | integer tier (0–3) | Clears the guild's cooldown override back to the global default. |
+| `!quote` | none | Replies with a random quote from this guild, prefixed with its number; a guild with no quotes gets a "no quotes yet" message. |
+| `!quote <number>` | integer | Replies with that exact quote; an unknown number produces an in-channel error. |
+| `!quote <text...>` | quote text | Any argument that is not a number adds the text as a new quote and replies with its assigned number; text over 500 characters is rejected in-channel. |
+| `!searchquotes <text...>` | search text | Lists this guild's quotes whose text contains the search string (case-insensitive), number-prefixed, capped at 10 results. |
+| `!removequote <number>` | integer | Removes that quote from this guild and confirms; an unknown number produces an in-channel error. Default required tier: moderator. |
+| `!addresponse <name> <content...>` | name (1–32 chars: lowercase letters, digits, `-`, `_`), content text | Creates the response, or updates its content if the name already exists in this guild; the reply says "created" or "updated". Empty content and content over 1000 characters are rejected in-channel. Content is text only — including links (e.g. an image link, rendered as an embed by Discord); invocations carrying file/image attachments are rejected in-channel (FR-60). Default required tier: moderator. |
+| `!removeresponse <name>` | response name | Deletes that response from this guild and confirms; an unknown name produces an in-channel error. Default required tier: moderator. |
+| `!listresponses` | none | Lists this guild's response names alphabetically; a guild with none gets a message saying so. |
+| `!remindme <duration> <message...>` | duration tokens (`s`, `m`, `h`, `d`, `w`, with long forms; compact `10d 5h` and spaced `10 d 5 h`, multiple tokens summed), message text | Schedules a personal reminder and confirms in-channel, echoing the message and due time. No minimum or maximum duration (years are fine); the message is capped at 500 characters. Works in DMs. |
+| `!reminders` | none | Lists the invoking user's pending reminders (number, due time, message), soonest first, capped at 10 entries. |
+| `!cancelreminder <number>` | integer | Cancels one of the invoking user's own pending reminders and confirms; unknown or foreign numbers produce an in-channel error. |
 
-Argument errors (unparseable tier, unparseable user/ID, too few arguments) produce an in-channel error message.
+Argument errors (unparseable tier, unparseable user/ID, too few arguments) produce an in-channel error message. The quote and response-management commands manage per-guild state and decline in direct messages with the "only available in servers" message (FR-50, FR-59). An unknown command token is checked against the invoking guild's custom responses — subject to the same cooldown and permission checks — before the "unavailable" reply (FR-10, FR-54); custom responses do not apply in direct messages. The reminder commands are user-scoped and remain fully usable in direct messages (FR-71).
 
 ## 6. Out of Scope
 
@@ -119,4 +172,5 @@ The following are explicitly not provided:
 - Slash commands / Discord application commands (only message-based `!` commands).
 - Per-channel configuration (per-guild configuration is in scope, see FR-24 to FR-26).
 - Usage analytics.
+- Uploaded file or image attachments in custom responses (content is text only — links, which Discord may render as embeds, are fine; FR-60).
 - A web interface or external admin tooling (permissions are managed via chat commands only).
