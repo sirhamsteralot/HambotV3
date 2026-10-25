@@ -569,5 +569,33 @@ namespace BotTests
             Assert.AreEqual("water the plants", harness.DeliveredMessages[0], "The deferred reminder is delivered once maintenance ends");
             Assert.IsFalse(await harness.ReminderIsPendingAsync(), "The delivered reminder leaves the pending set");
         }
+
+        [TestMethod]
+        public void Connection_Uri_Converts_The_Npgsql_Connection_String_For_Pg_Tools()
+        {
+            // pg_dump/pg_restore speak libpq, not Npgsql keyword syntax — the manager must
+            // translate ("Server=…;User Id=…" → postgresql://user:pass@host:port/database).
+            string uri = ProcessBackupManager.BuildPostgresUri(
+                "Server=db;Port=5432;Database=hambotdb;User Id=hambot;Password=postgrepass");
+
+            Assert.AreEqual("postgresql://hambot:postgrepass@db:5432/hambotdb", uri);
+        }
+
+        [TestMethod]
+        public void Connection_Uri_Percent_Encodes_Special_Characters()
+        {
+            string uri = ProcessBackupManager.BuildPostgresUri(
+                "Server=db;Port=5432;Database=hambotdb;User Id=ham bot;Password=p@ss:w/rd?x");
+
+            Assert.AreEqual("postgresql://ham%20bot:p%40ss%3Aw%2Frd%3Fx@db:5432/hambotdb", uri);
+        }
+
+        [TestMethod]
+        public void Connection_Uri_Omits_Credentials_When_The_String_Has_None()
+        {
+            string uri = ProcessBackupManager.BuildPostgresUri("Server=localhost;Port=5432;Database=hambotdb");
+
+            Assert.AreEqual("postgresql://localhost:5432/hambotdb", uri);
+        }
     }
 }

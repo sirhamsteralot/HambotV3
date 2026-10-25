@@ -265,6 +265,46 @@ namespace BotTests
         }
 
         [TestMethod]
+        public async Task Restore_Test_Never_Recorded_Does_Not_Alert_While_The_Status_Is_Fresh()
+        {
+            // A sidecar restart or fresh deployment briefly reports no restore test yet; the
+            // watchdog must grant the interval-plus-grace window (from the last status
+            // update) instead of alerting immediately on the gap.
+            var harness = new WatchdogHarness();
+            harness.Status.Status = new BackupStatus(
+                LastSuccessfulBackup: new BackupStatusEntry("hambotv2-new.dump", StartTime - TimeSpan.FromMinutes(30), 2048),
+                LastValidationError: null,
+                LastRestoreTest: null,
+                BackupIntervalSeconds: 3600,
+                RestoreTestIntervalSeconds: 86400,
+                UpdatedAt: StartTime - TimeSpan.FromMinutes(10));
+
+            await harness.Service.CheckOnceAsync();
+
+            Assert.AreEqual(0, harness.OwnerAlerts.Count, "A fresh status with no restore test recorded is not overdue yet");
+        }
+
+        [TestMethod]
+        public async Task Restore_Test_Never_Recorded_Alerts_Once_The_Status_Goes_Stale_Past_The_Interval()
+        {
+            // No test recorded AND the sidecar has not updated its status for a full
+            // interval plus grace: now it is genuinely overdue.
+            var harness = new WatchdogHarness();
+            harness.Status.Status = new BackupStatus(
+                LastSuccessfulBackup: new BackupStatusEntry("hambotv2-new.dump", StartTime - TimeSpan.FromMinutes(30), 2048),
+                LastValidationError: null,
+                LastRestoreTest: null,
+                BackupIntervalSeconds: 3600,
+                RestoreTestIntervalSeconds: 3600,
+                UpdatedAt: StartTime - TimeSpan.FromHours(4));
+
+            await harness.Service.CheckOnceAsync();
+
+            Assert.AreEqual(1, harness.OwnerAlerts.Count);
+            StringAssert.Contains(harness.OwnerAlerts[0], "no automated restore test has run within the scheduled interval");
+        }
+
+        [TestMethod]
         public async Task Maintenance_Mode_Alerts_And_Announces_Its_End()
         {
             var harness = new WatchdogHarness();
@@ -458,9 +498,6 @@ namespace BotTests
                 PendingReminders = "3",
                 Backup = "2026-01-01 03:00 UTC — hambotv2-x.dump (2 KB)",
                 RestoreTest = "2026-01-01 03:05 UTC — passed",
-                Llm = "inactive (not yet enabled)",
-                Mcp = "inactive (not yet enabled)",
-                Presence = "none set",
                 NotificationChannel = "<#777> (777)"
             };
 

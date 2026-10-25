@@ -5,10 +5,10 @@ namespace HambotV2.Commands.SystemCommands
 {
     /// <summary>
     /// Reports the bot's operational state (FR-105): build version, uptime, gateway state, database
-    /// reachability, backup and restore-test status, LLM/MCP/presence state (dormant until their
-    /// phases land), pending reminder count, and the configured notification channel — one
-    /// in-channel report from the single health snapshot provider (§3.13). Bot-owner tier by
-    /// default, usable in direct messages (no guild state is read), with help text.
+    /// reachability, backup and restore-test status, pending reminder count, and the configured
+    /// notification channel — one in-channel report from the single health snapshot provider
+    /// (§3.13). Bot-owner tier by default, usable in direct messages (no guild state is read),
+    /// with help text.
     /// </summary>
     internal sealed class HealthCommand : ICommand
     {
@@ -42,10 +42,7 @@ namespace HambotV2.Commands.SystemCommands
                 $"Database: {snapshot.Database}\n" +
                 $"Last backup: {snapshot.Backup}\n" +
                 $"Last restore test: {snapshot.RestoreTest}\n" +
-                $"LLM: {snapshot.Llm}\n" +
-                $"MCP: {snapshot.Mcp}\n" +
                 $"Pending reminders: {snapshot.PendingReminders}\n" +
-                $"Presence: {snapshot.Presence}\n" +
                 $"Notification channel: {snapshot.NotificationChannel}");
         }
 

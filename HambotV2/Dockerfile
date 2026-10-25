@@ -33,9 +33,17 @@ RUN dotnet publish "./HambotV2.csproj" -c $BUILD_CONFIGURATION -o /app/publish /
 FROM base AS final
 USER root
 # pg_dump/pg_restore for the in-bot backup commands (design §5.2): they run against the
-# shared backups volume mounted by compose. postgresql-client is pinned to major 17 to
-# match the database server (pg_dump cannot dump from a server newer than itself).
+# shared backups volume mounted by compose. Ubuntu's own repos ship postgresql-client 16,
+# too old to dump a PostgreSQL 17 server (pg_dump cannot dump from a server newer than
+# itself), so the client comes from the official PostgreSQL apt repository (PGDG) and is
+# pinned to major 17 to match the database server.
 RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl \
+    && install -d /usr/share/postgresql-common/pgdg \
+    && curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+    && . /etc/os-release \
+    && echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt ${VERSION_CODENAME}-pgdg main" > /etc/apt/sources.list.d/pgdg.list \
+    && apt-get update \
     && apt-get install -y --no-install-recommends postgresql-client-17 \
     && rm -rf /var/lib/apt/lists/*
 USER $APP_UID

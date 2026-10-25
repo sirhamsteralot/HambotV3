@@ -19,9 +19,6 @@ namespace HambotV2.Watchdog
         public required string PendingReminders { get; init; }
         public required string Backup { get; init; }
         public required string RestoreTest { get; init; }
-        public required string Llm { get; init; }
-        public required string Mcp { get; init; }
-        public required string Presence { get; init; }
         public required string NotificationChannel { get; init; }
     }
 
@@ -64,9 +61,8 @@ namespace HambotV2.Watchdog
 
         public async Task<HealthSnapshot> CaptureAsync(CancellationToken cancellationToken = default)
         {
-            // The LLM (§3.12), MCP (§3.11), and presence (§3.10) fields stay dormant until those
-            // phases land; they are reported as inactive rather than omitted, so the report's
-            // shape is stable for the operator.
+            // The LLM (§3.12), MCP (§3.11), and presence (§3.10) fields are omitted until
+            // those phases land — the report shows only what is actually running today.
             return new HealthSnapshot
             {
                 Version = BotVersion.Current,
@@ -76,9 +72,6 @@ namespace HambotV2.Watchdog
                 PendingReminders = await CountPendingRemindersAsync(cancellationToken),
                 Backup = FormatLastBackup(),
                 RestoreTest = FormatRestoreTest(),
-                Llm = "inactive (not yet enabled)",
-                Mcp = "inactive (not yet enabled)",
-                Presence = "none set",
                 NotificationChannel = FormatNotificationChannel(await _notificationChannel.GetChannelIdAsync(cancellationToken))
             };
         }

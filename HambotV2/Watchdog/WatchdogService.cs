@@ -248,7 +248,13 @@ namespace HambotV2.Watchdog
                 return false;
 
             if (status.LastRestoreTest is not { } test)
-                return true;
+            {
+                // No test recorded yet. The sidecar seeds its status file across restarts and runs
+                // a test on its first pass, so this normally lasts seconds on a fresh volume; grant
+                // the same interval-plus-grace window measured from the sidecar's own last status
+                // update, so a sidecar restart or fresh deployment cannot trip a false alert.
+                return _timeProvider.GetUtcNow() > status.UpdatedAt + TimeSpan.FromSeconds(intervalSeconds) + OverdueGraceInterval;
+            }
 
             return _timeProvider.GetUtcNow() > test.Timestamp + TimeSpan.FromSeconds(intervalSeconds) + OverdueGraceInterval;
         }

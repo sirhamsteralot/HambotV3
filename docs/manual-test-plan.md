@@ -1,0 +1,160 @@
+# Manual Test Plan — pre-production command testing
+
+Run this against a **test deployment** before rolling a build out to production: a separate Discord application (own token), a throwaway test server, and its own `.env` + Docker volumes. Never point the test stack at the production database, and never run the destructive steps (§3, §8) against production.
+
+**Why a separate bot application:** permission tiers, guild settings, quotes, and reminders all live in the database, but the *bot identity* (token, bot owner id, notification channel) comes from configuration — sharing a token between test and prod means every test command runs in prod's name. A second application on the same machine costs nothing: same `docker-compose.yml`, different `.env`.
+
+## 0. Test environment setup
+
+1. Create a second Discord application with a bot user; enable the **Message Content intent**; copy the token.
+2. Create a test server with at least: a normal channel, a second channel to use as the notification channel, and a scratch category for permission tests.
+3. Invite the bot with the standard permissions (it needs View Channel + Send Messages at minimum; also Attach Files for the quote-import test).
+4. Give the test `.env` these overrides (they shrink every wait to minutes instead of hours/days):
+
+   ```dotenv
+   DISCORD_BOT_TOKEN=<test token>
+   BOT_OWNER_DISCORD_ID=<your Discord id>
+   NOTIFY_CHANNEL_ID=<test notification channel id>
+
+   # fast watchdog cadence for testing (defaults: 5 / 10 / 60)
+   WATCHDOG_CHECK_INTERVAL_MINUTES=1
+   WATCHDOG_GATEWAY_DOWN_ALERT_MINUTES=1
+   WATCHDOG_RE_ALERT_MINUTES=2
+
+   # fast backup cadence for testing (defaults: 86400 / 7 / 2592000)
+   BACKUP_INTERVAL=60
+   BACKUP_RETENTION=3
+   BACKUP_TEST_INTERVAL=300
+   ```
+
+5. Bring it up: `docker compose up -d --build`. Verify the startup lines: `Bot version:`, `Database migrations applied successfully`, `Initializing Discord connection...`, then `Gateway: Ready`.
+6. Useful observation commands while testing:
+
+   ```bash
+   docker compose logs -f bot                     # bot + watchdog + notification logs
+   docker compose logs -f backup                  # sidecar passes
+   docker compose exec backup ls -l /backups      # dump files, retention behavior
+   docker compose exec backup cat /backups/.backup-status   # the status file !health reads
+   ```
+
+**Reminder:** if the `db-data` volume already exists from an earlier `.env`, changing `POSTGRES_PASSWORD` has no effect — postgres only applies it on first init. Either keep the old password or wipe the volume (`docker compose down -v`) while it is still disposable.
+
+## 1. Smoke test
+
+| # | Action | Expected |
+|---|---|---|
+| 1.1 | `!version` in the test server | Reply with the version (e.g. `1.2.3+1639324`; local builds show `0.0.0+unknown` — fine). |
+| 1.2 | `!hello` | `Hello World` |
+| 1.3 | `!help` | Lists all commands, one per line, with descriptions. |
+| 1.4 | `!help backup` | Detailed help: description, usage, required tier. |
+| 1.5 | `!help nonexistentcommand` | Generic "The requested command is unavailable" — no error, no reveal. |
+| 1.6 | Any command from a **second, non-owner test account** (default tier) | `You are not permitted to use that command` for admin/owner-tier commands. |
+
+## 2. Backups — create & list (FR-96/FR-97)
+
+| # | Action | Expected |
+|---|---|---|
+| 2.1 | `!backups` (before any backup) | Either "There are no backups yet." or the sidecar's scheduled dumps (already running every 60 s in the test env). |
+| 2.2 | `!backup` | "Backup created: hambotv2-<timestamp>.dump (<size>)" within a few seconds. |
+| 2.3 | `!backups` | New dump listed, newest first; timestamp and size match. |
+| 2.4 | `docker compose exec backup ls /backups` | The file exists in the volume — the command and the sidecar share one directory. |
+| 2.5 | Second account runs `!backup` / `!backups` | Permission denied (tier 4 default). |
+| 2.6 | `!backup` in a **DM** with the bot owner account | Works — these commands are DM-usable. |
+| 2.7 | Retention: wait for >3 sidecar dumps (`BACKUP_INTERVAL=60`), check `ls /backups` | Only the newest `BACKUP_RETENTION=3` dump files remain. |
+
+## 3. Restore & maintenance mode (FR-98) — the destructive core path
+
+Set this up so the restore is *provably real*: make data, back it up, change data, restore, see the old data return.
+
+1. `!quote add test-marker-before-backup` (or create any data: a quote, a custom response).
+2. `!backup` → note the dump name.
+3. `!quote remove 1` (delete/modify the marker data).
+4. `!restorebackup <name>` (without `confirm`) → **warning only**, nothing restored: "…will REPLACE ALL CURRENT DATA… run: !restorebackup <name> confirm".
+5. Verify the marker is still deleted (the unconfirmed step changed nothing).
+6. `!restorebackup <name> confirm` → success reply: "Backup '<name>' restored successfully. The bot is back in normal operation."
+7. `!quote 1` (fetch the marker) → **it's back** — the restore actually replaced the data.
+8. While a large restore runs (hard to time manually — the test DB is small), any other command should get "The bot is in maintenance mode…" — if you miss the window, the two notification posts in the notification channel (§3.11) are the evidence the mode was entered and exited.
+9. Negative: `!restorebackup does-not-exist` → "There is no backup named 'does-not-exist' — run !backups…".
+10. Negative: `!restorebackup <name> wrongword` → asks again for the exact `confirm` suffix.
+
+## 4. `!health` (FR-105)
+
+| # | Action | Expected |
+|---|---|---|
+| 4.1 | `!health` in the server (bot owner) | One report: version, uptime, gateway state (`Connected`), database (`reachable`), pending reminders count, backup line (timestamp + name + size), restore test line (timestamp — `passed`), notification channel (`<#id> (…)`). |
+| 4.2 | `!health` in a **DM** | Same report — DM-usable. |
+| 4.3 | Second account runs `!health` | Permission denied (tier 4). |
+| 4.4 | Correlate with reality: compare the backup line against `cat /backups/.backup-status` | Timestamps match the sidecar's status file. |
+
+## 5. `!notifychannel` (FR-117)
+
+| # | Action | Expected |
+|---|---|---|
+| 5.1 | `!notifychannel` (no args) | Shows the effective channel — initially the `NOTIFY_CHANNEL_ID` from `.env`. |
+| 5.2 | `!notifychannel <#other-channel>` (mention a different channel in the same server) | Confirmation reply; subsequent notifications land in the new channel. |
+| 5.3 | `docker compose restart bot`, then `!notifychannel` | Still shows the runtime override — it persists in the database across restarts. |
+| 5.4 | `!notifychannel clear`, then `!notifychannel` | Falls back to the `.env` default again (not "not set" — the env default still applies). |
+| 5.5 | Remove `NOTIFY_CHANNEL_ID` from `.env`, `docker compose restart bot`, `!notifychannel` | "not set (notifications go to logs and bot-owner DMs)". |
+| 5.6 | Second account runs `!notifychannel <#channel>` | Permission denied (tier 4). |
+
+## 6. Notifications in action (FR-118)
+
+| # | Action | Expected |
+|---|---|---|
+| 6.1 | Trigger a command failure: `!quote` with a bad argument (e.g. `!quote abc` where a number is required) → check channel | The generic in-channel error goes to the user; nothing sensitive is posted. For a real failure path, use a command that throws (e.g. stop the db container briefly and run any DB-backed command). |
+| 6.2 | **Rate limit / collapse:** while the db is stopped, spam several DB-backed commands | The user channel gets the generic error each time; the notification channel gets at most 5 posts per minute and identical consecutive messages collapse to one — no flood. Overflow still visible in `docker compose logs bot`. |
+| 6.3 | Restart the db | The bot recovers on its own; verify a normal command works again. |
+
+## 7. Watchdog (FR-106)
+
+Watchdog DMs go to `BOT_OWNER_DISCORD_ID` **and** post to the notification channel. With the fast test cadence (1-min checks, 1-min gateway threshold, 2-min re-alert) each case resolves in minutes. DM delivery requires the bot to share a server with the owner account.
+
+| # | Action | Expected |
+|---|---|---|
+| 7.1 | **Gateway down:** put an invalid token in `.env`, `docker compose restart bot` | Gateway never connects (`Gateway: Disconnected`/retry logs); after ~2 min: owner DM + notification post "the Discord gateway has been disconnected". It re-alerts every ~2 min while it persists. Restore the real token and restart → recovery announcement ("the Discord gateway is connected again") exactly once. |
+| 7.2 | **Backup overdue:** `docker compose stop backup` and wait ~2 min (interval 60 s + grace) | Alert: "no successful backup has completed within the scheduled interval". `docker compose start backup` → recovery announcement once. |
+| 7.3 | **Restore test failed/overdue:** set `BACKUP_TEST_INTERVAL=120`, stop the db for a few minutes so a scheduled pass fails validation, restart db | If a restore test fails you get the failed alert; if tests stop running (sidecar stopped) you get the overdue alert once it passes the interval. Recovery announcement when tests pass again. |
+| 7.4 | **Notification channel unreachable:** set `!notifychannel <#a-channel-the-bot-cannot-see>` (or drop the bot's permissions on the current one) | Within a couple of check intervals: owner DM "the notification channel could not be posted to" (the meta-failure path). Fix the channel perms → recovery announcement. |
+| 7.5 | **Maintenance mode:** during §3's confirmed restore | Watchdog alert "the bot is in maintenance mode" on entry, recovery announcement on exit. |
+| 7.6 | **No owner fallback:** remove `BOT_OWNER_DISCORD_ID`, restart, stop the backup container | No DMs (nobody to DM); alerts degrade to `docker compose logs bot` lines only. Restore the id afterwards. |
+
+## 8. Operator restore drill (FR-83 / NFR-19) — the scripted path
+
+This is the roadmap's outstanding operator action; run it once here and record the outcome. It proves recovery when the *bot itself* is broken.
+
+1. Note a dump from `!backups` and copy it out of the volume:
+   ```bash
+   docker compose cp backup:/backups/<dump-name>.dump ./test-restore.dump
+   ```
+2. Break the bot on purpose (e.g. invalid token again — simulates a bot that cannot start).
+3. Run the drill against the **test stack only**:
+   ```bash
+   scripts/restore-backup.sh ./test-restore.dump
+   ```
+4. Expected: the script validates the dump, stops the bot, drops/recreates the database, restores, restarts, and prints success after matching the known startup lines (`Bot version:`, `Database migrations applied successfully`, `Initializing Discord connection...`, gateway ready).
+5. Verify data: the restored marker quote from §3 is present again; `!health` reports `reachable`.
+
+**Record the outcome** (date, dump, both §3 and §8 results) — with that, the roadmap's restore-drill item (NFR-19) is satisfied for this build.
+
+## 9. Regression pass — pre-existing features
+
+Quick sweep to catch anything the new pipeline changes (maintenance gate, notification hooks, new `BotSetting` entity) broke:
+
+| Area | Commands | Expected |
+|---|---|---|
+| Permissions | `!userpermission @user 1`, `!userpermission @user 5`, `!commandpermission hello 0` | Grant works from owner/admin; tier 5 rejected (max 4); self/equal-tier escalation rejected. |
+| Guild settings | `!settings`, `!settings commandidentifier ?`, `!settings commandidentifier reset`, `!settings cooldown 0 5` | Show/set/reset behave; new identifier applies to the very next message; DMs decline ("only available in servers"). |
+| Cooldowns | Spam `!hello` as tier-0 user after `!settings cooldown 0 5` | Throttle reply with wait seconds; no throttle for the bot owner (tier 4). |
+| Quotes | `!quote add/list/remove/get random/search` + `!importquotes` with a small JSON attachment | Full lifecycle; import continues numbering; per-guild isolation (a quote made in test server A is invisible in server B). |
+| Custom responses | `!response add test ping`, then `!test` | Custom response fires through the permission/cooldown path; unknown-name fallback reply otherwise. |
+| Reminders | `!remind in 1m test`, then wait | DM delivery of the reminder; retry/defer behavior unchanged. |
+
+## 10. Rollout checklist
+
+Before promoting the same build to production:
+
+- [ ] §1–§9 pass (§3 and §8 recorded as the restore drill, NFR-19).
+- [ ] Production `.env` reviewed: keep the **production** intervals (`BACKUP_INTERVAL=86400`, `RETENTION=7`, `TEST_INTERVAL=2592000`, watchdog defaults) — do not ship the fast test values.
+- [ ] `BACKUP_RCLONE_REMOTE` set in production if offsite push is wanted (plus S3 credentials) — otherwise leave empty.
+- [ ] Production `NOTIFY_CHANNEL_ID` points at a channel the prod bot can actually see (the §7.4 failure is exactly what a misconfigured channel looks like).
+- [ ] Verify in prod after deploy: startup lines, first scheduled backup lands (`docker compose logs backup`), `!health` shows the prod dump.
