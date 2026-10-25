@@ -7,12 +7,13 @@ namespace HambotV2.Commands.QuoteCommands
     /// <summary>
     /// Quote recall and quoting in one command (FR-44–FR-47): no arguments fetch a random quote
     /// of the invoking guild, a number argument fetches that exact quote, and any other argument
-    /// is added as a new quote — quoting is a single, immediate action.
+    /// is added as a new quote — quoting is a single, immediate action. Quote text is capped at
+    /// 2000 characters (Discord's message limit), and replies trim to that limit when needed.
     /// </summary>
     internal class QuoteCommand : ICommand
     {
-        /// <summary>Maximum quote text length (FR-47).</summary>
-        internal const int MaxTextLength = 500;
+        /// <summary>Maximum quote text length (FR-47): Discord's own message limit, so every quote fits a reply.</summary>
+        internal const int MaxTextLength = 2000;
 
         public string Name => "quote";
         public string Description => "Show a random quote, show a quote by its number, or add new text as a quote";
@@ -54,6 +55,19 @@ namespace HambotV2.Commands.QuoteCommands
             return $"#{quote.Number}: {quote.Text}";
         }
 
+        /// <summary>
+        /// Sends a quote reply trimmed to Discord's message limit when needed: a maximal quote
+        /// plus its number prefix (or a long search result list) would otherwise exceed the cap
+        /// and fail delivery. The stored text is never modified — only the reply is trimmed.
+        /// </summary>
+        internal static async Task SendFittedAsync(IMessage message, string reply)
+        {
+            if (reply.Length > MaxTextLength)
+                reply = reply[..(MaxTextLength - 1)] + "…";
+
+            await message.Channel.SendMessageAsync(reply);
+        }
+
         private static async Task SendRandomQuote(IMessage message, ICommandContext context, ulong guildId)
         {
             // One count query plus one offset fetch: provider-agnostic, so the InMemory test
@@ -72,7 +86,7 @@ namespace HambotV2.Commands.QuoteCommands
                 .Skip(offset)
                 .FirstAsync();
 
-            await message.Channel.SendMessageAsync(FormatQuote(quote));
+            await SendFittedAsync(message, FormatQuote(quote));
         }
 
         private static async Task SendQuoteByNumber(IMessage message, ICommandContext context, ulong guildId, long number)
@@ -88,7 +102,7 @@ namespace HambotV2.Commands.QuoteCommands
                 return;
             }
 
-            await message.Channel.SendMessageAsync(FormatQuote(quote));
+            await SendFittedAsync(message, FormatQuote(quote));
         }
 
         private static async Task AddQuote(IMessage message, ICommandContext context, ulong guildId, string text)
@@ -98,13 +112,13 @@ namespace HambotV2.Commands.QuoteCommands
                 await message.Channel.SendMessageAsync($"The quote text must be at most {MaxTextLength} characters long");
                 return;
             }
-
-            // Sequential per-guild numbering (FR-43): always one greater than the current
-            // maximum — so removing the highest-numbered quote lets the next one reuse that top
-            // number, and removal never renumbers anything.
+            // Sequential per-guild numbering (FR-43), 0-based like the old bot's index list: the
+            // first quote is #0, each next one greater than the guild's current maximum — so
+            // removing the highest-numbered quote lets the next one reuse that top number, and
+            // removal never renumbers anything.
             int nextNumber = (await context.DbContext.Quotes
                 .Where(item => item.GuildId == guildId)
-                .MaxAsync(item => (int?)item.Number) ?? 0) + 1;
+                .MaxAsync(item => (int?)item.Number) ?? -1) + 1;
 
             context.DbContext.Quotes.Add(new DatabaseContext.Quote
             {

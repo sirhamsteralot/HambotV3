@@ -66,15 +66,15 @@ namespace BotTests
             var harness = Harness();
             var timestamp = new DateTimeOffset(2026, 1, 2, 3, 4, 5, TimeSpan.Zero);
 
-            CollectionAssert.AreEqual(new List<string> { "Added quote #1" }, await harness.Execute(new QuoteCommand(), "!quote first", timestamp: timestamp));
-            CollectionAssert.AreEqual(new List<string> { "Added quote #2" }, await harness.Execute(new QuoteCommand(), "!quote second"));
-            CollectionAssert.AreEqual(new List<string> { "Added quote #3" }, await harness.Execute(new QuoteCommand(), "!quote third"));
+            CollectionAssert.AreEqual(new List<string> { "Added quote #0" }, await harness.Execute(new QuoteCommand(), "!quote first", timestamp: timestamp));
+            CollectionAssert.AreEqual(new List<string> { "Added quote #1" }, await harness.Execute(new QuoteCommand(), "!quote second"));
+            CollectionAssert.AreEqual(new List<string> { "Added quote #2" }, await harness.Execute(new QuoteCommand(), "!quote third"));
 
             var quotes = harness.Database.Quotes.OrderBy(quote => quote.Number).ToList();
             Assert.AreEqual(3, quotes.Count);
-            Assert.AreEqual(("first", 1), (quotes[0].Text, quotes[0].Number));
-            Assert.AreEqual(("second", 2), (quotes[1].Text, quotes[1].Number));
-            Assert.AreEqual(("third", 3), (quotes[2].Text, quotes[2].Number));
+            Assert.AreEqual(("first", 0), (quotes[0].Text, quotes[0].Number));
+            Assert.AreEqual(("second", 1), (quotes[1].Text, quotes[1].Number));
+            Assert.AreEqual(("third", 2), (quotes[2].Text, quotes[2].Number));
             Assert.AreEqual(AuthorId, quotes[0].AddedByDiscordId, "The adder's Discord id must be recorded (FR-42)");
             Assert.AreEqual(timestamp.UtcDateTime, quotes[0].CreatedAt, "The adding message's timestamp must be recorded (FR-42)");
         }
@@ -90,18 +90,18 @@ namespace BotTests
                 await harness.Execute(quote, $"!quote {text}");
 
             // Removing a middle quote keeps the remaining numbers (FR-43)...
-            CollectionAssert.AreEqual(new List<string> { "Removed quote #2" }, await harness.Execute(remove, "!removequote 2"));
-            CollectionAssert.AreEqual(new[] { 1, 3 }, harness.Database.Quotes.OrderBy(item => item.Number).Select(item => item.Number).ToList());
+            CollectionAssert.AreEqual(new List<string> { "Removed quote #1" }, await harness.Execute(remove, "!removequote 1"));
+            CollectionAssert.AreEqual(new[] { 0, 2 }, harness.Database.Quotes.OrderBy(item => item.Number).Select(item => item.Number).ToList());
 
             // ...and removing the highest-numbered quote lets the next added quote reuse that
             // top number (the assignment always follows the current maximum).
             await harness.Execute(quote, "!quote four");
-            CollectionAssert.AreEqual(new List<string> { "Removed quote #4" }, await harness.Execute(remove, "!removequote 4"));
-            CollectionAssert.AreEqual(new List<string> { "Added quote #4" }, await harness.Execute(quote, "!quote fresh"));
+            CollectionAssert.AreEqual(new List<string> { "Removed quote #3" }, await harness.Execute(remove, "!removequote 3"));
+            CollectionAssert.AreEqual(new List<string> { "Added quote #3" }, await harness.Execute(quote, "!quote fresh"));
 
             var last = harness.Database.Quotes.OrderBy(item => item.Number).Last();
             Assert.AreEqual("fresh", last.Text);
-            Assert.AreEqual(4, last.Number);
+            Assert.AreEqual(3, last.Number);
         }
 
         // --- Per-guild isolation (FR-42, NFR-14) ---
@@ -117,12 +117,12 @@ namespace BotTests
             await harness.Execute(quote, "!quote alpha", guildId: GuildId);
             await harness.Execute(quote, "!quote beta", guildId: OtherGuildId);
 
-            // Numbers are per-guild: the second guild also starts at 1.
-            CollectionAssert.AreEqual(new List<string> { "#1: alpha" }, await harness.Execute(quote, "!quote 1", guildId: GuildId));
-            CollectionAssert.AreEqual(new List<string> { "#1: beta" }, await harness.Execute(quote, "!quote 1", guildId: OtherGuildId));
+            // Numbers are per-guild: the second guild also starts at 0.
+            CollectionAssert.AreEqual(new List<string> { "#0: alpha" }, await harness.Execute(quote, "!quote 0", guildId: GuildId));
+            CollectionAssert.AreEqual(new List<string> { "#0: beta" }, await harness.Execute(quote, "!quote 0", guildId: OtherGuildId));
 
             // A quote removed in one guild stays untouched in the other...
-            await harness.Execute(remove, "!removequote 1", guildId: GuildId);
+            await harness.Execute(remove, "!removequote 0", guildId: GuildId);
             Assert.AreEqual(1, harness.Database.Quotes.Count(item => item.GuildId == OtherGuildId));
 
             // ...and quotes are never visible, searchable, or removable across guilds.
@@ -130,8 +130,8 @@ namespace BotTests
                 new List<string> { "No quotes match 'alpha' in this server" },
                 await harness.Execute(search, "!searchquotes alpha", guildId: OtherGuildId));
             CollectionAssert.AreEqual(
-                new List<string> { "There is no quote with number 1 in this server" },
-                await harness.Execute(quote, "!quote 1", guildId: GuildId));
+                new List<string> { "There is no quote with number 0 in this server" },
+                await harness.Execute(quote, "!quote 0", guildId: GuildId));
         }
 
         // --- Random fetch and the empty-guild message (FR-44, NFR-14) ---
@@ -159,7 +159,7 @@ namespace BotTests
 
             Assert.AreEqual(1, replies.Count);
             Assert.IsTrue(
-                replies[0] == "#1: one" || replies[0] == "#2: two" || replies[0] == "#3: three",
+                replies[0] == "#0: one" || replies[0] == "#1: two" || replies[0] == "#2: three",
                 $"Expected a number-prefixed quote of the guild, got '{replies[0]}'");
         }
 
@@ -172,7 +172,7 @@ namespace BotTests
             foreach (string text in new[] { "one", "two" })
                 await harness.Execute(new QuoteCommand(), $"!quote {text}");
 
-            CollectionAssert.AreEqual(new List<string> { "#2: two" }, await harness.Execute(new QuoteCommand(), "!quote 2"));
+            CollectionAssert.AreEqual(new List<string> { "#1: two" }, await harness.Execute(new QuoteCommand(), "!quote 1"));
         }
 
         [TestMethod]
@@ -206,7 +206,7 @@ namespace BotTests
         {
             var harness = Harness();
 
-            CollectionAssert.AreEqual(new List<string> { "Added quote #1" }, await harness.Execute(new QuoteCommand(), "!quote some great moment"));
+            CollectionAssert.AreEqual(new List<string> { "Added quote #0" }, await harness.Execute(new QuoteCommand(), "!quote some great moment"));
 
             var quote = harness.Database.Quotes.Single();
             Assert.AreEqual("some great moment", quote.Text);
@@ -217,23 +217,44 @@ namespace BotTests
         {
             var harness = Harness();
 
-            CollectionAssert.AreEqual(new List<string> { "Added quote #1" }, await harness.Execute(new QuoteCommand(), "!quote 99999999999999999999999999999"));
+            CollectionAssert.AreEqual(new List<string> { "Added quote #0" }, await harness.Execute(new QuoteCommand(), "!quote 99999999999999999999999999999"));
 
             Assert.AreEqual("99999999999999999999999999999", harness.Database.Quotes.Single().Text);
         }
 
         [TestMethod]
-        public async Task Add_Rejects_Text_Longer_Than_500_Characters()
+        public async Task Add_Accepts_Up_To_2000_Characters_And_Rejects_More()
         {
             var harness = Harness();
+            string boundary = new string('a', 2000);
+            string overLimit = new string('b', 2001);
 
-            var boundary = await harness.Execute(new QuoteCommand(), $"!quote {new string('a', 500)}");
-            var overLimit = await harness.Execute(new QuoteCommand(), $"!quote {new string('b', 501)}");
+            // 2000 is Discord's message limit (FR-47) — the exact boundary is accepted...
+            CollectionAssert.AreEqual(new List<string> { "Added quote #0" }, await harness.Execute(new QuoteCommand(), $"!quote {boundary}"));
+            Assert.AreEqual(boundary, harness.Database.Quotes.Single().Text);
 
-            CollectionAssert.AreEqual(new List<string> { "Added quote #1" }, boundary);
-            Assert.AreEqual(1, overLimit.Count);
-            StringAssert.Contains(overLimit[0], "at most 500 characters");
+            // ...and anything longer is rejected in-channel with nothing stored.
+            var replies = await harness.Execute(new QuoteCommand(), $"!quote {overLimit}");
+            Assert.AreEqual(1, replies.Count);
+            StringAssert.Contains(replies[0], "at most 2000 characters");
             Assert.AreEqual(1, harness.Database.Quotes.Count(), "The over-long text must not be stored (FR-47)");
+        }
+
+        [TestMethod]
+        public async Task Fetch_Of_Maximal_Quote_Trims_The_Reply_To_The_Message_Limit()
+        {
+            var harness = Harness();
+            harness.Database.Quotes.Add(new DatabaseContext.Quote { GuildId = GuildId, Number = 0, Text = new string('c', 2000) });
+            harness.Database.SaveChanges();
+
+            // The stored text plus its number prefix exceeds Discord's message limit, so the
+            // reply is trimmed to fit — the fetch never fails and the stored text stays intact.
+            var replies = await harness.Execute(new QuoteCommand(), "!quote 0");
+
+            Assert.AreEqual(1, replies.Count);
+            Assert.IsTrue(replies[0].Length <= 2000, $"The reply must fit a Discord message, got {replies[0].Length} chars");
+            Assert.IsTrue(replies[0].StartsWith("#0: "), "The number prefix must be kept");
+            Assert.IsTrue(replies[0].EndsWith("…"), "A trimmed reply must end with an ellipsis");
         }
 
         // --- Search (FR-46, NFR-14) ---
@@ -250,7 +271,7 @@ namespace BotTests
             var replies = await harness.Execute(new SearchQuotesCommand(), "!searchquotes dog");
 
             Assert.AreEqual(1, replies.Count);
-            Assert.AreEqual("#1: Big Dog\n#3: another DOG here", replies[0]);
+            Assert.AreEqual("#0: Big Dog\n#2: another DOG here", replies[0]);
         }
 
         [TestMethod]
@@ -259,7 +280,7 @@ namespace BotTests
             var harness = Harness();
             await harness.Execute(new QuoteCommand(), "!quote a big dog barks");
 
-            CollectionAssert.AreEqual(new List<string> { "#1: a big dog barks" }, await harness.Execute(new SearchQuotesCommand(), "!searchquotes big dog"));
+            CollectionAssert.AreEqual(new List<string> { "#0: a big dog barks" }, await harness.Execute(new SearchQuotesCommand(), "!searchquotes big dog"));
         }
 
         [TestMethod]
@@ -274,8 +295,26 @@ namespace BotTests
 
             Assert.AreEqual(1, replies.Count);
             Assert.AreEqual(10, replies[0].Split('\n').Length, "The result list must be capped at 10 (FR-46)");
-            StringAssert.Contains(replies[0], "#10: common text 10", "Results keep the number order up to the cap");
-            Assert.IsFalse(replies[0].Contains("#11"), "Quotes past the cap must not be sent");
+            StringAssert.Contains(replies[0], "#9: common text 10", "Results keep the number order up to the cap");
+            Assert.IsFalse(replies[0].Contains("#10"), "Quotes past the cap must not be sent");
+        }
+
+        [TestMethod]
+        public async Task Search_Trims_The_Reply_To_The_Message_Limit()
+        {
+            var harness = Harness();
+            for (int number = 0; number < 10; number++)
+                harness.Database.Quotes.Add(new DatabaseContext.Quote { GuildId = GuildId, Number = number, Text = $"{new string('x', 240)} common {number}" });
+            harness.Database.SaveChanges();
+
+            // Ten matches at ~250 chars exceed Discord's message limit; the reply is trimmed
+            // instead of failing delivery.
+            var replies = await harness.Execute(new SearchQuotesCommand(), "!searchquotes common");
+
+            Assert.AreEqual(1, replies.Count);
+            Assert.IsTrue(replies[0].Length <= 2000, $"The reply must fit a Discord message, got {replies[0].Length} chars");
+            Assert.IsTrue(replies[0].StartsWith("#0: "), "The results must start with the lowest number");
+            Assert.IsTrue(replies[0].EndsWith("…"), "A trimmed reply must end with an ellipsis");
         }
 
         [TestMethod]
@@ -385,14 +424,14 @@ namespace BotTests
 
             var replies = await harness.Execute(new ImportQuotesCommand(downloader), "!importquotes", timestamp: importTimestamp, attachment: attachment);
 
-            CollectionAssert.AreEqual(new List<string> { "Imported 2 quotes, assigned numbers #2 to #3" }, replies);
+            CollectionAssert.AreEqual(new List<string> { "Imported 2 quotes, assigned numbers #1 to #2" }, replies);
             CollectionAssert.AreEqual(new List<string> { "https://cdn.example.test/quotes.json" }, downloader.RequestedUrls);
 
             var quotes = harness.Database.Quotes.OrderBy(quote => quote.Number).ToList();
             Assert.AreEqual(3, quotes.Count);
-            Assert.AreEqual(("one", 1), (quotes[0].Text, quotes[0].Number));
-            Assert.AreEqual(("legacy a", 2), (quotes[1].Text, quotes[1].Number));
-            Assert.AreEqual(("legacy b", 3), (quotes[2].Text, quotes[2].Number));
+            Assert.AreEqual(("one", 0), (quotes[0].Text, quotes[0].Number));
+            Assert.AreEqual(("legacy a", 1), (quotes[1].Text, quotes[1].Number));
+            Assert.AreEqual(("legacy b", 2), (quotes[2].Text, quotes[2].Number));
             Assert.AreEqual(AuthorId, quotes[1].AddedByDiscordId, "The importing user is recorded as the adder (FR-73)");
             Assert.AreEqual(new DateTime(2020, 5, 6, 7, 8, 9, DateTimeKind.Utc), quotes[1].CreatedAt, "The legacy date must survive the migration (FR-73)");
             Assert.AreEqual(importTimestamp.UtcDateTime, quotes[2].CreatedAt, "An entry without a date falls back to the import message's timestamp (FR-73)");
@@ -401,8 +440,6 @@ namespace BotTests
         [TestMethod]
         public async Task Import_Failures_Produce_In_Channel_Errors_And_Store_Nothing()
         {
-            var overLimit = new string('x', 501);
-
             // (name, attachment, downloader, expected fragment) — each failure path must reply
             // in-channel and leave the database untouched (all-or-nothing, FR-74).
             var cases = new (string Name, IAttachment? Attachment, FakeAttachmentDownloader Downloader, string Expected)[]
@@ -411,7 +448,8 @@ namespace BotTests
                 ("download failure", DiscordTestDoubles.CreateAttachment(), new FakeAttachmentDownloader { Failure = new HttpRequestException() }, "could not be downloaded"),
                 ("malformed json", DiscordTestDoubles.CreateAttachment(), new FakeAttachmentDownloader { Content = "not json at all" }, "could not be parsed"),
                 ("empty quotes list", DiscordTestDoubles.CreateAttachment(), new FakeAttachmentDownloader { Content = "{\"quotes\":[]}" }, "contains no quotes"),
-                ("over-long entry", DiscordTestDoubles.CreateAttachment(), new FakeAttachmentDownloader { Content = $"{{\"quotes\":[{{\"quote\":\"valid first\"}},{{\"quote\":\"{overLimit}\"}}]}}" }, "longer than 500 characters"),
+                ("empty entry", DiscordTestDoubles.CreateAttachment(), new FakeAttachmentDownloader { Content = "{\"quotes\":[{\"quote\":\"valid first\"},{\"quote\":\"   \"}]}" }, "Quote 2 in the file is empty"),
+                ("over-long entry", DiscordTestDoubles.CreateAttachment(), new FakeAttachmentDownloader { Content = $"{{\"quotes\":[{{\"quote\":\"valid first\"}},{{\"quote\":\"{new string('z', 2001)}\"}}]}}" }, "longer than 2000 characters"),
             };
 
             foreach (var testCase in cases)
@@ -424,6 +462,20 @@ namespace BotTests
                 StringAssert.Contains(replies[0], testCase.Expected, testCase.Name);
                 Assert.AreEqual(0, harness.Database.Quotes.Count(), $"{testCase.Name}: nothing may be stored on a failed import");
             }
+        }
+
+        [TestMethod]
+        public async Task Import_Accepts_Entries_Up_To_2000_Characters()
+        {
+            var harness = Harness();
+            string boundaryText = new string('y', 2000);
+            var downloader = new FakeAttachmentDownloader { Content = $"{{\"quotes\":[{{\"quote\":\"{boundaryText}\"}}]}}" };
+
+            // Entries at the 2000-char quote limit (FR-47) import fine.
+            var replies = await harness.Execute(new ImportQuotesCommand(downloader), "!importquotes", attachment: DiscordTestDoubles.CreateAttachment());
+
+            CollectionAssert.AreEqual(new List<string> { "Imported 1 quotes, assigned numbers #0 to #0" }, replies);
+            Assert.AreEqual(boundaryText, harness.Database.Quotes.Single().Text);
         }
 
         [TestMethod]

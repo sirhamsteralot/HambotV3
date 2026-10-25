@@ -86,11 +86,12 @@ namespace HambotV2.Commands.QuoteCommands
                 }
             }
 
-            // Storage (FR-73): appended in file order, continuing the per-guild numbering (FR-43);
-            // the legacy date survives the migration, falling back to the import message.
+            // Storage (FR-73): appended in file order, continuing the per-guild numbering (FR-43,
+            // 0-based like the old bot's index list — an empty guild imports starting at #0); the
+            // legacy date survives the migration, falling back to the import message.
             int nextNumber = (await context.DbContext.Quotes
                 .Where(item => item.GuildId == guildId)
-                .MaxAsync(item => (int?)item.Number) ?? 0) + 1;
+                .MaxAsync(item => (int?)item.Number) ?? -1) + 1;
             int firstNumber = nextNumber;
 
             foreach (var entry in entries)

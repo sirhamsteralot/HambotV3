@@ -47,7 +47,7 @@ namespace HambotV2.Commands.QuoteCommands
                 return;
             }
 
-            await message.Channel.SendMessageAsync(string.Join("\n", matches.Select(QuoteCommand.FormatQuote)));
+            await QuoteCommand.SendFittedAsync(message, string.Join("\n", matches.Select(QuoteCommand.FormatQuote)));
         }
     }
 }
