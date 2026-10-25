@@ -76,9 +76,11 @@ if [ -z "$bot_version_tag" ]; then
 fi
 echo "==> Expected bot version: $expected_version"
 
-# 1. Build the new image before touching any container: a failed build must
-#    not disturb the running stack (deploy failure != outage).
-docker compose build bot
+# 1. Build every image before touching any container: a failed build must
+#    not disturb the running stack (deploy failure != outage). This covers the
+#    bot and every sidecar compose defines (the backup sidecar, §5.2) — `up`
+#    below runs with --no-build and needs all of them to already exist.
+docker compose build
 
 # 2. Replace only changed containers. --no-build: exactly the image built above
 #    is run. Compose recreates only the bot when its image changed; the db
