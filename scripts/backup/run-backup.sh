@@ -43,9 +43,6 @@ STATUS_FILE="$BACKUP_DIR/.backup-status"
 LAST_TEST_FILE="$BACKUP_DIR/.last-restore-test"            # persisted marker for the test schedule
 DUMP_GLOB='hambotv2-*.dump'
 
-# Expected tables of the bot's schema (§3.4) + EF's migration bookkeeping table.
-EXPECTED_TABLES=(Users Commands GuildSettings Quotes CustomResponses Reminders BotSettings __EFMigrationsHistory)
-
 # --- Status file (§3.13): one file, two consumers (!health + watchdog) ---
 
 status_last_success_name=""
@@ -158,7 +155,12 @@ backup_once() {
     return 0
 }
 
-# FR-101: prove restorability against a scratch database; the live database is never touched.
+# FR-101: prove restorability against a scratch database; the live database is never
+# touched. The expected tables come from the dump's own restore catalog, so the check
+# always matches the schema of whatever was actually dumped: no hardcoded list to keep
+# in sync across migrations, and no race with the bot applying them at startup (a
+# first-deploy sidecar may dump a pre-migration database before the bot's
+# `Database.Migrate()` has run).
 run_restore_test() {
     local dump
     dump=$(newest_dump)
@@ -179,18 +181,36 @@ run_restore_test() {
 
     dropdb --if-exists "$SCRATCH_DB" 2>/dev/null || true
     if createdb "$SCRATCH_DB" && pg_restore --dbname="$SCRATCH_DB" --no-owner "$dump" 2>/dev/null; then
-        local missing=""
-        local table
-        for table in "${EXPECTED_TABLES[@]}"; do
-            if ! psql -qtA -d "$SCRATCH_DB" -c "SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='$table'" 2>/dev/null | grep -q 1; then
-                missing="$missing $table"
-            fi
-        done
-        if [ -z "$missing" ]; then
-            ok=true
-            detail="restore succeeded, all expected tables present"
+        # The dump's TOC lists each table as "<dumpid>; <oid> <oid> TABLE <schema> <name> <owner>"
+        # (TABLE DATA lines carry one more field and are excluded by the field count). Mixed-case
+        # names appear quoted in the TOC; the quotes are stripped, matching how
+        # information_schema reports them.
+        local dump_tables
+        dump_tables=$(pg_restore --list "$dump" 2>/dev/null | awk -F'; ' '{
+            n = split($2, f, " ");
+            if (n == 6 && f[3] == "TABLE") {
+                table = f[5];
+                gsub(/"/, "", table);
+                print table;
+            }
+        }') || true
+
+        if [ -z "$dump_tables" ]; then
+            detail="the dump's restore catalog lists no tables"
         else
-            detail="restore succeeded but tables missing:$missing"
+            local missing=""
+            local table
+            for table in $dump_tables; do
+                if ! psql -qtA -d "$SCRATCH_DB" -c "SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='$table'" 2>/dev/null | grep -q 1; then
+                    missing="$missing $table"
+                fi
+            done
+            if [ -z "$missing" ]; then
+                ok=true
+                detail="restore succeeded, every table from the dump's catalog present"
+            else
+                detail="restore succeeded but tables missing:$missing"
+            fi
         fi
     else
         detail="pg_restore into the scratch database failed"

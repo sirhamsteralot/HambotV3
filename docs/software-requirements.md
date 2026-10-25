@@ -1,6 +1,6 @@
 # Software Requirements
 
-This document captures the requirements for HambotV2, derived from the implemented system, its tests, and repository conventions. It describes the software as it *should be*, so requirements stay traceable when the system changes. Sections 2.11–2.17 specify planned post-1.0.0 roadmap features (see [`roadmap.md`](roadmap.md)) — they are requirements for work that is specified but not yet implemented.
+This document captures the requirements for HambotV2, derived from the implemented system, its tests, and repository conventions. It describes the software as it *should be*, so requirements stay traceable when the system changes. Sections 2.11–2.17 specify the post-1.0.0 roadmap features (see [`roadmap.md`](roadmap.md)); of those, **2.12 (database backups)** and **2.15 (watchdog, health reporting & operator notifications)** are implemented (shipped in `v1.1.2`) — the rest are requirements for work that is specified but not yet implemented.
 
 ## 1. Product Description
 

@@ -25,18 +25,18 @@ dotnet test HambotV2.sln
 
 - Building requires the .NET 10 SDK (`10.0.x`).
 
-- Tests run without a database or Discord token; they use Moq and in-memory configuration. All tests are in `BotTests/` (`TestCommandInfrastructure.cs`, `TestCommands.cs`, `TestPermissions.cs`, `TestCommandHandler.cs`, `TestConfigurationValidator.cs`, `TestPermissionCommands.cs`, `TestHelp.cs`, `TestCommandArguments.cs`, `TestGuildSettings.cs`, `TestCooldowns.cs`, `TestQuotes.cs`, `TestCustomResponses.cs`, `TestReminders.cs`, `TestVersion.cs`, plus the shared `DiscordTestDoubles.cs`).
+- Tests run without a database or Discord token; they use Moq and in-memory configuration. All tests are in `BotTests/` (`TestCommandInfrastructure.cs`, `TestCommands.cs`, `TestPermissions.cs`, `TestCommandHandler.cs`, `TestConfigurationValidator.cs`, `TestPermissionCommands.cs`, `TestHelp.cs`, `TestCommandArguments.cs`, `TestGuildSettings.cs`, `TestCooldowns.cs`, `TestQuotes.cs`, `TestCustomResponses.cs`, `TestReminders.cs`, `TestVersion.cs`, `TestBackups.cs`, `TestWatchdog.cs`, plus the shared `DiscordTestDoubles.cs`).
 - The build is warning-free; keep it that way and avoid introducing new warnings.
 
 ## Docker
 
-The bot is containerized via `HambotV2/Dockerfile` (multi-stage .NET 10 build → `dotnet publish` → runtime-only final image). **The build context is the repository root**, not the project directory. The recommended way to run everything (bot + PostgreSQL) is `docker-compose.yml` at the repo root:
+The bot is containerized via `HambotV2/Dockerfile` (multi-stage .NET 10 build → `dotnet publish` → runtime-only final image that installs `postgresql-client-17` from the PostgreSQL apt repository, for the in-bot backup commands). **The build context is the repository root**, not the project directory. The recommended way to run everything (bot + PostgreSQL + backup sidecar) is `docker-compose.yml` at the repo root:
 
 ```bash
 # configure secrets (see .env.example)
 cp .env.example .env   # fill in DISCORD_BOT_TOKEN and POSTGRES_PASSWORD
 
-# build & run bot + database
+# build & run bot + database + backup sidecar
 docker compose up -d --build
 docker compose logs -f bot   # should log "Database migrations applied successfully", then "Initializing Discord connection..."
 ```
@@ -57,7 +57,7 @@ docker logs -f hambot-smoke
 
 ## Architecture
 
-Entry point is `HambotV2/Program.cs`: a generic host registers `DatabaseContext` (transient Npgsql), two hosted services (the `DiscordClient` gateway connection and the generic scheduled-message delivery engine in `Scheduling/`, hosted for reminders to deliver them as direct messages), and the command pipeline.
+Entry point is `HambotV2/Program.cs`: a generic host registers `DatabaseContext` (transient Npgsql), three hosted services (the `DiscordClient` gateway connection, the generic scheduled-message delivery engine in `Scheduling/`, hosted for reminders to deliver them as direct messages, and the `Watchdog/WatchdogService` health-check loop), the command pipeline, and the Phase-1 stability components: `Maintenance/MaintenanceMode` (gates the pipeline and delivery engine during a backup restore), `Backups/` (`IBackupManager` + status-file reader behind the `!backup`/`!backups`/`!restorebackup` commands), and `Watchdog/` (`!health`, `!notifychannel`, the notification publisher). The `backup` compose service (`scripts/backup/`) dumps the database on schedule into the shared `backups` volume and writes the `.backup-status` file that `!health` and the watchdog consume.
 
 ### Message flow
 
@@ -79,7 +79,7 @@ Tiered integer permission system (`Commands/PermissionsService.cs`): a user may 
 
 ### Data model
 
-`Connections/DatabaseContext.cs` defines six DbSets with nested entity classes — five scoped per guild, one per user:
+`Connections/DatabaseContext.cs` defines seven DbSets with nested entity classes — five scoped per guild, one per user, one global:
 
 - `User` (composite key `GuildId` + `DiscordId`, `PermissionTier`)
 - `CommandMetaData` (composite key `GuildId` + `CommandName`, `PermissionTier`)
@@ -87,6 +87,7 @@ Tiered integer permission system (`Commands/PermissionsService.cs`): a user may 
 - `Quote` (composite key `GuildId` + `Number`; `Text`, `AddedByDiscordId`, `CreatedAt` — per-guild sequential numbering, managed by the `Commands/QuoteCommands/` commands)
 - `CustomResponse` (composite key `GuildId` + `Name`; `Content`, `LastModifiedByDiscordId`, timestamps — managed by the `Commands/ResponseCommands/` commands and dispatched by `CommandHandler` on unknown tokens)
 - `Reminder` (composite key `OwnerDiscordId` + `Number`; `Message`, `DueAtUtc`, nullable `GuildId`, `CreatedAt`, `FailedAtUtc` — per-user reminders managed by the `Commands/ReminderCommands/` commands and delivered as DMs by the `Scheduling/ScheduledMessageDeliveryService` engine fed by `Reminders/ReminderMessageSource`)
+- `BotSetting` (key `Key`; `Value` — global key-value settings, first key: the operator notification channel id managed by `!notifychannel`)
 
 EF Core migrations live in `HambotV2/Migrations/`. Regenerate with `dotnet ef migrations add <Name>` from the `HambotV2/` project directory (a `DesignTimeDatabaseContextFactory` lets the tools scaffold without running startup; connection string comes from `appsecrets.json`, see below).
 
@@ -104,4 +105,5 @@ EF Core migrations live in `HambotV2/Migrations/`. Regenerate with `dotnet ef mi
 - C# with nullable reference types and implicit usings enabled; `LangVersion` is `latest` in the test project.
 - Most bot-internal types are `internal` (tests rely on `InternalsVisibleTo`); keep new command implementations `internal` too.
 - DI lifetimes: `CommandService` is a singleton; `CommandHandler`, `PermissionsService`, and `DatabaseContext` are transient. The handler is resolved per message and disposed after use.
-- Container deployment via `HambotV2/Dockerfile` (targets the `HambotV2` project) or `docker-compose.yml` (bot + PostgreSQL; connection string defaults to the compose `db` service, plain containers use `host.docker.internal:5432`).
+- Container deployment via `HambotV2/Dockerfile` (targets the `HambotV2` project) or `docker-compose.yml` (bot + PostgreSQL + backup sidecar; connection string defaults to the compose `db` service, plain containers use `host.docker.internal:5432`).
+- Docs: `docs/software-design.md` is the system design (marked **(planned)** sections describe future roadmap work — everything else is as-built), `docs/roadmap.md` tracks the backlog, `docs/manual-test-plan.md` is the pre-production test checklist, and `docs/jenkins-cicd.md` covers the deploy pipeline.
