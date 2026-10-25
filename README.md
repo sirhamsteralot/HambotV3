@@ -18,7 +18,17 @@ That's it: the database schema is created automatically on startup (EF Core migr
 
 - **Docker** (with the Compose plugin) — for the quick start and production container runs.
 - **.NET 10 SDK** (`10.0.x`) — only for building/running from source or running the tests.
-- **A Discord bot application** — create one at <https://discord.com/developers/applications>, note the bot token, and enable the **Message Content intent** (Bot → Privileged Gateway Intents), otherwise commands will not be received. Invite the bot to your server (OAuth2 → URL Generator → `bot` scope).
+- **A Discord bot application** — create one at <https://discord.com/developers/applications>, note the bot token, and enable the **Message Content intent** (Bot → Privileged Gateway Intents), otherwise commands will not be received. Then invite the bot to your server with the link below.
+
+## Inviting the bot
+
+Generate the invite link in the developer portal (OAuth2 → URL Generator) with **scopes** `bot` + `applications.commands` and the bot permissions below, or use the ready-made link (Application ID already filled in):
+
+```
+https://discord.com/oauth2/authorize?client_id=<bot id>&scope=bot+applications.commands&permissions=8533303368350784
+```
+
+The permissions integer (`8533303368350784`) covers everything the bot needs and reasonable extras (View Channels, Send Messages, Embed Links, Read Message History, Attach Files, Manage Messages, thread and voice-message support, etc.). The `applications.commands` scope reserves support for slash commands later; it grants no extra permissions and does nothing until the bot registers commands.
 
 ## Configuration
 
