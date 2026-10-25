@@ -21,17 +21,17 @@ namespace HambotV2.Commands.SystemCommands
 
         public async Task ExecuteCommand(IMessage socketMessage, ICommandContext context)
         {
-            string[] arguments = socketMessage.Content.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            var arguments = CommandArguments.Parse(socketMessage.Content);
 
-            if (arguments.Length < 2)
+            if (!arguments.TryGetString(0, out string commandNameArgument))
             {
                 await socketMessage.Channel.SendMessageAsync($"Insufficient arguments. Usage: !{Usage}");
                 return;
             }
 
-            string commandName = arguments[1].ToLowerInvariant();
+            string commandName = commandNameArgument.ToLowerInvariant();
 
-            if (arguments.Length == 2)
+            if (arguments.Get(1) is null)
             {
                 var commandMetaData = context.DbContext.Commands.FirstOrDefault(item => item.CommandName == commandName);
                 if (commandMetaData != null)
@@ -45,9 +45,9 @@ namespace HambotV2.Commands.SystemCommands
                 return;
             }
 
-            if (!int.TryParse(arguments[2], out int newTier) || !PermissionTier.IsValid(newTier))
+            if (!arguments.TryGetInt(1, out int newTier) || !PermissionTier.IsValid(newTier))
             {
-                await socketMessage.Channel.SendMessageAsync($"'{arguments[2]}' is not a valid permission tier. Valid tiers: 0 (everyone), 1 (moderator), 2 (admin), 3 (owner)");
+                await socketMessage.Channel.SendMessageAsync($"'{arguments.Get(1)}' is not a valid permission tier. Valid tiers: 0 (everyone), 1 (moderator), 2 (admin), 3 (owner)");
                 return;
             }
 

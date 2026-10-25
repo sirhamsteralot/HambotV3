@@ -201,7 +201,7 @@ The first two phases address the limitations recorded in [`software-design.md`](
 
 **Acceptance criteria**: command usage is traceable from logs without debugging.
 
-### T15. Command argument-parsing framework
+### T15. [x] Command argument-parsing framework
 
 **Problem**: Each command hand-parses `socketMessage.Content` (splitting, `TryParse`, argument-count checks) — repetitive and inconsistent.
 
@@ -209,11 +209,11 @@ The first two phases address the limitations recorded in [`software-design.md`](
 
 **Acceptance criteria**: `CommandPermission`/`UserPermission` are refactored onto it and their tests still pass.
 
-**Note**: schedule early in this phase, before adding more commands — new feature work (e.g. T13's throttle responses) should use the framework instead of more hand-parsing.
+**Note**: schedule early in this phase, before adding more commands — the next new commands (T14's `!settings` with its subcommands, T13 stage 2's `!settings cooldown`) should be written on the framework instead of more hand-parsing.
 
 ### T13. Command cooldowns / rate limiting
 
-**Work**: Per-user/per-command cooldown to prevent spam (e.g. a simple in-memory cache in the command pipeline). The cooldown window is resolved per permission tier: global per-tier defaults in `appsettings.json`, plus per-guild overrides configurable at runtime via `!settings cooldown` (persisted in T14's `GuildSetting` entity; staged — see the design in `software-design.md` §9.2).
+**Work**: Per-user/per-command cooldown to prevent spam (e.g. a simple in-memory cache in the command pipeline). The cooldown window is resolved per permission tier: global per-tier defaults in `appsettings.json`, plus per-guild overrides configurable at runtime via `!settings cooldown` (persisted in T14's `GuildSetting` entity; staged — see the design in `software-design.md` §9.1).
 
 **Acceptance criteria**: repeated `!hello` spam is throttled with a user-friendly response; behavior is unit-tested.
 
@@ -236,10 +236,12 @@ The first two phases address the limitations recorded in [`software-design.md`](
 
 ## Suggested pick-up order
 
-Completed so far: **T1**–**T4** (error handling, DB init, container secrets, config validation), **T5**–**T7**, **T16**, **T17** (parsing robustness, persistence abstraction, permission bootstrap/escalation guard, mention parsing, help command) — Phase 1 is done — and **T9** (README), **T11** (nullable-warning cleanup), **T8** (graceful shutdown/reconnect logging), **T10** (Jenkinsfile CI pipeline), and **T12** (Serilog structured logging with command audit events).
+Completed so far: **T1**–**T4** (error handling, DB init, container secrets, config validation), **T5**–**T7**, **T16**, **T17** (parsing robustness, persistence abstraction, permission bootstrap/escalation guard, mention parsing, help command) — Phase 1 is done — and **T9** (README), **T11** (nullable-warning cleanup), **T8** (graceful shutdown/reconnect logging), **T10** (Jenkinsfile CI pipeline), **T12** (Serilog structured logging with command audit events), and **T15** (the `CommandArguments` typed argument-parsing helper; all commands refactored onto it).
 
 Remaining work, in dependency and risk order:
 
-1. Phase 3 features: **T15** (argument parsing) first — it removes hand-parsing before more commands are written — then **T13** (cooldowns), and **T14** (per-guild scoping) last as the largest change, building on T16's tier model.
+1. **T13, stage 1** (in-memory throttle + global per-tier defaults from `appsettings.json`) — independent of T14 and already keyed per guild in its design (§9.1), so nothing needs rework when per-guild scoping lands. Delivers the anti-spam acceptance criterion early even if T14 stalls.
+2. **T14** (per-guild scoping) — largest and riskiest change (schema migration, guild-scoped permission lookups, DM fallback, `!settings`), deliberately last; its `!settings` command is written on the T15 framework.
+3. **T13, stage 2** — rides on T14 as designed (§9.1): the per-guild `GuildSetting` cooldown columns plus the `!settings cooldown` subcommand, plugged into the same window-resolution chain.
 
 When a task is completed, tick it off here (e.g. `- [x]`) and update `software-design.md` / `software-requirements.md` so the docs keep describing the system as it actually is.

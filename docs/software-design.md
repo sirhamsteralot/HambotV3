@@ -114,6 +114,8 @@ The whole pipeline is wrapped in a try/catch: on any failure (throwing command, 
 - `Commands/RegisterAllCommands.cs` → delegates to `Commands/SystemCommands/RegisterSystemCommands.cs`.
 - To add a command: implement `ICommand` (system commands live in `Commands/SystemCommands/`) and register it in the relevant `Register*Commands` class.
 
+**Shared argument parsing — `Commands/CommandArguments.cs`** (roadmap T15, NFR-13) — commands receive typed arguments instead of hand-rolled `Split`/`TryParse` code. `CommandArguments.Parse(content)` splits the raw message content on runs of spaces and drops the first token (identifier + command name), so index 0 is the command's first argument. Accessors: `Count`, `Get(index)` (raw token or null — commands echo it back in replies), and the typed parsers `TryGetString`, `TryGetInt`, and `TryGetDiscordUserId` (raw id or `<@id>`/`<@!id>` mention, delegating to `DiscordUserId`). Quoting is not supported; one whitespace-separated token is one argument. All existing commands (`HelpCommand`, `CommandPermission`, `UserPermission`) are built on it; new commands (e.g. T14's `!settings`) must use it too instead of hand-parsing.
+
 ### 3.3 Permissions — `Commands/PermissionsService.cs`
 
 Tiered integer permission model with a named scale (roadmap T16, FR-33):
@@ -201,9 +203,9 @@ docker run -d --name hambot-smoke -e Secrets__BotToken=... -e "ConnectionStrings
 
 ## 6. Testing
 
-- `BotTests/` contains MSTest + Moq tests: `TestCommandInfrastructure.cs`, `TestCommands.cs`, `TestPermissions.cs`, `TestCommandHandler.cs`, `TestConfigurationValidator.cs`, `TestPermissionCommands.cs`, `TestHelp.cs`, plus the shared `DiscordTestDoubles.cs`.
+- `BotTests/` contains MSTest + Moq tests: `TestCommandInfrastructure.cs`, `TestCommands.cs`, `TestPermissions.cs`, `TestCommandHandler.cs`, `TestConfigurationValidator.cs`, `TestPermissionCommands.cs`, `TestHelp.cs`, `TestCommandArguments.cs`, plus the shared `DiscordTestDoubles.cs`.
 - Tests run without a reachable database or Discord token: Moq doubles the Discord message surface, and command/permission tests run against the EF Core **InMemory** provider through the `IDatabaseContext` abstraction (isolated database per test).
-- Coverage focuses on: command registration contract (lowercase names, help text, valid default tiers), robust command parsing (bare identifier, whitespace variations, custom identifiers), command lookup, the permission tier scale with tier overrides and escalation guards, permission-management command behavior (mentions, tier validation, upserts, guard rejections), `!help` listing/detail/non-revealing denials, the `CommandHandler` failure paths (throwing command, throwing permission check, denied permissions, unknown command, bare-identifier ignore, `DatabaseContext` disposal), the structured command audit event (exactly one Information event per message with the expected `CommandOutcome`, no message content in the audit line), and startup configuration validation.
+- Coverage focuses on: command registration contract (lowercase names, help text, valid default tiers), robust command parsing (bare identifier, whitespace variations, custom identifiers), command lookup, the argument-parsing helper (tokenization, typed accessors, mention parsing), the permission tier scale with tier overrides and escalation guards, permission-management command behavior (mentions, tier validation, upserts, guard rejections), `!help` listing/detail/non-revealing denials, the `CommandHandler` failure paths (throwing command, throwing permission check, denied permissions, unknown command, bare-identifier ignore, `DatabaseContext` disposal), the structured command audit event (exactly one Information event per message with the expected `CommandOutcome`, no message content in the audit line), and startup configuration validation.
 - Build and run:
 
   ```bash
@@ -225,12 +227,11 @@ docker run -d --name hambot-smoke -e Secrets__BotToken=... -e "ConnectionStrings
 These are observations of the current implementation, not roadmap commitments:
 
 - **State is global**: permission tiers and settings are shared across all guilds; per-guild scoping is roadmap task T14 (agreed design in §9.2).
-- **Hand-parsed command arguments**: each command splits and parses `socketMessage.Content` itself; a shared argument-parsing framework is roadmap task T15.
 - **CI**: a declarative `Jenkinsfile` at the repository root builds the solution and runs the tests (with nullable warnings treated as errors); the Jenkins job must be configured as "Pipeline script from SCM" pointing at it.
 
 ## 9. Planned Designs — Phase 3 (T13, T14)
 
-This section records the **agreed designs for the not-yet-implemented Phase 3 roadmap tasks** (T13 command cooldowns, T14 per-guild scoping). Roadmap T14 explicitly requires the design to be documented before implementation starts; the same convention is applied to T13 here. When a task is implemented, fold its subsection into the component/ configuration sections above (§2–§7) and remove it from here. The designs do not depend on T15 (argument-parsing framework); they only assume it may already be in place. T13's *per-guild runtime* configuration depends on T14's `GuildSetting` storage and is staged accordingly (§9.1). T12 (structured logging) has been implemented and folded into §3.2/§4.
+This section records the **agreed designs for the not-yet-implemented Phase 3 roadmap tasks** (T13 command cooldowns, T14 per-guild scoping). Roadmap T14 explicitly requires the design to be documented before implementation starts; the same convention is applied to T13 here. When a task is implemented, fold its subsection into the component/ configuration sections above (§2–§7) and remove it from here. Both designs build on the implemented T15 argument-parsing framework (§3.2): T14's `!settings` command and T13 stage 2's `!settings cooldown` subcommand are written on `CommandArguments`. T13's *per-guild runtime* configuration depends on T14's `GuildSetting` storage and is staged accordingly (§9.1). T12 (structured logging) has been implemented and folded into §3.2/§4.
 
 ### 9.1 T13 — Command cooldowns / rate limiting (NFR-12)
 

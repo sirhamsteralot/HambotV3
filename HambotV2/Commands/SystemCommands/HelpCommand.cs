@@ -30,10 +30,10 @@ namespace HambotV2.Commands.SystemCommands
 
         public async Task ExecuteCommand(IMessage socketMessage, ICommandContext context)
         {
-            string[] arguments = socketMessage.Content.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            var arguments = CommandArguments.Parse(socketMessage.Content);
 
-            if (arguments.Length >= 2)
-                await SendCommandHelp(socketMessage, context, arguments[1]);
+            if (arguments.Get(0) is string requestedCommandName)
+                await SendCommandHelp(socketMessage, context, requestedCommandName);
             else
                 await SendCommandList(socketMessage, context);
         }

@@ -21,36 +21,36 @@ namespace HambotV2.Commands.SystemCommands
 
         public async Task ExecuteCommand(IMessage socketMessage, ICommandContext context)
         {
-            string[] arguments = socketMessage.Content.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            var arguments = CommandArguments.Parse(socketMessage.Content);
 
-            if (arguments.Length < 2)
+            if (arguments.Count == 0)
             {
                 await socketMessage.Channel.SendMessageAsync($"Insufficient arguments. Usage: !{Usage} — <user> is a Discord id or @mention");
                 return;
             }
 
-            if (!DiscordUserId.TryParse(arguments[1], out ulong targetDiscordId))
+            if (!arguments.TryGetDiscordUserId(0, out ulong targetDiscordId))
             {
-                await socketMessage.Channel.SendMessageAsync($"Could not parse a Discord user id from {arguments[1]} (a raw id or an @mention like <@123456789> is expected)");
+                await socketMessage.Channel.SendMessageAsync($"Could not parse a Discord user id from {arguments.Get(0)} (a raw id or an @mention like <@123456789> is expected)");
                 return;
             }
 
             int invokerTier = context.GetUserEffectiveTier(socketMessage.Author.Id);
 
-            if (arguments.Length == 2)
+            if (arguments.Get(1) is null)
             {
                 int storedTier = GetStoredUserTier(context, targetDiscordId);
                 int effectiveTier = context.Overrides.EffectiveTierOf(targetDiscordId, storedTier);
                 string? overrideLabel = context.Overrides.DescribeOverride(targetDiscordId, storedTier);
                 string overrideNote = overrideLabel != null ? $" ({overrideLabel})" : string.Empty;
 
-                await socketMessage.Channel.SendMessageAsync($"Permission tier for user {arguments[1]}: {effectiveTier}{overrideNote}");
+                await socketMessage.Channel.SendMessageAsync($"Permission tier for user {arguments.Get(0)}: {effectiveTier}{overrideNote}");
                 return;
             }
 
-            if (!int.TryParse(arguments[2], out int newTier) || !PermissionTier.IsValid(newTier))
+            if (!arguments.TryGetInt(1, out int newTier) || !PermissionTier.IsValid(newTier))
             {
-                await socketMessage.Channel.SendMessageAsync($"'{arguments[2]}' is not a valid permission tier. Valid tiers: 0 (everyone), 1 (moderator), 2 (admin), 3 (owner)");
+                await socketMessage.Channel.SendMessageAsync($"'{arguments.Get(1)}' is not a valid permission tier. Valid tiers: 0 (everyone), 1 (moderator), 2 (admin), 3 (owner)");
                 return;
             }
 
@@ -77,7 +77,7 @@ namespace HambotV2.Commands.SystemCommands
 
             PermissionPersistence.UpsertUserTier(context.DbContext, targetDiscordId, newTier);
             await context.DbContext.SaveChangesAsync();
-            await socketMessage.Channel.SendMessageAsync($"Updated permission tier for user {arguments[1]} to {newTier}");
+            await socketMessage.Channel.SendMessageAsync($"Updated permission tier for user {arguments.Get(0)} to {newTier}");
         }
 
         private static int GetStoredUserTier(ICommandContext context, ulong discordId)
