@@ -2,7 +2,7 @@
 
 This document describes the design of HambotV2. It is the overview for contributors and the baseline for changes. Unless a section is marked **(planned)**, it describes the system as implemented today.
 
-Three features from [`software-requirements.md`](software-requirements.md) were specified ahead of implementation: **quotes** (FR-42–FR-50, plus the legacy import FR-72–FR-75, NFR-14), **custom command responses** (FR-51–FR-60, NFR-15), and **reminders** (FR-61–FR-71, NFR-16), designed as §3.6, §3.7, and §3.8. All three are implemented, along with the Jenkins auto-deploy pipeline (§5.1) (§3.6–§3.8 describe the system as it is). One feature is currently specified but not yet implemented: **version reporting** (FR-76–FR-78, NFR-17, planned), designed as §3.9. When future work lands, fold any deviations back here so this document keeps describing the system as it actually is.
+Three features from [`software-requirements.md`](software-requirements.md) were specified ahead of implementation: **quotes** (FR-42–FR-50, plus the legacy import FR-72–FR-75, NFR-14), **custom command responses** (FR-51–FR-60, NFR-15), and **reminders** (FR-61–FR-71, NFR-16), designed as §3.6, §3.7, and §3.8. All three are implemented, along with the Jenkins auto-deploy pipeline (§5.1) (§3.6–§3.8 describe the system as it is). One feature is currently specified but not yet implemented: **version reporting** (FR-76–FR-77, NFR-17, planned), designed as §3.9. When future work lands, fold any deviations back here so this document keeps describing the system as it actually is.
 
 ## 1. System Overview
 
@@ -281,7 +281,7 @@ The random fetch draws the guild's quote count and skips a `Random.Shared`-chose
 - `Reminders/ReminderDmSender.cs` — the reminder implementation of `IScheduledMessageSender<TMessage>`: a direct message to the owner with the stored text verbatim, on the shared `DiscordSocketClient` — the gateway user cache first, the REST client as fallback (the cache does not know a user right after a restart); a user resolvable through neither is a delivery failure handled by the bounded retry.
 - Restarts recover by construction (FR-66): the pending set is database state, so a reminder that became due while the bot was down is delivered on the service's first pass.
 
-### 3.9 Version reporting — embedded build version, persistent presence, and `!version` *(FR-76–FR-78 / NFR-17)* — **(planned)**
+### 3.9 Version reporting — embedded build version and `!version` *(FR-76–FR-77 / NFR-17)* — **(planned)**
 
 **Version string.** The version is the semver of the most recent `v`-prefixed tag reachable from the built commit plus that commit's abbreviated (7-char) hash, as semver build metadata: tag `v1.2.3` at commit `1639324…` → `1.2.3+1639324` — also when the built commit *is* the tag, so every build is unambiguous. Fallbacks (FR-76): no reachable tag → `0.0.0+<hash>`; no git metadata at all → `0.0.0+unknown`. Tagging convention: C-5. The repository has no tags yet; creating the first release tag is part of this task.
 
@@ -292,11 +292,9 @@ The random fetch draws the guild's quote count and skips a `Random.Shared`-chose
 
 The result feeds `$(Version)`/`$(InformationalVersion)`. Local and Jenkins builds therefore get the real version for free; the Docker build *stage* cannot (`.dockerignore` keeps `.git` out of the build context), so every container build entry point passes the precomputed string in (deployment wiring below).
 
-**Runtime provider.** A small internal static `BotVersion` provider reads the entry assembly's `AssemblyInformationalVersion` once and exposes the formatted string. It is the single source for both the presence and the command, so the two can never disagree. The tag→version formatting is pure string logic and separately unit-tested (NFR-17).
+**Runtime provider.** A small internal static `BotVersion` provider reads the entry assembly's `AssemblyInformationalVersion` once and exposes the formatted string. It is the single source for the `!version` command and for one startup log line (`Bot version: <version>`), so the deploy verification (§5.1) can match the running bot against the expected version without invoking the command; the bot deliberately sets no Discord presence/status — the command is the only user-facing surface. The tag→version formatting is pure string logic and separately unit-tested (NFR-17).
 
-**Presence (FR-77).** `DiscordClient` subscribes to the shared client's `Ready` event and sets the presence there: `SetGameAsync($"v{BotVersion.Current}", ActivityType.Playing)` plus `SetStatusAsync(UserStatus.Online)`. `Ready` fires once per gateway *session* — including the sessions Discord.Net creates for automatic reconnects — and presence survives session *resumes*, so the indicator stays asserted on every path without re-setting on every `Connected` (which could rate-limit presence updates on a flapping connection).
-
-**`!version` command (FR-78).** `Commands/SystemCommands/Version.cs` implementing `ICommand`: `Name = "version"` (lowercase, C-4), `DefaultPermissionTier = 0`, `Description`/`Usage` per FR-39, registered in `RegisterSystemCommands`. `ExecuteCommand` replies in-channel with the version string; no guild state is touched, so direct messages work (FR-25).
+**`!version` command (FR-77).** `Commands/SystemCommands/Version.cs` implementing `ICommand`: `Name = "version"` (lowercase, C-4), `DefaultPermissionTier = 0`, `Description`/`Usage` per FR-39, registered in `RegisterSystemCommands`. `ExecuteCommand` replies in-channel with the version string; no guild state is touched, so direct messages work (FR-25).
 
 **Deployment wiring (extends §5).**
 
