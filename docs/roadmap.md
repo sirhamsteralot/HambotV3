@@ -22,6 +22,7 @@ Everything specified so far is implemented and in production:
 - **Jenkins auto-deploy** (NFR-6/NFR-8; design §5.1) — version tags (`v<major.minor.patch>`) that build and test cleanly deploy automatically; ordinary pushes (including `master`) are built and tested only.
 - **Version reporting** (FR-76–FR-77 / NFR-17 / C-5; design §3.9) — the running bot reports a real release version.
 - **Backup & stability improvements** — database backups (FR-81–FR-85, FR-96–FR-98, FR-100–FR-101 / NFR-19, NFR-22; design §5.2) and watchdog, health reporting & operator notifications (FR-105–FR-106, FR-117–FR-118 / NFR-23; design §3.13), shipped in `v1.1.2`; the as-built behavior is folded into the design and requirements documents. One operator action remains open: the restore drill (NFR-19) — run [`docs/manual-test-plan.md`](manual-test-plan.md) §3 and §8 against a test deployment once and record the outcome.
+- **Discord presence & profile identity** (FR-78–FR-80, FR-113, FR-115–FR-116 / NFR-18; design §3.10) — the `IPresenceService` singleton behind a gateway seam applies activity, bio, avatar, and banner (startup configuration plus the tier-4, DM-usable `!presence`, `!bio`, `!avatar`, and `!banner` commands). The roadmap spike confirmed Discord.Net 3.20.2 natively supports the September 2025 per-guild member route (bio/avatar/banner via `ModifyCurrentUserAsync`) and the global avatar route (`ISelfUser.ModifyAsync`), so no raw REST fallback was needed.
 
 The remaining backlog is specified ahead of implementation and organised into phases:
 
@@ -31,7 +32,7 @@ The remaining backlog is specified ahead of implementation and organised into ph
 
 ## Phase #1: Rich Presence, Recurring reminders, Slash Commands
 
-- [ ] **Discord presence & profile identity — activity, bio, avatar, banner (FR-78–FR-80, FR-113, FR-115–FR-116 / NFR-18; design §3.10)**
+- [x] **Discord presence & profile identity — activity, bio, avatar, banner (FR-78–FR-80, FR-113, FR-115–FR-116 / NFR-18; design §3.10)** — *shipped; see the Status section above. The spike (step 3) confirmed native Discord.Net 3.20.2 support for the member and user routes, so the REST fallback was not needed.*
 
     **Problem**: the bot has no Discord presence/activity — it always shows the plain "online" state — and its profile is bare: no "About Me", no custom profile picture, no banner. There is no way for server members to see what the bot is doing or what it is, and no foundation for the LLM to drive its identity later.
 

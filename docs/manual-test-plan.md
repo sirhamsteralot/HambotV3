@@ -158,3 +158,24 @@ Before promoting the same build to production:
 - [ ] `BACKUP_RCLONE_REMOTE` set in production if offsite push is wanted (plus S3 credentials) — otherwise leave empty.
 - [ ] Production `NOTIFY_CHANNEL_ID` points at a channel the prod bot can actually see (the §7.4 failure is exactly what a misconfigured channel looks like).
 - [ ] Verify in prod after deploy: startup lines, first scheduled backup lands (`docker compose logs backup`), `!health` shows the prod dump.
+
+## 11. Presence & profile identity (FR-78–FR-80, FR-113, FR-115–FR-116)
+
+Requires a second test server the bot is a member of (per-guild applies are visible there), and two small image files (a PNG under 10 MB and a text file that is not an image).
+
+| # | Action | Expected |
+|---|---|---|
+| 11.1 | `!presence watching the test server` in the server | Bot's activity changes to "Watching the test server" immediately; reply confirms. |
+| 11.2 | `!presence` | "Current activity: watching the test server". |
+| 11.3 | `!presence nonsense text` / `!presence playing` (no text) | In-channel errors; activity unchanged. |
+| 11.4 | `!presence clear` | Activity removed. |
+| 11.5 | `!bio line one` (message with a line break in the text) | Bio applies with the line break preserved; visible on the bot's per-server profile in **both** servers. |
+| 11.6 | `!bio` / `!bio clear` | Show reports the current bio; clear removes it everywhere. |
+| 11.7 | `!avatar` with the PNG attached | Confirmation reply; profile picture changes in both servers and in DMs (global avatar). |
+| 11.8 | `!avatar <image-url>` with a direct image link | Same result via the URL path. |
+| 11.9 | `!avatar` with the text file attached, and `!avatar not-a-url` | In-channel rejection (not a PNG/JPEG/GIF; not an image URL); nothing changes. |
+| 11.10 | `!avatar reset` / `!banner clear` | Custom images removed; avatar falls back to the application default; `!banner` reports "No banner is set." |
+| 11.11 | Second account runs `!presence playing chess` | Permission denied (tier 4). |
+| 11.12 | Same commands in a **DM** | All work — DM-usable (no guild state). |
+| 11.13 | Configure `BotConfiguration:Presence:Type`/`:Text` (and optionally `BotConfiguration:Bio`), restart the bot | The configured activity (and bio) apply once the gateway is ready; a runtime change made before the restart is gone — runtime changes are not persisted. |
+| 11.14 | Set `BotConfiguration:Presence:Type` to an invalid value, restart | Startup fails fast with a critical log line naming `BotConfiguration:Presence:Type`. |

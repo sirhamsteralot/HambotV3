@@ -1,5 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using HambotV2.Backups;
+using HambotV2.Connections;
 using HambotV2.Maintenance;
 using HambotV2.Scheduling;
 using HambotV2.Watchdog;
@@ -18,8 +19,12 @@ namespace HambotV2.Commands
         private readonly INotificationChannelStore? _notificationChannelStore;
         private readonly IHealthSnapshotProvider? _healthSnapshotProvider;
 
+        /// <summary>Presence & profile identity dependencies (§3.10), same treatment as the backup & stability set.</summary>
+        private readonly IPresenceService? _presenceService;
+        private readonly IImageContentDownloader? _imageContentDownloader;
+
         /// <summary>
-        /// The signal defaults to an isolated instance, and the backup & stability dependencies to null, which
+        /// The signal defaults to an isolated instance, and the backup & stability and presence dependencies to null, which
         /// keeps the registry usable in tests that do not exercise those features (the affected
         /// commands then report "not configured" if actually executed).
         /// </summary>
@@ -29,7 +34,9 @@ namespace HambotV2.Commands
             IMaintenanceMode? maintenanceMode = null,
             INotificationPublisher? notificationPublisher = null,
             INotificationChannelStore? notificationChannelStore = null,
-            IHealthSnapshotProvider? healthSnapshotProvider = null)
+            IHealthSnapshotProvider? healthSnapshotProvider = null,
+            IPresenceService? presenceService = null,
+            IImageContentDownloader? imageContentDownloader = null)
         {
             _deliverySignal = deliverySignal ?? new ScheduledDeliverySignal();
             _backupManager = backupManager;
@@ -37,6 +44,8 @@ namespace HambotV2.Commands
             _notificationPublisher = notificationPublisher;
             _notificationChannelStore = notificationChannelStore;
             _healthSnapshotProvider = healthSnapshotProvider;
+            _presenceService = presenceService;
+            _imageContentDownloader = imageContentDownloader;
         }
 
         public Dictionary<string, ICommand> Commands { get; } = new();
@@ -46,7 +55,7 @@ namespace HambotV2.Commands
 
         public void RegisterCommands()
         {
-            RegisterAllCommands.RegisterCommands(this, _deliverySignal, _backupManager, _maintenanceMode, _notificationPublisher, _notificationChannelStore, _healthSnapshotProvider);
+            RegisterAllCommands.RegisterCommands(this, _deliverySignal, _backupManager, _maintenanceMode, _notificationPublisher, _notificationChannelStore, _healthSnapshotProvider, _presenceService, _imageContentDownloader);
             CommandsRegistered = true;
         }
 

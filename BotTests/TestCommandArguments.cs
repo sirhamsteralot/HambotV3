@@ -97,5 +97,51 @@ namespace BotTests
             var absent = CommandArguments.Parse("!userpermission");
             Assert.IsFalse(absent.TryGetDiscordUserId(0, out _));
         }
+
+        // --- GetRaw: the raw argument text with line breaks preserved (bio, FR-113) ---
+
+        [TestMethod]
+        public void GetRaw_Returns_The_Remainder_Verbatim()
+        {
+            var arguments = CommandArguments.Parse("!bio line one  with   spaces");
+
+            Assert.AreEqual("line one  with   spaces", arguments.GetRaw());
+        }
+
+        [TestMethod]
+        public void GetRaw_Preserves_Line_Breaks()
+        {
+            // Unlike GetJoined, the raw text keeps the bio's line structure (FR-113).
+            var arguments = CommandArguments.Parse("!bio first line\nsecond line");
+
+            Assert.AreEqual("first line\nsecond line", arguments.GetRaw());
+        }
+
+        [TestMethod]
+        [DataRow("!bio")]
+        [DataRow("!bio   ")]
+        [DataRow("   ")]
+        [DataRow("!")]
+        public void GetRaw_Absent_Arguments_Return_Null(string content)
+        {
+            Assert.IsNull(CommandArguments.Parse(content).GetRaw());
+        }
+
+        [TestMethod]
+        public void GetRaw_Trims_Surrounding_Whitespace()
+        {
+            var arguments = CommandArguments.Parse("!bio   padded text   ");
+
+            Assert.AreEqual("padded text", arguments.GetRaw());
+        }
+
+        [TestMethod]
+        public void GetRaw_Newline_Separator_After_The_Command_Token()
+        {
+            // A newline can be the only separator after the command name; the raw text still reads.
+            var arguments = CommandArguments.Parse("!bio\nonly-newline-separated");
+
+            Assert.AreEqual("only-newline-separated", arguments.GetRaw());
+        }
     }
 }

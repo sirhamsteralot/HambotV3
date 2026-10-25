@@ -11,10 +11,12 @@ namespace HambotV2.Commands
     /// </summary>
     internal sealed class CommandArguments
     {
+        private readonly string _content;
         private readonly string[] _tokens;
 
-        private CommandArguments(string[] tokens)
+        private CommandArguments(string content, string[] tokens)
         {
+            _content = content;
             _tokens = tokens;
         }
 
@@ -28,7 +30,7 @@ namespace HambotV2.Commands
         public static CommandArguments Parse(string content)
         {
             string[] tokens = content.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-            return new CommandArguments(tokens.Length > 1 ? tokens[1..] : Array.Empty<string>());
+            return new CommandArguments(content, tokens.Length > 1 ? tokens[1..] : Array.Empty<string>());
         }
 
         /// <summary>The raw argument at <paramref name="index"/>, or null when absent.</summary>
@@ -44,6 +46,29 @@ namespace HambotV2.Commands
         public string? GetJoined(int index)
         {
             return (uint)index < (uint)_tokens.Length ? string.Join(' ', _tokens[index..]) : null;
+        }
+
+        /// <summary>
+        /// The raw argument text from the first argument onward — the free-form text of commands
+        /// whose content may span lines (e.g. the bio, FR-113). Unlike <see cref="GetJoined"/>,
+        /// internal whitespace runs and line breaks are preserved verbatim; the text is trimmed
+        /// at both ends. Null when the message has no arguments.
+        /// </summary>
+        public string? GetRaw()
+        {
+            int position = 0;
+            while (position < _content.Length && char.IsWhiteSpace(_content[position]))
+                position++;
+
+            // Skip the identifier+command token and the separator run after it, whatever
+            // whitespace it consists of — Split(' ') alone would eat newline separators.
+            while (position < _content.Length && !char.IsWhiteSpace(_content[position]))
+                position++;
+            while (position < _content.Length && char.IsWhiteSpace(_content[position]))
+                position++;
+
+            string remainder = _content[position..].TrimEnd();
+            return remainder.Length == 0 ? null : remainder;
         }
 
         /// <summary>Gets the required string argument at <paramref name="index"/>.</summary>

@@ -36,6 +36,19 @@ namespace HambotV2
             builder.Services.AddTransient<IPermissionsService, PermissionsService>();
             builder.Services.AddSingleton<ICommandService, CommandService>();
 
+            // Presence & profile identity (design §3.10): the gateway seam wraps the shared
+            // client; the presence service is the single path for activity, bio, avatar, and
+            // banner changes.
+            builder.Services.AddSingleton<IPresenceGateway>(serviceProvider =>
+                new DiscordPresenceGateway(serviceProvider.GetRequiredService<DiscordSocketClient>()));
+            builder.Services.AddSingleton<IPresenceService>(serviceProvider => new PresenceService(
+                serviceProvider.GetRequiredService<IPresenceGateway>(),
+                PresenceStartupConfiguration.TryParse(serviceProvider.GetRequiredService<IConfiguration>(), out PresenceStartupConfiguration? startup, out _)
+                    ? startup
+                    : null,
+                serviceProvider.GetRequiredService<ILogger<PresenceService>>()));
+            builder.Services.AddSingleton<IImageContentDownloader, ImageContentDownloader>();
+
             // The gateway client is shared by the Discord hosted service and the reminder DM
             // sender; the container owns it and disposes it after the hosted services stop.
             builder.Services.AddSingleton(new DiscordSocketClient(new DiscordSocketConfig
@@ -109,6 +122,11 @@ namespace HambotV2
             if (!ValidateConfiguration(host) || !ApplyMigrations(host))
                 return 1;
 
+            // The presence service subscribes to the gateway's Ready event at construction;
+            // resolving it before host.Run() starts the hosted services, so the startup
+            // activity and bio cannot miss the event.
+            host.Services.GetRequiredService<IPresenceService>();
+
             host.Run();
             return 0;
         }
@@ -118,13 +136,25 @@ namespace HambotV2
             var configuration = host.Services.GetRequiredService<IConfiguration>();
             var missingKeys = ConfigurationValidator.GetMissingKeys(configuration);
 
-            if (missingKeys.Count == 0)
+            // Optional sections validate their own values (FR-32 style): an invalid configured
+            // presence or bio fails startup naming the offending key.
+            PresenceStartupConfiguration.TryParse(configuration, out _, out List<string> configurationErrors);
+
+            if (missingKeys.Count == 0 && configurationErrors.Count == 0)
                 return true;
 
             var logger = host.Services.GetRequiredService<ILogger<Program>>();
-            logger.LogCritical("Missing required configuration keys: {missingKeys}. " +
-                "Set them in HambotV2/appsecrets.json (local) or via environment variables such as Secrets__BotToken (containers). " +
-                "The bot will not start.", string.Join(", ", missingKeys));
+            if (missingKeys.Count > 0)
+            {
+                logger.LogCritical("Missing required configuration keys: {missingKeys}. " +
+                    "Set them in HambotV2/appsecrets.json (local) or via environment variables such as Secrets__BotToken (containers). " +
+                    "The bot will not start.", string.Join(", ", missingKeys));
+            }
+            if (configurationErrors.Count > 0)
+            {
+                logger.LogCritical("Invalid configuration: {configurationErrors} The bot will not start.",
+                    string.Join(" ", configurationErrors));
+            }
             return false;
         }
 

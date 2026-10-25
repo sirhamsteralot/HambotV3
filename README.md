@@ -40,6 +40,8 @@ Non-secret settings live in `appsettings.json` (committed):
 | `BotConfiguration:LogFormat` | `{0}: {1}` | Format string used to bridge Discord.Net log events. |
 | `BotConfiguration:CommandIdentifier` | `!` | Prefix that marks a message as a command. |
 | `BotConfiguration:CooldownSecondsByTier` | `{ "0": 3, "1": 3, "2": 2, "3": 1 }` | Command cooldown window in seconds per permission tier (missing entries default to 3; `0` disables throttling for that tier). Servers override these at runtime via `!settings cooldown`. |
+| `BotConfiguration:Presence:Type` / `BotConfiguration:Presence:Text` | *(unset)* | Optional startup activity: `playing`, `watching`, `listening`, or `competing` plus its text (single line, ≤ 128 chars), applied once the gateway is ready. Invalid values fail startup naming the key; runtime changes via `!presence` are not persisted. |
+| `BotConfiguration:Bio` | *(unset)* | Optional startup profile "About Me" (≤ 190 chars, line breaks allowed), applied in every guild the bot is a member of. Absent → an existing bio is left untouched; runtime changes via `!bio` are not persisted. |
 | `Serilog` section | Console + daily `logs/` file sink | Logging configuration: minimum level (with per-namespace overrides) and sinks. Change the log level without rebuilding; log files are written to `logs/` (gitignored). |
 
 Secrets are provided differently depending on how you run the bot:
@@ -192,6 +194,10 @@ If the token is wrong/missing you'll instead see a critical message naming the m
 | `!settings commandidentifier <value>` / `reset` | Sets or clears the server's command identifier override (≤ 5 chars; `reset` reverts to the global default). |
 | `!settings cooldown <tier> <seconds>` / `reset` | Sets or clears the server's per-tier cooldown override (tiers 0–3; `0` disables throttling for that tier). |
 | `!health` | Shows the bot's operational state: version, uptime, gateway, database, pending reminders, backups, restore test, notification channel. Bot-owner tier; works in DMs. |
+| `!presence [<type> <text...>` / `clear]` | Shows, sets, or clears the bot's activity (`playing`/`watching`/`listening`/`competing` + text ≤ 128 chars). Bot-owner tier; works in DMs; not persisted across restarts. |
+| `!bio [<text...>` / `clear]` | Shows, sets, or clears the bot's profile "About Me" (≤ 190 chars, line breaks allowed), applied in every guild the bot is a member of. Bot-owner tier; works in DMs; not persisted across restarts. |
+| `!avatar [<image-url>` / `reset]` | Shows, sets, or resets the bot's profile picture — attach exactly one image or pass a single image URL (PNG/JPEG/GIF, ≤ 10 MB; validated before anything changes). Bot-owner tier; works in DMs. |
+| `!banner [<image-url>` / `clear]` | Shows, sets, or clears the bot's profile banner, same shape as `!avatar` but per guild. Bot-owner tier; works in DMs. |
 | `!notifychannel [<#channel or id>` / `clear`]` | Shows, sets, or clears the operator notification channel where errors and alerts are posted. Bot-owner tier; works in DMs. |
 | `!backup` | Creates a database backup immediately and replies with its name and size. Bot-owner tier; works in DMs. |
 | `!backups` | Lists the available backups, newest first. Bot-owner tier; works in DMs. |

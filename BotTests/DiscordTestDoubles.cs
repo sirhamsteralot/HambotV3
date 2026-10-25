@@ -66,6 +66,12 @@ namespace BotTests
         /// <summary>A guild message mock whose channel belongs to a guild owned by <paramref name="guildOwnerId"/>.</summary>
         public static Mock<IMessage> CreateGuildMessage(string content, ulong authorId, ulong guildOwnerId, List<string> sentMessages, ulong guildId = DefaultGuildId, DateTimeOffset? timestamp = null, IAttachment? attachment = null)
         {
+            return CreateGuildMessage(content, authorId, guildOwnerId, sentMessages, attachment is null ? [] : [attachment], guildId, timestamp);
+        }
+
+        /// <summary>A guild message mock carrying several attachments (e.g. the avatar/banner rejection cases).</summary>
+        public static Mock<IMessage> CreateGuildMessage(string content, ulong authorId, ulong guildOwnerId, List<string> sentMessages, IAttachment[] attachments, ulong guildId = DefaultGuildId, DateTimeOffset? timestamp = null)
+        {
             var guild = new Mock<IGuild>();
             guild.SetupGet(g => g.OwnerId).Returns(guildOwnerId);
 
@@ -76,7 +82,7 @@ namespace BotTests
             channel.SetupGet(c => c.Guild).Returns(guild.Object);
             RecordSends(channel, sentMessages);
 
-            return CreateMessage(channel, content, authorId, timestamp, attachment);
+            return CreateMessage(channel, content, authorId, timestamp, attachments);
         }
 
         /// <summary>An attachment mock with the given CDN url and filename.</summary>
@@ -85,14 +91,14 @@ namespace BotTests
             return Mock.Of<IAttachment>(attachment => attachment.Url == url && attachment.Filename == filename);
         }
 
-        private static Mock<IMessage> CreateMessage<TChannel>(Mock<TChannel> channel, string content, ulong authorId, DateTimeOffset? timestamp = null, IAttachment? attachment = null) where TChannel : class, IMessageChannel
+        private static Mock<IMessage> CreateMessage<TChannel>(Mock<TChannel> channel, string content, ulong authorId, DateTimeOffset? timestamp = null, IAttachment[]? attachments = null) where TChannel : class, IMessageChannel
         {
             var message = new Mock<IMessage>();
             message.SetupGet(m => m.Content).Returns(content);
             message.SetupGet(m => m.Author).Returns(CreateUser(authorId).Object);
             message.SetupGet(m => m.Channel).Returns(channel.Object);
             message.SetupGet(m => m.Timestamp).Returns(timestamp ?? DateTimeOffset.UnixEpoch);
-            message.SetupGet(m => m.Attachments).Returns(attachment is null ? Array.Empty<IAttachment>() : new[] { attachment });
+            message.SetupGet(m => m.Attachments).Returns(attachments ?? []);
             return message;
         }
 
