@@ -1,10 +1,5 @@
 using HambotV2.Connections;
 using Microsoft.EntityFrameworkCore;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace HambotV2.Commands
 {
@@ -12,19 +7,18 @@ namespace HambotV2.Commands
     {
         public async Task<PermissionCheckResult> CheckUserPermissions(ulong userDiscordId, ulong? guildId, TierOverrides overrides, ICommand command, IDatabaseContext database)
         {
-            int commandTier = await GetCommandRequiredTier(guildId, command, database);
+            int requiredTier = await GetCommandRequiredTier(guildId, command, database);
             int userTier = await GetUserEffectiveTier(userDiscordId, guildId, overrides, database);
 
-            return new PermissionCheckResult(CheckPermissions(userTier, commandTier), userTier);
+            return new PermissionCheckResult(userTier >= requiredTier, userTier);
         }
 
         public Task<int> GetUserEffectiveTier(ulong userDiscordId, ulong? guildId, TierOverrides overrides, IDatabaseContext database)
         {
             if (guildId is null)
             {
-                // Direct-message scope (FR-25): everyone acts at owner tier, the configured bot
-                // owner at bot owner tier — no per-guild state is read. The stored tier fed into the
-                // override computation is owner, so the bot-owner raise is the only possible change.
+                // DM scope (FR-25): everyone acts at owner tier, the configured bot owner at bot
+                // owner tier — no per-guild state is read.
                 return Task.FromResult(overrides.EffectiveTierOf(userDiscordId, PermissionTier.Owner));
             }
 
@@ -33,8 +27,8 @@ namespace HambotV2.Commands
 
         private static async Task<int> GetUserEffectiveTier(ulong userDiscordId, ulong guildId, TierOverrides overrides, IDatabaseContext database)
         {
-            var userMetaData = await database.Users.FirstOrDefaultAsync(x => x.GuildId == guildId && x.DiscordId == userDiscordId);
-            int storedTier = userMetaData?.PermissionTier ?? PermissionTier.Everyone;
+            var user = await database.Users.FirstOrDefaultAsync(x => x.GuildId == guildId && x.DiscordId == userDiscordId);
+            int storedTier = user?.PermissionTier ?? PermissionTier.Everyone;
 
             return overrides.EffectiveTierOf(userDiscordId, storedTier);
         }
@@ -53,9 +47,10 @@ namespace HambotV2.Commands
             return commandMetaData?.PermissionTier ?? command.DefaultPermissionTier;
         }
 
-        internal bool CheckPermissions(int userLevel, int requiredLevel)
+        /// <summary>A user may run a command when their effective tier is at least the command's required tier.</summary>
+        internal bool CheckPermissions(int userTier, int requiredTier)
         {
-            return userLevel >= requiredLevel;
+            return userTier >= requiredTier;
         }
     }
 }

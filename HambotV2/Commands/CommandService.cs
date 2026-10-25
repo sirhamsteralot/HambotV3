@@ -1,26 +1,13 @@
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Logging;
-using System;
-using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 
 namespace HambotV2.Commands
 {
     internal class CommandService : ICommandService
     {
-        public Dictionary<string, ICommand> Commands { get; private set; }
+        public Dictionary<string, ICommand> Commands { get; } = new();
 
-        private ILogger<CommandService> _logger;
-        private IConfiguration _configuration;
-        public bool CommandsRegistered { get; set; } = false;
-
-        public CommandService(ILogger<CommandService> logger, IConfiguration configuration)
-        {
-            _logger = logger;
-            _configuration = configuration;
-
-            Commands = new Dictionary<string, ICommand>();
-        }
+        /// <summary>True once the built-in commands have been registered; guards the lazy registration in <see cref="TryGetCommand"/>.</summary>
+        public bool CommandsRegistered { get; private set; }
 
         public void RegisterCommands()
         {
@@ -30,15 +17,15 @@ namespace HambotV2.Commands
 
         public void RegisterCommand(string commandName, ICommand command)
         {
-            // Registration is the single chokepoint for the command contract: a
-            // command without help text or with an invalid tier/default never enters the registry.
+            // The single chokepoint for the command contract: a command without help text, with a
+            // non-lowercase name, or with an invalid default tier never enters the registry.
             if (string.IsNullOrWhiteSpace(commandName))
                 throw new ArgumentException("Command names must not be empty.", nameof(commandName));
 
             if (commandName != commandName.ToLowerInvariant())
                 throw new ArgumentException($"Command name '{commandName}' must be lowercase (lookup lowercases input).", nameof(commandName));
 
-            if (string.IsNullOrWhiteSpace(command?.Description))
+            if (string.IsNullOrWhiteSpace(command.Description))
                 throw new ArgumentException($"Command '{commandName}' must declare a non-empty Description for the help system.", nameof(command));
 
             if (string.IsNullOrWhiteSpace(command.Usage))
@@ -56,15 +43,8 @@ namespace HambotV2.Commands
                 RegisterCommands();
 
             command = null;
-
-            if (!CommandParsing.TryGetCommandName(content, identifier, out string commandString))
-                return false;
-
-            if (!Commands.TryGetValue(commandString, out ICommand? selectedCommand))
-                return false;
-
-            command = selectedCommand;
-            return true;
+            return CommandParsing.TryGetCommandName(content, identifier, out string commandName)
+                && Commands.TryGetValue(commandName, out command);
         }
 
         public bool IsIdentifierOnlyMessage(string content, string identifier)

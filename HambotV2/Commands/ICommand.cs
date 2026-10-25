@@ -1,9 +1,4 @@
 using Discord;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace HambotV2.Commands
 {
@@ -21,6 +16,6 @@ namespace HambotV2.Commands
         /// <summary>Required permission tier when no CommandMetaData override exists in the database (FR-35).</summary>
         int DefaultPermissionTier { get; }
 
-        Task ExecuteCommand(IMessage socketMessage, ICommandContext context);
+        Task ExecuteCommand(IMessage message, ICommandContext context);
     }
 }

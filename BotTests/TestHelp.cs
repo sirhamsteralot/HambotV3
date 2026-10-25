@@ -1,8 +1,5 @@
 using HambotV2.Commands;
 using HambotV2.Connections;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Logging;
-using Moq;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 
@@ -21,13 +18,7 @@ namespace BotTests
 
         private static CommandService CreateRegisteredService()
         {
-            var configuration = new ConfigurationBuilder()
-                .AddInMemoryCollection(new Dictionary<string, string?> {
-                    {"BotConfiguration:CommandIdentifier", "!"},
-                })
-                .Build();
-
-            var commandService = new CommandService(Mock.Of<ILogger<CommandService>>(), configuration);
+            var commandService = new CommandService();
             commandService.RegisterCommands();
             return commandService;
         }

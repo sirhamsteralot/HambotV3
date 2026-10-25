@@ -1,5 +1,3 @@
-using System;
-
 namespace HambotV2.Commands
 {
     /// <summary>

@@ -125,10 +125,7 @@ namespace BotTests
         {
             // FR-26 end to end: the guild's effective identifier decides which messages are commands.
             var harness = new SettingsHarness(globalIdentifier: "!");
-            var configuration = new ConfigurationBuilder()
-                .AddInMemoryCollection(new Dictionary<string, string?> { { "BotConfiguration:CommandIdentifier", "!" } })
-                .Build();
-            var commandService = new CommandService(Mock.Of<ILogger<CommandService>>(), configuration);
+            var commandService = new CommandService();
             commandService.RegisterCommands();
 
             harness.Service.SetCommandIdentifier(GuildId, "?", harness.Database);

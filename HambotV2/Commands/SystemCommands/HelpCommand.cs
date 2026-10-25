@@ -1,9 +1,4 @@
 using Discord;
-using HambotV2.Connections;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
 
 namespace HambotV2.Commands.SystemCommands
 {
@@ -28,19 +23,19 @@ namespace HambotV2.Commands.SystemCommands
             _permissionsService = permissionsService;
         }
 
-        public async Task ExecuteCommand(IMessage socketMessage, ICommandContext context)
+        public async Task ExecuteCommand(IMessage message, ICommandContext context)
         {
-            var arguments = CommandArguments.Parse(socketMessage.Content);
+            var arguments = CommandArguments.Parse(message.Content);
 
             if (arguments.Get(0) is string requestedCommandName)
-                await SendCommandHelp(socketMessage, context, requestedCommandName);
+                await SendCommandHelp(message, context, requestedCommandName);
             else
-                await SendCommandList(socketMessage, context);
+                await SendCommandList(message, context);
         }
 
-        private async Task SendCommandList(IMessage socketMessage, ICommandContext context)
+        private async Task SendCommandList(IMessage message, ICommandContext context)
         {
-            int userTier = context.GetUserEffectiveTier(socketMessage.Author.Id);
+            int userTier = context.GetUserEffectiveTier(message.Author.Id);
 
             var lines = new List<string> { "Available commands:" };
             foreach (ICommand command in _commandService.Commands.Values.OrderBy(command => command.Name))
@@ -50,37 +45,37 @@ namespace HambotV2.Commands.SystemCommands
                     lines.Add($"{context.CommandIdentifier}{command.Name} — {command.Description}");
             }
 
-            await socketMessage.Channel.SendMessageAsync(string.Join(Environment.NewLine, lines));
+            await message.Channel.SendMessageAsync(string.Join(Environment.NewLine, lines));
         }
 
-        private async Task SendCommandHelp(IMessage socketMessage, ICommandContext context, string requestedCommandName)
+        private async Task SendCommandHelp(IMessage message, ICommandContext context, string requestedCommandName)
         {
             if (!_commandService.Commands.TryGetValue(requestedCommandName.ToLowerInvariant(), out ICommand? command) || command is null)
             {
-                await SendGenericUnavailableReply(socketMessage);
+                await SendGenericUnavailableReply(message);
                 return;
             }
 
-            int userTier = context.GetUserEffectiveTier(socketMessage.Author.Id);
+            int userTier = context.GetUserEffectiveTier(message.Author.Id);
             int requiredTier = await _permissionsService.GetCommandRequiredTier(context.GuildId, command, context.DbContext);
 
             if (requiredTier > userTier)
             {
                 // Deliberately identical to the reply for unknown commands (FR-40): the reply must
                 // not reveal whether the command exists at a higher tier.
-                await SendGenericUnavailableReply(socketMessage);
+                await SendGenericUnavailableReply(message);
                 return;
             }
 
-            await socketMessage.Channel.SendMessageAsync(
+            await message.Channel.SendMessageAsync(
                 $"{context.CommandIdentifier}{command.Name} — {command.Description}" + Environment.NewLine +
                 $"Usage: {context.CommandIdentifier}{command.Usage}" + Environment.NewLine +
                 $"Required permission: {PermissionTier.GetName(requiredTier)} (tier {requiredTier})");
         }
 
-        private static async Task SendGenericUnavailableReply(IMessage socketMessage)
+        private static Task SendGenericUnavailableReply(IMessage message)
         {
-            await socketMessage.Channel.SendMessageAsync("The requested command is unavailable");
+            return message.Channel.SendMessageAsync("The requested command is unavailable");
         }
     }
 }

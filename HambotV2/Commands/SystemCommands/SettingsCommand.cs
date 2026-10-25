@@ -1,8 +1,5 @@
 using Discord;
 using HambotV2.Connections;
-using System;
-using System.Linq;
-using System.Threading.Tasks;
 
 namespace HambotV2.Commands.SystemCommands
 {
@@ -10,7 +7,7 @@ namespace HambotV2.Commands.SystemCommands
     /// Manages the invoking guild's bot settings (FR-26). Guild overrides fall back to
     /// the global defaults from appsettings.json when unset. Admin-only by default, mirroring the
     /// permission-management commands (FR-35); the bot owner can manage any guild by running the
-    /// command there. Written on the shared argument-parsing helper.
+    /// command there.
     /// </summary>
     internal class SettingsCommand : ICommand
     {
@@ -21,50 +18,48 @@ namespace HambotV2.Commands.SystemCommands
         public string Usage => "settings [commandidentifier <value>|commandidentifier reset|cooldown <tier> <seconds>|cooldown <tier> reset]";
         public int DefaultPermissionTier => PermissionTier.Admin;
 
-        public async Task ExecuteCommand(IMessage socketMessage, ICommandContext context)
+        public async Task ExecuteCommand(IMessage message, ICommandContext context)
         {
-            // Guild settings are per-guild state; in the DM scope (FR-25) there is no
-            // guild to manage and no state may be written, so the command declines.
+            // Guild settings are per-guild state; the DM scope (FR-25) has no guild to manage.
             if (context.GuildId is not ulong guildId)
             {
-                await socketMessage.Channel.SendMessageAsync("This command manages per-server settings and is only available in servers");
+                await message.Channel.SendMessageAsync("This command manages per-server settings and is only available in servers");
                 return;
             }
 
-            var arguments = CommandArguments.Parse(socketMessage.Content);
+            var arguments = CommandArguments.Parse(message.Content);
 
             if (arguments.Count == 0)
             {
-                await SendOverview(socketMessage, context, guildId);
+                await SendOverview(message, context, guildId);
                 return;
             }
 
             if (!arguments.TryGetString(0, out string settingName))
             {
-                await socketMessage.Channel.SendMessageAsync($"Unknown setting '{arguments.Get(0)}'. Usage: !{Usage}");
+                await message.Channel.SendMessageAsync($"Unknown setting '{arguments.Get(0)}'. Usage: !{Usage}");
                 return;
             }
 
-            if (settingName == "commandidentifier")
+            switch (settingName)
             {
-                await HandleCommandIdentifier(socketMessage, context, guildId, arguments);
-                return;
+                case "commandidentifier":
+                    await HandleCommandIdentifier(message, context, guildId, arguments);
+                    break;
+                case "cooldown":
+                    await HandleCooldown(message, context, guildId, arguments);
+                    break;
+                default:
+                    await message.Channel.SendMessageAsync($"Unknown setting '{settingName}'. Usage: !{Usage}");
+                    break;
             }
-
-            if (settingName == "cooldown")
-            {
-                await HandleCooldown(socketMessage, context, guildId, arguments);
-                return;
-            }
-
-            await socketMessage.Channel.SendMessageAsync($"Unknown setting '{settingName}'. Usage: !{Usage}");
         }
 
-        private async Task HandleCommandIdentifier(IMessage socketMessage, ICommandContext context, ulong guildId, CommandArguments arguments)
+        private async Task HandleCommandIdentifier(IMessage message, ICommandContext context, ulong guildId, CommandArguments arguments)
         {
             if (!arguments.TryGetString(1, out string action))
             {
-                await socketMessage.Channel.SendMessageAsync($"Missing value. Usage: !{Usage}");
+                await message.Channel.SendMessageAsync($"Missing value. Usage: !{Usage}");
                 return;
             }
 
@@ -72,45 +67,45 @@ namespace HambotV2.Commands.SystemCommands
             {
                 context.GuildSettings.SetCommandIdentifier(guildId, null, context.DbContext);
                 await context.DbContext.SaveChangesAsync();
-                await socketMessage.Channel.SendMessageAsync("Command identifier reset to the global default");
+                await message.Channel.SendMessageAsync("Command identifier reset to the global default");
                 return;
             }
 
             if (action.Length > MaxIdentifierLength)
             {
-                await socketMessage.Channel.SendMessageAsync($"The command identifier must be at most {MaxIdentifierLength} characters long");
+                await message.Channel.SendMessageAsync($"The command identifier must be at most {MaxIdentifierLength} characters long");
                 return;
             }
 
             context.GuildSettings.SetCommandIdentifier(guildId, action, context.DbContext);
             await context.DbContext.SaveChangesAsync();
-            await socketMessage.Channel.SendMessageAsync($"Updated the command identifier for this server to {action}");
+            await message.Channel.SendMessageAsync($"Updated the command identifier for this server to {action}");
         }
 
         /// <summary>
-        /// Manages the guild's per-tier cooldown override: the escalation
-        /// guard mirrors FR-36 — an invoker may only configure tiers strictly below their own, so
-        /// nobody can loosen the throttle that governs their own level; the bot owner (tier 4,
-        /// never bound by a guild override) may configure any tier.
+        /// Manages the guild's per-tier cooldown override. The escalation guard mirrors
+        /// FR-36: an invoker may only configure tiers strictly below their own, so nobody can
+        /// loosen the throttle that governs their own level; the bot owner (tier 4, never bound
+        /// by a guild override) may configure any tier.
         /// </summary>
-        private async Task HandleCooldown(IMessage socketMessage, ICommandContext context, ulong guildId, CommandArguments arguments)
+        private async Task HandleCooldown(IMessage message, ICommandContext context, ulong guildId, CommandArguments arguments)
         {
             if (!arguments.TryGetInt(1, out int tier) || tier < PermissionTier.Everyone || tier > PermissionTier.Owner)
             {
-                await socketMessage.Channel.SendMessageAsync($"Cooldowns can only be configured for tiers {PermissionTier.Everyone} to {PermissionTier.Owner}; the bot owner tier is global and never bound by a server. Usage: !{Usage}");
+                await message.Channel.SendMessageAsync($"Cooldowns can only be configured for tiers {PermissionTier.Everyone} to {PermissionTier.Owner}; the bot owner tier is global and never bound by a server. Usage: !{Usage}");
                 return;
             }
 
-            int invokerTier = context.GetUserEffectiveTier(socketMessage.Author.Id);
+            int invokerTier = context.GetUserEffectiveTier(message.Author.Id);
             if (invokerTier != PermissionTier.BotOwner && tier >= invokerTier)
             {
-                await socketMessage.Channel.SendMessageAsync("You can only configure cooldowns for tiers below your own");
+                await message.Channel.SendMessageAsync("You can only configure cooldowns for tiers below your own");
                 return;
             }
 
             if (!arguments.TryGetString(2, out string action))
             {
-                await socketMessage.Channel.SendMessageAsync($"Missing value. Usage: !{Usage}");
+                await message.Channel.SendMessageAsync($"Missing value. Usage: !{Usage}");
                 return;
             }
 
@@ -125,15 +120,14 @@ namespace HambotV2.Commands.SystemCommands
             }
             else
             {
-                await socketMessage.Channel.SendMessageAsync("The cooldown must be a number of seconds of 0 or more, or 'reset'");
+                await message.Channel.SendMessageAsync("The cooldown must be a number of seconds of 0 or more, or 'reset'");
                 return;
             }
 
-            var setting = GetOrAddGuildSetting(context, guildId);
-            setting.SetCooldownOverride(tier, cooldownSeconds);
+            GetOrAddGuildSetting(context, guildId).SetCooldownOverride(tier, cooldownSeconds);
             await context.DbContext.SaveChangesAsync();
 
-            await socketMessage.Channel.SendMessageAsync(cooldownSeconds is null
+            await message.Channel.SendMessageAsync(cooldownSeconds is null
                 ? $"Cooldown for tier {tier} in this server reset to the global default"
                 : $"Cooldown for tier {tier} in this server set to {cooldownSeconds} seconds");
         }
@@ -149,21 +143,21 @@ namespace HambotV2.Commands.SystemCommands
             return setting;
         }
 
-        private static async Task SendOverview(IMessage socketMessage, ICommandContext context, ulong guildId)
+        private static async Task SendOverview(IMessage message, ICommandContext context, ulong guildId)
         {
             var setting = context.DbContext.GuildSettings.FirstOrDefault(item => item.GuildId == guildId);
 
             if (setting?.CommandIdentifier != null)
-                await socketMessage.Channel.SendMessageAsync($"Command identifier for this server: {setting.CommandIdentifier} (server override)");
+                await message.Channel.SendMessageAsync($"Command identifier for this server: {setting.CommandIdentifier} (server override)");
             else
-                await socketMessage.Channel.SendMessageAsync($"Command identifier: {context.CommandIdentifier} (global default)");
+                await message.Channel.SendMessageAsync($"Command identifier: {context.CommandIdentifier} (global default)");
 
             var overrides = Enumerable.Range(PermissionTier.Everyone, PermissionTier.Owner + 1)
                 .Select(tier => (Tier: tier, Seconds: setting?.GetCooldownOverride(tier)))
-                .Where(overrideItem => overrideItem.Seconds != null)
-                .Select(overrideItem => $"tier {overrideItem.Tier}: {overrideItem.Seconds} seconds");
+                .Where(entry => entry.Seconds != null)
+                .Select(entry => $"tier {entry.Tier}: {entry.Seconds} seconds");
 
-            await socketMessage.Channel.SendMessageAsync(overrides.Any()
+            await message.Channel.SendMessageAsync(overrides.Any()
                 ? $"Cooldown overrides: {string.Join(", ", overrides)} (unset tiers use the global defaults)"
                 : "Cooldown overrides: none set (all tiers use the global defaults)");
         }

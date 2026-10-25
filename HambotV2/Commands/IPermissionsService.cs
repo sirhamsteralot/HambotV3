@@ -1,16 +1,11 @@
 using HambotV2.Connections;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace HambotV2.Commands
 {
     /// <summary>
     /// Outcome of the permission check: the verdict plus the user's effective tier it was decided
-    /// with. The tier is carried along so the pipeline's cooldown check can resolve
-    /// the invoking user's cooldown window without repeating the database lookup.
+    /// with. The tier is carried along so the pipeline's cooldown check can resolve the invoking
+    /// user's cooldown window without repeating the database lookup.
     /// </summary>
     internal readonly record struct PermissionCheckResult(bool IsAllowed, int UserEffectiveTier);
 

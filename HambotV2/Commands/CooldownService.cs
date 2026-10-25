@@ -1,8 +1,5 @@
 using HambotV2.Connections;
-using Microsoft.Extensions.Configuration;
-using System;
 using System.Collections.Concurrent;
-using System.Linq;
 
 namespace HambotV2.Commands
 {
@@ -63,8 +60,7 @@ namespace HambotV2.Commands
                     return new CooldownCheck(IsAllowed: false, windowEnd - now);
 
                 // Expired entries are removed opportunistically when their key is next checked, so
-                // the dictionary stays bounded by the distinct (guild, user, command) triples that
-                // were recently used.
+                // the dictionary stays bounded by the recently used (guild, user, command) triples.
                 _lastInvocationUtc.TryRemove(key, out _);
             }
 
@@ -74,11 +70,14 @@ namespace HambotV2.Commands
 
         private int ResolveWindowSeconds(ulong? guildId, int userEffectiveTier, IDatabaseContext database)
         {
-            if (userEffectiveTier >= PermissionTier.Minimum && userEffectiveTier <= HighestGuildConfigurableTier && guildId is ulong guild)
+            if (guildId is ulong guild && userEffectiveTier is >= PermissionTier.Minimum and <= HighestGuildConfigurableTier)
             {
-                var setting = database.GuildSettings.FirstOrDefault(item => item.GuildId == guild);
-                if (setting?.GetCooldownOverride(userEffectiveTier) is int guildOverride)
-                    return guildOverride;
+                int? guildOverride = database.GuildSettings
+                    .FirstOrDefault(setting => setting.GuildId == guild)?
+                    .GetCooldownOverride(userEffectiveTier);
+
+                if (guildOverride is int seconds)
+                    return seconds;
             }
 
             return GlobalWindowSeconds(userEffectiveTier);
@@ -86,7 +85,7 @@ namespace HambotV2.Commands
 
         private int GlobalWindowSeconds(int tier)
         {
-            return tier >= PermissionTier.Minimum && tier <= PermissionTier.Maximum
+            return tier is >= PermissionTier.Minimum and <= PermissionTier.Maximum
                 ? _globalWindowSeconds[tier] ?? DefaultWindowSeconds
                 : DefaultWindowSeconds;
         }

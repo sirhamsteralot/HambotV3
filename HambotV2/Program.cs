@@ -1,7 +1,6 @@
 using HambotV2.Commands;
 using HambotV2.Connections;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Configuration;
 using Serilog;
 
 namespace HambotV2
@@ -11,50 +10,51 @@ namespace HambotV2
         public static int Main(string[] args)
         {
             var builder = Host.CreateApplicationBuilder(args);
-            // Secrets come from the gitignored appsecrets.json in local development, and from
-            // environment variables (Secrets__BotToken, ConnectionStrings__DefaultConnection) in
-            // containers. Re-adding the environment provider after the JSON file gives env vars
-            // precedence, so a container never depends on the (excluded) secrets file.
+
+            // In local development, secrets come from the gitignored appsecrets.json; containers
+            // supply them as environment variables (Secrets__BotToken,
+            // ConnectionStrings__DefaultConnection). Re-adding the environment provider after the
+            // file gives env vars precedence, so a container never depends on the excluded file.
             builder.Configuration.AddJsonFile("appsecrets.json", optional: true);
             builder.Configuration.AddEnvironmentVariables();
-            // Serilog replaces the default providers as the logging backend. All bot
-            // code keeps using ILogger<T>; the sinks and levels come from the "Serilog" section of
-            // appsettings.json / environment variables, so the log level is adjustable without a
-            // rebuild. Everything logged before the host starts (validation, migrations) uses the
-            // same configuration because the provider is registered before the host is built.
+
+            // Serilog replaces the default logging providers; sinks and levels come from the
+            // "Serilog" configuration section, so the log level is adjustable without a rebuild.
             builder.Logging.ClearProviders();
             builder.Services.AddSerilog((services, loggerConfiguration) => loggerConfiguration
                 .ReadFrom.Configuration(builder.Configuration));
-            builder.Services.AddDbContext<DatabaseContext>(options => options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")), ServiceLifetime.Transient, ServiceLifetime.Transient);
-            // The command pipeline depends on the IDatabaseContext abstraction; this maps
-            // it onto the same transient DatabaseContext registration.
-            builder.Services.AddTransient<IDatabaseContext>(serviceProvider => serviceProvider.GetRequiredService<DatabaseContext>());
+
             builder.Services.AddHostedService<DiscordClient>();
             builder.Services.AddTransient<ICommandHandler, CommandHandler>();
             builder.Services.AddTransient<IPermissionsService, PermissionsService>();
             builder.Services.AddSingleton<ICommandService, CommandService>();
-            // Guild-scoped settings resolution: singleton so the per-guild command
-            // identifiers stay cached in memory for the gateway pre-filter and command parsing.
-            builder.Services.AddSingleton<IGuildSettingsService>(serviceProvider => new GuildSettingsService(serviceProvider, builder.Configuration));
-            // Command cooldowns: the throttle state is shared across messages, so the
-            // service is a singleton; time is injected via TimeProvider for deterministic tests.
+
+            // Singleton so the per-guild command identifiers stay cached for the gateway
+            // pre-filter and command parsing.
+            builder.Services.AddSingleton<IGuildSettingsService>(serviceProvider =>
+                new GuildSettingsService(serviceProvider, builder.Configuration));
+
+            // Singleton so the cooldown timestamps are shared across messages; time comes from
+            // an injectable TimeProvider for deterministic tests.
             builder.Services.AddSingleton(TimeProvider.System);
             builder.Services.AddSingleton<ICooldownService, CooldownService>();
 
-            var host = builder.Build();
+            builder.Services.AddDbContext<DatabaseContext>(options =>
+                options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")),
+                ServiceLifetime.Transient,
+                ServiceLifetime.Transient);
 
-            if (!ValidateConfiguration(host))
-            {
-                host.Dispose();
-                return 1;
-            }
+            // The command pipeline depends on the IDatabaseContext abstraction; map it onto the
+            // same transient DatabaseContext registration.
+            builder.Services.AddTransient<IDatabaseContext>(serviceProvider =>
+                serviceProvider.GetRequiredService<DatabaseContext>());
 
-            // The schema must exist before the gateway starts; a half-functional bot is worse than no bot.
-            if (!ApplyMigrations(host))
-            {
-                host.Dispose();
+            using var host = builder.Build();
+
+            // Both fail fast with a critical log line and a non-zero exit code: a
+            // half-configured or schema-less bot is worse than no bot.
+            if (!ValidateConfiguration(host) || !ApplyMigrations(host))
                 return 1;
-            }
 
             host.Run();
             return 0;
@@ -81,11 +81,9 @@ namespace HambotV2
 
             try
             {
-                using (var scope = host.Services.CreateScope())
-                {
-                    var database = scope.ServiceProvider.GetRequiredService<DatabaseContext>();
-                    database.Database.Migrate();
-                }
+                using var scope = host.Services.CreateScope();
+                var database = scope.ServiceProvider.GetRequiredService<DatabaseContext>();
+                database.Database.Migrate();
 
                 logger.LogInformation("Database migrations applied successfully");
                 return true;

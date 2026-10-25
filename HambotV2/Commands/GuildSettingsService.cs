@@ -1,9 +1,5 @@
 using HambotV2.Connections;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
-using System;
 using System.Collections.Concurrent;
-using System.Linq;
 
 namespace HambotV2.Commands
 {
@@ -48,8 +44,8 @@ namespace HambotV2.Commands
         {
             return _identifierCache.GetOrAdd(guildId, guildId =>
             {
-                // Cache miss: resolve a fresh transient context (the pipeline's per-message context
-                // is not available to this singleton) and read the guild's override once.
+                // Cache miss: resolve a fresh transient context (this singleton never holds a
+                // DbContext) and read the guild's override once.
                 using var scope = _serviceProvider.CreateScope();
                 using var database = scope.ServiceProvider.GetRequiredService<IDatabaseContext>();
                 return database.GuildSettings.FirstOrDefault(setting => setting.GuildId == guildId)?.CommandIdentifier

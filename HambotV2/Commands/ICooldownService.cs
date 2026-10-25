@@ -1,5 +1,4 @@
 using HambotV2.Connections;
-using System;
 
 namespace HambotV2.Commands
 {

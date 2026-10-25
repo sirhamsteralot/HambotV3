@@ -58,8 +58,7 @@ namespace BotTests
 
             public TestPipeline(string content, bool directMessage = false)
             {
-                var configuration = new ConfigurationBuilder().Build();
-                CommandService = new CommandService(Mock.Of<ILogger<CommandService>>(), configuration);
+                CommandService = new CommandService();
 
                 var channel = new Mock<IMessageChannel>();
                 if (!directMessage)
@@ -87,7 +86,7 @@ namespace BotTests
 
             public CommandHandler CreateHandler()
             {
-                return new CommandHandler(CommandService, Logger.Object, Mock.Of<IConfiguration>(), Database, Permissions.Object, GuildSettings.Object, Cooldown.Object);
+                return new CommandHandler(CommandService, GuildSettings.Object, Permissions.Object, Cooldown.Object, Database, Mock.Of<IConfiguration>(), Logger.Object);
             }
 
             public void AllowPermissions()

@@ -1,14 +1,9 @@
 using Discord;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace HambotV2.Commands
 {
     internal interface ICommandHandler : IDisposable
     {
-        public Task HandleCommand(IMessage socketMessage);
+        Task HandleCommand(IMessage message);
     }
 }

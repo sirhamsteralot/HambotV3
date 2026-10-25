@@ -8,48 +8,45 @@ namespace HambotV2.Connections
     {
         private readonly ILogger<DiscordClient> _logger;
         private readonly IConfiguration _configuration;
+        private readonly IServiceProvider _serviceProvider;
         private readonly IGuildSettingsService _guildSettingsService;
-
-        private DiscordSocketClient _client;
-        private string _logFormat;
-        private IServiceProvider _serviceProvider;
+        private readonly string _logFormat;
+        private readonly DiscordSocketClient _client;
 
         public DiscordClient(ILogger<DiscordClient> logger, IConfiguration configuration, IServiceProvider serviceProvider, IGuildSettingsService guildSettingsService)
         {
-            _serviceProvider = serviceProvider;
             _logger = logger;
             _configuration = configuration;
+            _serviceProvider = serviceProvider;
             _guildSettingsService = guildSettingsService;
-            _logFormat = _configuration["BotConfiguration:LogFormat"]!;
+            _logFormat = configuration["BotConfiguration:LogFormat"]!;
             // Only request the intents the bot actually uses; AllUnprivileged would make Discord.Net
             // warn about unused intents (e.g. GuildScheduledEvents, GuildInvites) at every connect.
-            _client = new DiscordSocketClient(new DiscordSocketConfig { GatewayIntents = GatewayIntents.Guilds | GatewayIntents.GuildMessages | GatewayIntents.DirectMessages | GatewayIntents.MessageContent });
+            _client = new DiscordSocketClient(new DiscordSocketConfig
+            {
+                GatewayIntents = GatewayIntents.Guilds | GatewayIntents.GuildMessages | GatewayIntents.DirectMessages | GatewayIntents.MessageContent
+            });
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
             _logger.LogInformation("Initializing Discord connection...");
 
+            _client.Log += OnClientLog;
+            _client.Connected += OnConnected;
+            _client.Disconnected += OnDisconnected;
+            _client.MessageReceived += OnMessageReceived;
 
-            _client.Log += ClientLogged;
-            _client.Disconnected += ClientDisconnected;
-            _client.Connected += ClientConnected;
-
-            var token = _configuration["Secrets:BotToken"];
-
-            await _client.LoginAsync(TokenType.Bot, token);
+            await _client.LoginAsync(TokenType.Bot, _configuration["Secrets:BotToken"]);
             await _client.StartAsync();
-
-            _client.MessageReceived += _client_MessageReceived;
 
             try
             {
                 while (!stoppingToken.IsCancellationRequested)
                 {
                     if (_logger.IsEnabled(LogLevel.Information))
-                    {
                         _logger.LogInformation("Worker running at: {time}, discord status: {1}", DateTimeOffset.Now, _client.ConnectionState.ToString());
-                    }
+
                     await Task.Delay(TimeSpan.FromMinutes(5), stoppingToken);
                 }
             }
@@ -59,21 +56,21 @@ namespace HambotV2.Connections
             }
             finally
             {
-                await ShutdownClientAsync();
+                await ShutdownAsync();
             }
         }
 
         /// <summary>
-        /// Stops the gateway, logs the Discord client out and releases its resources.
-        /// Runs on every exit path of <see cref="ExecuteAsync"/>, including startup failures,
-        /// so the bot never dies mid-connection without a clean logout.
+        /// Stops the gateway, logs the Discord client out and releases its resources. Runs on
+        /// every exit path of <see cref="ExecuteAsync"/>, so the bot never dies mid-connection
+        /// without a clean logout.
         /// </summary>
-        private async Task ShutdownClientAsync()
+        private async Task ShutdownAsync()
         {
             _logger.LogInformation("Shutting down Discord connection...");
-            _client.MessageReceived -= _client_MessageReceived;
-            _client.Disconnected -= ClientDisconnected;
-            _client.Connected -= ClientConnected;
+            _client.MessageReceived -= OnMessageReceived;
+            _client.Disconnected -= OnDisconnected;
+            _client.Connected -= OnConnected;
 
             try
             {
@@ -91,73 +88,61 @@ namespace HambotV2.Connections
             }
         }
 
-        private Task ClientDisconnected(Exception exception)
+        private async Task OnMessageReceived(SocketMessage message)
         {
-            _logger.LogWarning("Discord gateway disconnected: {reason}. Discord.Net will attempt to reconnect automatically.", exception.Message);
-            return Task.CompletedTask;
+            // The gateway delivers the bot's own messages (and other bots'/webhooks') too. Without
+            // this guard the bot would re-process its own replies that start with the command
+            // identifier — e.g. the !help detail output — and answer itself.
+            if (message.Author.IsBot || message.Author.IsWebhook)
+                return;
+
+            // Each guild's effective identifier decides which messages are command invocations
+            // (FR-26); direct messages use the global default (DM commands run in the DM scope,
+            // see CommandHandler).
+            string identifier = message.Channel is SocketGuildChannel guildChannel
+                ? _guildSettingsService.GetCommandIdentifier(guildChannel.Guild.Id)
+                : _guildSettingsService.GlobalCommandIdentifier;
+
+            if (!message.Content.StartsWith(identifier))
+                return;
+
+            using var handler = _serviceProvider.GetService<ICommandHandler>();
+            if (handler is null)
+            {
+                _logger.LogWarning("No Command Handler found yet command executed!");
+                return;
+            }
+
+            await handler.HandleCommand(message);
         }
 
-        private Task ClientConnected()
+        private Task OnConnected()
         {
             _logger.LogInformation("Discord gateway connection established.");
             return Task.CompletedTask;
         }
 
-        private async Task _client_MessageReceived(SocketMessage arg)
+        private Task OnDisconnected(Exception exception)
         {
-            // The gateway delivers the bot's own messages (and other bots'/webhooks') too. Without
-            // this guard the bot would re-process its own replies that start with the command
-            // identifier — e.g. the !help detail output — and answer itself.
-            if (arg.Author.IsBot || arg.Author.IsWebhook)
-                return;
-
-            // Per-guild identifier (FR-26): each guild's effective identifier decides
-            // which messages are command invocations; direct messages use the global default, since
-            // DM commands run in the DM scope (see CommandHandler).
-            string identifier = arg.Channel is SocketGuildChannel guildChannel
-                ? _guildSettingsService.GetCommandIdentifier(guildChannel.Guild.Id)
-                : _guildSettingsService.GlobalCommandIdentifier;
-
-            if (arg.Content.StartsWith(identifier))
-            {
-                using (var commandHandler = _serviceProvider.GetService<ICommandHandler>())
-                {
-                    if (commandHandler != null)
-                    {
-                        await commandHandler.HandleCommand(arg);
-                    } else
-                    {
-                        _logger.LogWarning("No Command Handler found yet command executed!");
-                    }
-                }
-            }
-        }
-
-        private Task ClientLogged(LogMessage logMessage)
-        {
-            switch (logMessage.Severity)
-            {
-                case LogSeverity.Verbose:
-                    _logger.Log(LogLevel.Trace, _logFormat, logMessage.Source, logMessage.Message);
-                    break;
-                case LogSeverity.Debug:
-                    _logger.Log(LogLevel.Debug, _logFormat, logMessage.Source, logMessage.Message);
-                    break;
-                case LogSeverity.Info:
-                    _logger.Log(LogLevel.Information, _logFormat, logMessage.Source, logMessage.Message);
-                    break;
-                case LogSeverity.Warning:
-                    _logger.Log(LogLevel.Warning, _logFormat, logMessage.Source, logMessage.Message);
-                    break;
-                case LogSeverity.Error:
-                    _logger.Log(LogLevel.Error, _logFormat, logMessage.Source, logMessage.Message);
-                    break;
-                case LogSeverity.Critical:
-                    _logger.Log(LogLevel.Critical, _logFormat, logMessage.Source, logMessage.Message);
-                    break;
-            }
-
+            _logger.LogWarning("Discord gateway disconnected: {reason}. Discord.Net will attempt to reconnect automatically.", exception.Message);
             return Task.CompletedTask;
         }
+
+        private Task OnClientLog(LogMessage logMessage)
+        {
+            _logger.Log(ToLogLevel(logMessage.Severity), _logFormat, logMessage.Source, logMessage.Message);
+            return Task.CompletedTask;
+        }
+
+        private static LogLevel ToLogLevel(LogSeverity severity) => severity switch
+        {
+            LogSeverity.Verbose => LogLevel.Trace,
+            LogSeverity.Debug => LogLevel.Debug,
+            LogSeverity.Info => LogLevel.Information,
+            LogSeverity.Warning => LogLevel.Warning,
+            LogSeverity.Error => LogLevel.Error,
+            LogSeverity.Critical => LogLevel.Critical,
+            _ => LogLevel.Information
+        };
     }
 }

@@ -1,9 +1,4 @@
 using Discord;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace HambotV2.Commands.SystemCommands
 {
@@ -14,9 +9,9 @@ namespace HambotV2.Commands.SystemCommands
         public string Usage => "hello";
         public int DefaultPermissionTier => PermissionTier.Everyone;
 
-        public async Task ExecuteCommand(IMessage socketMessage, ICommandContext context)
+        public async Task ExecuteCommand(IMessage message, ICommandContext context)
         {
-            await socketMessage.Channel.SendMessageAsync(GetResponse());
+            await message.Channel.SendMessageAsync(GetResponse());
         }
 
         internal string GetResponse()

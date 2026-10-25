@@ -1,26 +1,15 @@
 using HambotV2.Commands;
 using HambotV2.Commands.SystemCommands;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Logging;
-using Moq;
 using System;
-using System.Collections.Generic;
-using System.Linq;
 
 namespace BotTests
 {
     [TestClass]
     public sealed class TestCommandInfrastructure
     {
-        private static ICommandService CreateService(string identifier = "!")
+        private static ICommandService CreateService()
         {
-            var configuration = new ConfigurationBuilder()
-                .AddInMemoryCollection(new Dictionary<string, string?> {
-                    {"BotConfiguration:CommandIdentifier", identifier},
-                })
-                .Build();
-
-            return new CommandService(Mock.Of<ILogger<CommandService>>(), configuration);
+            return new CommandService();
         }
 
         [TestMethod]
@@ -166,7 +155,7 @@ namespace BotTests
         [TestMethod]
         public void CommandService_Supports_Custom_Identifier()
         {
-            ICommandService commandService = CreateService(identifier: "//");
+            ICommandService commandService = CreateService();
 
             commandService.RegisterCommands();
 

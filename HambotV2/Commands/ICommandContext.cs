@@ -1,9 +1,4 @@
 using HambotV2.Connections;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace HambotV2.Commands
 {
@@ -11,7 +6,7 @@ namespace HambotV2.Commands
     {
         IDatabaseContext DbContext { get; }
 
-        /// <summary>The tier overrides applying to the current message (guild owner, configured admin, bot owner).</summary>
+        /// <summary>The tier overrides applying to the current message (guild owner, bot owner).</summary>
         TierOverrides Overrides { get; }
 
         /// <summary>

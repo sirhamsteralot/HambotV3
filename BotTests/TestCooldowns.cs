@@ -216,7 +216,7 @@ namespace BotTests
         {
             var harness = new CooldownHarness(new Dictionary<int, int> { { PermissionTier.Everyone, 30 } });
             var command = DiscordTestDoubles.CreateMockCommand("greet");
-            var commandService = new CommandService(Mock.Of<ILogger<CommandService>>(), new ConfigurationBuilder().Build());
+            var commandService = new CommandService();
             commandService.RegisterCommand("greet", command.Object);
 
             var sentMessages = new List<string>();
@@ -229,12 +229,12 @@ namespace BotTests
 
             CommandHandler CreateHandler() => new CommandHandler(
                 commandService,
-                Mock.Of<ILogger<CommandHandler>>(),
-                Mock.Of<IConfiguration>(),
-                harness.CreateContext(),
-                permissions.Object,
                 StubGuildSettings(),
-                harness.Service);
+                permissions.Object,
+                harness.Service,
+                harness.CreateContext(),
+                Mock.Of<IConfiguration>(),
+                Mock.Of<ILogger<CommandHandler>>());
 
             await CreateHandler().HandleCommand(message.Object);   // first invocation passes the throttle
             await CreateHandler().HandleCommand(message.Object);  // second is inside the 30-second window
@@ -250,7 +250,7 @@ namespace BotTests
         {
             var harness = new CooldownHarness();
             var command = DiscordTestDoubles.CreateMockCommand("greet");
-            var commandService = new CommandService(Mock.Of<ILogger<CommandService>>(), new ConfigurationBuilder().Build());
+            var commandService = new CommandService();
             commandService.RegisterCommand("greet", command.Object);
 
             var sentMessages = new List<string>();
@@ -263,7 +263,7 @@ namespace BotTests
 
             var logger = new Mock<ILogger<CommandHandler>>();
             CommandHandler CreateHandler() => new CommandHandler(
-                commandService, logger.Object, Mock.Of<IConfiguration>(), harness.CreateContext(), permissions.Object, StubGuildSettings(), harness.Service);
+                commandService, StubGuildSettings(), permissions.Object, harness.Service, harness.CreateContext(), Mock.Of<IConfiguration>(), logger.Object);
 
             await CreateHandler().HandleCommand(message.Object);
             await CreateHandler().HandleCommand(message.Object);

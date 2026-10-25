@@ -1,5 +1,4 @@
 using HambotV2.Connections;
-using System.Linq;
 
 namespace HambotV2.Commands.SystemCommands
 {

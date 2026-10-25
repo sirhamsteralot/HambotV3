@@ -1,5 +1,3 @@
-using System;
-
 namespace HambotV2.Commands
 {
     /// <summary>
@@ -30,7 +28,7 @@ namespace HambotV2.Commands
         public static CommandArguments Parse(string content)
         {
             string[] tokens = content.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-            return new CommandArguments(tokens.Length == 0 ? Array.Empty<string>() : tokens[1..]);
+            return new CommandArguments(tokens.Length > 1 ? tokens[1..] : Array.Empty<string>());
         }
 
         /// <summary>The raw argument at <paramref name="index"/>, or null when absent.</summary>
