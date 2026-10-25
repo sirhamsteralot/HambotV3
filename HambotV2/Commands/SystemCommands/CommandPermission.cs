@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 namespace HambotV2.Commands.SystemCommands
 {
     /// <summary>
-    /// Shows or sets the permission tier a command requires. Escalation guard (roadmap T16): the
+    /// Shows or sets the permission tier a command requires. Escalation guard: the
     /// invoking user may only assign required tiers strictly below their own effective tier, and
     /// only to commands whose current required tier is strictly below their own — so nobody can
     /// unlock or lock commands at or above their own level.
@@ -21,7 +21,7 @@ namespace HambotV2.Commands.SystemCommands
 
         public async Task ExecuteCommand(IMessage socketMessage, ICommandContext context)
         {
-            // Command tiers are per-guild state (roadmap T14); in the DM scope (FR-25) there is no
+            // Command tiers are per-guild state; in the DM scope (FR-25) there is no
             // guild to manage and no state may be written, so the command declines.
             if (context.GuildId is not ulong guildId)
             {

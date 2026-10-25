@@ -14,7 +14,7 @@ using System.Threading.Tasks;
 namespace BotTests
 {
     /// <summary>
-    /// Guild-scoped settings (roadmap T14, FR-26): per-guild identifier resolution with global
+    /// Guild-scoped settings (FR-26): per-guild identifier resolution with global
     /// fallback, runtime writes with cache refresh, and the !settings command managing them.
     /// </summary>
     [TestClass]
@@ -252,7 +252,7 @@ namespace BotTests
         [TestMethod]
         public async Task Settings_SetCooldownZeroSeconds_IsAllowed()
         {
-            // A window of 0 disables throttling for that tier (roadmap T13).
+            // A window of 0 disables throttling for that tier.
             var harness = new SettingsHarness();
 
             var replies = await ExecuteSettings(harness, "!settings cooldown 1 0", invokerTier: PermissionTier.Admin);

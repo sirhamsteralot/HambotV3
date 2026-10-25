@@ -92,7 +92,7 @@ The unit tests (MSTest + Moq, in `BotTests/`) run without a database, Discord to
 dotnet test HambotV2.sln
 ```
 
-They cover command registration (lowercase names, help text, default tiers), command lookup and parsing edge cases, the permission tier scale with tier overrides and escalation guards, the permission-management and `!help` command behavior (against an in-memory database), startup configuration validation, and the command pipeline failure paths (throwing commands, database errors during permission checks).
+They cover command registration (lowercase names, help text, default tiers), command lookup and parsing edge cases, the typed argument-parsing helper, the permission tier scale with tier overrides and escalation guards, per-guild scoping and the DM scope, the permission-management, `!settings` and `!help` command behavior, command cooldowns, startup configuration validation, and the command pipeline failure paths (throwing commands, database errors during permission checks).
 
 ## Running in production
 
@@ -140,6 +140,9 @@ If the token is wrong/missing you'll instead see a critical message naming the m
 | `!help [commandName]` | Lists the commands you can use, or shows detailed help (description, usage, required tier) for one command. |
 | `!commandpermission <name> [tier]` | Prints a command's required tier, or sets/creates it. Admin-only by default. |
 | `!userpermission <user> [tier]` | Prints a user's tier, or sets/creates it. `<user>` is a raw Discord id or an @mention. Admin-only by default. |
+| `!settings` | Shows the server's effective command identifier and per-tier cooldown overrides. Admin-only by default. |
+| `!settings commandidentifier <value>` / `reset` | Sets or clears the server's command identifier override (≤ 5 chars; `reset` reverts to the global default). |
+| `!settings cooldown <tier> <seconds>` / `reset` | Sets or clears the server's per-tier cooldown override (tiers 0–3; `0` disables throttling for that tier). |
 
 Permission tiers form a named scale:
 
@@ -153,7 +156,7 @@ Permission tiers form a named scale:
 
 On a fresh guild (empty database) **nobody can grant themselves permissions**: the permission-management commands require admin tier by default, and their escalation guard only allows assigning tiers strictly below your own — you can never modify your own tier or that of an equal/higher-tiered user.
 
-Bootstrap administrator (roadmap T16): the **guild owner** automatically acts at owner tier in their guild, without any database entry. That is how the first admin exists on a fresh guild; they can then grant tiers to others with `!userpermission`.
+Bootstrap administrator: the **guild owner** automatically acts at owner tier in their guild, without any database entry. That is how the first admin exists on a fresh guild; they can then grant tiers to others with `!userpermission`.
 
 The **bot owner** is configured in `.env` as `BOT_OWNER_DISCORD_ID` (wired through to `Permissions:BotOwnerDiscordId`). They hold tier 4 in every guild — the highest permission level of all, above guild owners — and are the designated operator for things that apply across guilds (e.g. managing any guild's settings by running `!settings` there). The tier comes from configuration only: it can never be granted through commands, not even by the bot owner themselves.
 

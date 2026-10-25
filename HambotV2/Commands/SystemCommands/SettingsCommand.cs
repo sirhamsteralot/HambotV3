@@ -7,10 +7,10 @@ using System.Threading.Tasks;
 namespace HambotV2.Commands.SystemCommands
 {
     /// <summary>
-    /// Manages the invoking guild's bot settings (roadmap T14, FR-26). Guild overrides fall back to
+    /// Manages the invoking guild's bot settings (FR-26). Guild overrides fall back to
     /// the global defaults from appsettings.json when unset. Admin-only by default, mirroring the
     /// permission-management commands (FR-35); the bot owner can manage any guild by running the
-    /// command there. Written on the shared argument-parsing helper (roadmap T15).
+    /// command there. Written on the shared argument-parsing helper.
     /// </summary>
     internal class SettingsCommand : ICommand
     {
@@ -23,7 +23,7 @@ namespace HambotV2.Commands.SystemCommands
 
         public async Task ExecuteCommand(IMessage socketMessage, ICommandContext context)
         {
-            // Guild settings are per-guild state (roadmap T14); in the DM scope (FR-25) there is no
+            // Guild settings are per-guild state; in the DM scope (FR-25) there is no
             // guild to manage and no state may be written, so the command declines.
             if (context.GuildId is not ulong guildId)
             {
@@ -88,7 +88,7 @@ namespace HambotV2.Commands.SystemCommands
         }
 
         /// <summary>
-        /// Manages the guild's per-tier cooldown override (roadmap T13 stage 2): the escalation
+        /// Manages the guild's per-tier cooldown override: the escalation
         /// guard mirrors FR-36 — an invoker may only configure tiers strictly below their own, so
         /// nobody can loosen the throttle that governs their own level; the bot owner (tier 4,
         /// never bound by a guild override) may configure any tier.

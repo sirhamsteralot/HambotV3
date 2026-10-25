@@ -29,7 +29,7 @@ README.md
 !.git/packed-refs
 !.git/refs/heads/**
 
-# Secrets must never enter the build context / image (roadmap T3): they are provided
+# Secrets must never enter the build context / image: they are provided
 # via environment variables (Secrets__BotToken, ConnectionStrings__DefaultConnection).
 HambotV2/appsecrets.json
 

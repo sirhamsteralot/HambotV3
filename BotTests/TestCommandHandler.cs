@@ -130,7 +130,7 @@ namespace BotTests
         }
 
         /// <summary>
-        /// Verifies the structured command audit event (roadmap T12): exactly one Information-level
+        /// Verifies the structured command audit event: exactly one Information-level
         /// log whose rendered state matches the predicate — the single audit line per handled message.
         /// </summary>
         private static void VerifyAuditEvent(Mock<ILogger<CommandHandler>> logger, Func<string, bool> statePredicate, Func<Times> times)
@@ -233,7 +233,7 @@ namespace BotTests
         [TestMethod]
         public async Task HandleCommand_DirectMessage_ExecutesCommand()
         {
-            // DM scope (roadmap T14/FR-25): direct messages run commands (owner-tier user, built-in
+            // DM scope (FR-25): direct messages run commands (owner-tier user, built-in
             // default command tiers) instead of being rejected.
             var pipeline = new TestPipeline("!greet", directMessage: true);
             var command = DiscordTestDoubles.CreateMockCommand("greet");

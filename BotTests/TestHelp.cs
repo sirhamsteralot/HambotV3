@@ -9,7 +9,7 @@ using System.Threading.Tasks;
 namespace BotTests
 {
     /// <summary>
-    /// Behavior of the !help command (roadmap T17, FR-38 to FR-40): tier-filtered listing,
+    /// Behavior of the !help command (FR-38 to FR-40): tier-filtered listing,
     /// detailed help, and the generic non-revealing reply for unknown/insufficient-tier commands.
     /// </summary>
     [TestClass]
@@ -77,7 +77,7 @@ namespace BotTests
         [TestMethod]
         public async Task Help_List_For_Guild_Owner_Shows_Admin_Commands_Without_Database_Row()
         {
-            // Bootstrap admin (roadmap T16): the guild owner sees everything even on a fresh guild.
+            // Bootstrap admin: the guild owner sees everything even on a fresh guild.
             var commandService = CreateRegisteredService();
             var database = DiscordTestDoubles.CreateDatabase();
 

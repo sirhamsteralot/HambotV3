@@ -3,7 +3,7 @@ using System;
 namespace HambotV2.Commands
 {
     /// <summary>
-    /// Shared command-message parsing (roadmap T5). Rules, also documented in software-design.md:
+    /// Shared command-message parsing. Rules, also documented in software-design.md:
     /// the command identifier is matched case-sensitively as an exact prefix of the trimmed
     /// message; any run of whitespace separates tokens; the command name is the first token
     /// after the identifier, lowercased.

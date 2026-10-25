@@ -87,7 +87,7 @@ namespace BotTests
         [TestMethod]
         public void CommandService_All_Registered_Commands_Satisfy_Contract()
         {
-            // Roadmap T17 (FR-39): every command must carry help text, a valid default tier and a
+            // (FR-39): every command must carry help text, a valid default tier and a
             // lowercase name; registration itself rejects anything else.
             ICommandService commandService = CreateService();
 

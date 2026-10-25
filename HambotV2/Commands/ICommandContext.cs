@@ -15,7 +15,7 @@ namespace HambotV2.Commands
         TierOverrides Overrides { get; }
 
         /// <summary>
-        /// The guild the message was sent in (roadmap T14, FR-24); all persisted state is scoped to it.
+        /// The guild the message was sent in (FR-24); all persisted state is scoped to it.
         /// Null in direct messages (FR-25): the DM scope applies (owner-tier user, built-in default
         /// command tiers) and guild-state commands must refuse.
         /// </summary>
@@ -27,7 +27,7 @@ namespace HambotV2.Commands
         /// <summary>The effective command identifier: the guild's override or, in direct messages, the global default (FR-26).</summary>
         string CommandIdentifier { get; }
 
-        /// <summary>Guild-scoped settings resolution; commands use it to write guild settings with cache invalidation (roadmap T14).</summary>
+        /// <summary>Guild-scoped settings resolution; commands use it to write guild settings with cache invalidation.</summary>
         IGuildSettingsService GuildSettings { get; }
 
         /// <summary>

@@ -9,7 +9,7 @@ namespace BotTests
 {
     /// <summary>
     /// Behavior of !userpermission / !commandpermission against a real (in-memory) database:
-    /// mention parsing (roadmap T7), tier validation and escalation guards (roadmap T16, FR-36/FR-37).
+    /// mention parsing, tier validation and escalation guards (FR-36/FR-37).
     /// </summary>
     [TestClass]
     public sealed class TestPermissionCommands
@@ -200,7 +200,7 @@ namespace BotTests
         [TestMethod]
         public async Task UserPermission_Set_On_FreshGuild_RandomUser_Cannot_Grant_Any_Tier()
         {
-            // Roadmap T16: without bootstrap, a tier-0 user has nobody below themselves and no
+            // Without bootstrap, a tier-0 user has nobody below themselves and no
             // assignable tier — even tier 0 is rejected by the escalation guard.
             var database = DiscordTestDoubles.CreateDatabase();
 
@@ -287,7 +287,7 @@ namespace BotTests
         [TestMethod]
         public async Task UserPermission_Tier_Is_Scoped_To_The_Invoking_Guild()
         {
-            // Roadmap T14 (FR-24): a tier set in guild 1 does not show up when the same user is
+            // (FR-24): a tier set in guild 1 does not show up when the same user is
             // queried in guild 2.
             var database = DiscordTestDoubles.CreateDatabase();
 
@@ -408,7 +408,7 @@ namespace BotTests
         public async Task CommandPermission_Set_By_BotOwner_Can_Raise_Command_To_Owner_Tier()
         {
             // The bot owner acts at the globally highest tier in every guild, so they can gate a
-            // command at owner tier in the invoking guild (roadmap T14: tiers are per guild).
+            // command at owner tier in the invoking guild (tiers are per guild).
             var database = DiscordTestDoubles.CreateDatabase();
 
             var replies = await ExecuteCommandPermission(database, "!commandpermission hello 3", authorId: BotOwner, botOwnerId: BotOwner);
@@ -420,7 +420,7 @@ namespace BotTests
         [TestMethod]
         public async Task CommandPermission_Override_Is_Scoped_To_The_Invoking_Guild()
         {
-            // Roadmap T14 (FR-24): a tier override set in guild 1 leaves the command at its default
+            // (FR-24): a tier override set in guild 1 leaves the command at its default
             // in guild 2.
             var database = DiscordTestDoubles.CreateDatabase();
 

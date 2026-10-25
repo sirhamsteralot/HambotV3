@@ -1,4 +1,4 @@
-// Jenkins CI pipeline for HambotV2 (roadmap T10).
+// Jenkins CI pipeline for HambotV2.
 //
 // Point the Jenkins job at this file ("Pipeline script from SCM") so the pipeline
 // stays in sync with the solution structure instead of a job-local script.
@@ -25,7 +25,7 @@ pipeline {
     stages {
         stage('Build') {
             steps {
-                // T11 made the build warning-free; this keeps it that way by
+                // The build is warning-free; this keeps it that way by
                 // failing the build on any (new) nullable warning.
                 sh 'dotnet build HambotV2.sln --configuration Release /warnaserror:nullable'
             }

@@ -3,7 +3,7 @@ using System;
 namespace HambotV2.Commands
 {
     /// <summary>
-    /// Parses a Discord user argument that may be a raw numeric id or a mention (roadmap T7):
+    /// Parses a Discord user argument that may be a raw numeric id or a mention:
     /// Discord renders mentions as <c>&lt;@id&gt;</c> or the legacy <c>&lt;@!id&gt;</c>.
     /// </summary>
     internal static class DiscordUserId

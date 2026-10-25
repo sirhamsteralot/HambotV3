@@ -3,7 +3,7 @@ using System;
 namespace HambotV2.Commands
 {
     /// <summary>
-    /// The named permission tier scale (roadmap T16, FR-33/FR-37). Tiers are ordered integers;
+    /// The named permission tier scale (FR-33/FR-37). Tiers are ordered integers;
     /// a command may run when the user's effective tier is greater than or equal to the
     /// command's required tier. The bot owner tier (4) sits above every guild-level tier and
     /// can only be held via configuration — it can never be assigned through commands.

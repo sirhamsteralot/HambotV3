@@ -7,7 +7,7 @@ using System.Linq;
 namespace HambotV2.Commands
 {
     /// <summary>
-    /// Per-(guild, user, command) in-memory command cooldown (roadmap T13, NFR-12). Singleton: the
+    /// Per-(guild, user, command) in-memory command cooldown (NFR-12). Singleton: the
     /// recorded timestamps are shared across messages while the rest of the handler chain stays
     /// transient. The cooldown window is resolved per guild from the invoking user's effective tier:
     /// the guild's <c>GuildSetting</c> per-tier override if set, otherwise the global per-tier

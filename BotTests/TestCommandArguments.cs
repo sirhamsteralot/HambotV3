@@ -3,7 +3,7 @@ using HambotV2.Commands;
 namespace BotTests
 {
     /// <summary>
-    /// The shared argument-parsing helper (roadmap T15, NFR-13): tokenization of command messages
+    /// The shared argument-parsing helper (NFR-13): tokenization of command messages
     /// and typed accessors (string, int, Discord id/mention).
     /// </summary>
     [TestClass]

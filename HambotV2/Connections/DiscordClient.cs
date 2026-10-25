@@ -111,7 +111,7 @@ namespace HambotV2.Connections
             if (arg.Author.IsBot || arg.Author.IsWebhook)
                 return;
 
-            // Per-guild identifier (roadmap T14, FR-26): each guild's effective identifier decides
+            // Per-guild identifier (FR-26): each guild's effective identifier decides
             // which messages are command invocations; direct messages use the global default, since
             // DM commands run in the DM scope (see CommandHandler).
             string identifier = arg.Channel is SocketGuildChannel guildChannel

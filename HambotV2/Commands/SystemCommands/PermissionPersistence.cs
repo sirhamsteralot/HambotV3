@@ -4,7 +4,7 @@ using System.Linq;
 namespace HambotV2.Commands.SystemCommands
 {
     /// <summary>
-    /// Shared "upsert tier" logic of the two permission-management commands (roadmap T7).
+    /// Shared "upsert tier" logic of the two permission-management commands.
     /// The escalation guards themselves live in the commands, next to their user-facing errors.
     /// </summary>
     internal static class PermissionPersistence

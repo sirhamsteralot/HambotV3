@@ -1,8 +1,8 @@
 namespace HambotV2.Commands
 {
     /// <summary>
-    /// Result of handling one command message, recorded in the structured audit log (roadmap T12,
-    /// NFR-11). Exactly one <see cref="CommandOutcome"/> is logged per message that reaches the
+    /// Result of handling one command message, recorded in the structured audit log
+    /// (NFR-11). Exactly one <see cref="CommandOutcome"/> is logged per message that reaches the
     /// command pipeline.
     /// </summary>
     internal enum CommandOutcome
@@ -19,7 +19,7 @@ namespace HambotV2.Commands
         /// <summary>The message was identifier-only (e.g. a bare "!") and is ignored silently.</summary>
         Ignored,
 
-        /// <summary>The command exists but the user is on cooldown (roadmap T13).</summary>
+        /// <summary>The command exists but the user is on cooldown.</summary>
         Throttled,
 
         /// <summary>The pipeline caught an exception; the user got the generic error reply.</summary>

@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 namespace HambotV2.Commands.SystemCommands
 {
     /// <summary>
-    /// Shows or sets a user's permission tier. Escalation guard (roadmap T16, FR-36): the invoking
+    /// Shows or sets a user's permission tier. Escalation guard (FR-36): the invoking
     /// user may only assign tiers strictly below their own effective tier, and can never modify
     /// their own tier or that of an equal/higher-tiered user. Bootstrap admins (guild owner /
     /// configured admin) always act at owner tier, so a fresh guild has a working first admin.
@@ -21,7 +21,7 @@ namespace HambotV2.Commands.SystemCommands
 
         public async Task ExecuteCommand(IMessage socketMessage, ICommandContext context)
         {
-            // User tiers are per-guild state (roadmap T14); in the DM scope (FR-25) there is no
+            // User tiers are per-guild state; in the DM scope (FR-25) there is no
             // guild to manage and no state may be written, so the command declines.
             if (context.GuildId is not ulong guildId)
             {

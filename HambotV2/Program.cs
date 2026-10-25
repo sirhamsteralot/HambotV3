@@ -17,7 +17,7 @@ namespace HambotV2
             // precedence, so a container never depends on the (excluded) secrets file.
             builder.Configuration.AddJsonFile("appsecrets.json", optional: true);
             builder.Configuration.AddEnvironmentVariables();
-            // Serilog replaces the default providers as the logging backend (roadmap T12). All bot
+            // Serilog replaces the default providers as the logging backend. All bot
             // code keeps using ILogger<T>; the sinks and levels come from the "Serilog" section of
             // appsettings.json / environment variables, so the log level is adjustable without a
             // rebuild. Everything logged before the host starts (validation, migrations) uses the
@@ -26,17 +26,17 @@ namespace HambotV2
             builder.Services.AddSerilog((services, loggerConfiguration) => loggerConfiguration
                 .ReadFrom.Configuration(builder.Configuration));
             builder.Services.AddDbContext<DatabaseContext>(options => options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")), ServiceLifetime.Transient, ServiceLifetime.Transient);
-            // The command pipeline depends on the IDatabaseContext abstraction (roadmap T6); this maps
+            // The command pipeline depends on the IDatabaseContext abstraction; this maps
             // it onto the same transient DatabaseContext registration.
             builder.Services.AddTransient<IDatabaseContext>(serviceProvider => serviceProvider.GetRequiredService<DatabaseContext>());
             builder.Services.AddHostedService<DiscordClient>();
             builder.Services.AddTransient<ICommandHandler, CommandHandler>();
             builder.Services.AddTransient<IPermissionsService, PermissionsService>();
             builder.Services.AddSingleton<ICommandService, CommandService>();
-            // Guild-scoped settings resolution (roadmap T14): singleton so the per-guild command
+            // Guild-scoped settings resolution: singleton so the per-guild command
             // identifiers stay cached in memory for the gateway pre-filter and command parsing.
             builder.Services.AddSingleton<IGuildSettingsService>(serviceProvider => new GuildSettingsService(serviceProvider, builder.Configuration));
-            // Command cooldowns (roadmap T13): the throttle state is shared across messages, so the
+            // Command cooldowns: the throttle state is shared across messages, so the
             // service is a singleton; time is injected via TimeProvider for deterministic tests.
             builder.Services.AddSingleton(TimeProvider.System);
             builder.Services.AddSingleton<ICooldownService, CooldownService>();

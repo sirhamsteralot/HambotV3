@@ -30,7 +30,7 @@ namespace HambotV2.Commands
 
         public void RegisterCommand(string commandName, ICommand command)
         {
-            // Registration is the single chokepoint for the command contract (roadmap T17): a
+            // Registration is the single chokepoint for the command contract: a
             // command without help text or with an invalid tier/default never enters the registry.
             if (string.IsNullOrWhiteSpace(commandName))
                 throw new ArgumentException("Command names must not be empty.", nameof(commandName));

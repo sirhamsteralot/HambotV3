@@ -10,7 +10,7 @@ namespace HambotV2.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            // Roadmap T14 (FR-20/FR-24): adds the per-guild dimension to permission state. Existing
+            // (FR-20/FR-24): adds the per-guild dimension to permission state. Existing
             // rows keep the sentinel GuildId 0 (the column default), which matches no real guild id,
             // so legacy tiers become inert; admins re-grant tiers per guild. Guild owners already
             // bootstrap at owner tier (FR-34), so fresh guilds need no data.

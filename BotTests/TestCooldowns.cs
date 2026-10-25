@@ -13,7 +13,7 @@ using System.Threading.Tasks;
 namespace BotTests
 {
     /// <summary>
-    /// Command cooldowns (roadmap T13, NFR-12): the per-(guild, user, command) in-memory throttle,
+    /// Command cooldowns (NFR-12): the per-(guild, user, command) in-memory throttle,
     /// per-tier window resolution (global map, guild override, reset fallback, 0 disables), the
     /// tier-4 and DM scope exclusions, the pipeline throttle reply, and the !settings cooldown
     /// subcommand with its escalation guard.

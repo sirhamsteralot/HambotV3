@@ -9,7 +9,7 @@ namespace HambotV2.Commands.SystemCommands
 {
     /// <summary>
     /// Lists the commands available to the invoking user, or shows detailed help for one command
-    /// (roadmap T17, FR-38 to FR-40). Unknown commands and commands above the user's tier get
+    /// (FR-38 to FR-40). Unknown commands and commands above the user's tier get
     /// the same generic reply, so the existence of higher-tier commands is never revealed.
     /// </summary>
     internal class HelpCommand : ICommand

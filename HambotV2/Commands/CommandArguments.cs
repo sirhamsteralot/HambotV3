@@ -3,7 +3,7 @@ using System;
 namespace HambotV2.Commands
 {
     /// <summary>
-    /// Shared argument parsing for command implementations (roadmap T15, NFR-13): a command
+    /// Shared argument parsing for command implementations (NFR-13): a command
     /// receives the message as typed values instead of hand-rolled Split/TryParse code.
     ///
     /// Parsing follows the pipeline's rules (see <see cref="CommandParsing"/>): the message is
@@ -56,7 +56,7 @@ namespace HambotV2.Commands
 
         /// <summary>
         /// Gets the argument at <paramref name="index"/> as a Discord user id, accepting raw ids
-        /// and mentions (<c>&lt;@id&gt;</c> / <c>&lt;@!id&gt;</c>, roadmap T7).
+        /// and mentions (<c>&lt;@id&gt;</c> / <c>&lt;@!id&gt;</c>).
         /// </summary>
         public bool TryGetDiscordUserId(int index, out ulong discordId)
         {

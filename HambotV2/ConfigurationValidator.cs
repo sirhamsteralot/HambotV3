@@ -4,7 +4,7 @@ using System.Collections.Generic;
 namespace HambotV2
 {
     /// <summary>
-    /// Startup validation of required configuration keys (roadmap T4). Failing fast with an explicit
+    /// Startup validation of required configuration keys. Failing fast with an explicit
     /// message beats discovering a missing token or connection string at login/connection time.
     /// </summary>
     internal static class ConfigurationValidator

@@ -38,7 +38,7 @@ namespace HambotV2.Commands
             ulong? guildId = null;
             try
             {
-                // A null guild id means the message is a direct message (roadmap T14, FR-25). DMs use
+                // A null guild id means the message is a direct message (FR-25). DMs use
                 // the global identifier and the DM permission scope: the user acts at owner tier and
                 // commands require their built-in defaults — no per-guild state is read or written,
                 // so DMs need no database rows. Commands that manage guild state refuse themselves.
@@ -50,7 +50,7 @@ namespace HambotV2.Commands
                     : _guildSettingsService.GlobalCommandIdentifier;
 
                 if (!_commandService.TryGetCommand(socketMessageCommand.Content, identifier, out command)) {
-                    // Identifier-only messages (e.g. a bare "!", roadmap T5) are ignored silently
+                    // Identifier-only messages (e.g. a bare "!") are ignored silently
                     // instead of being answered like unknown commands.
                     if (_commandService.IsIdentifierOnlyMessage(socketMessageCommand.Content, identifier))
                         return;
@@ -60,7 +60,7 @@ namespace HambotV2.Commands
                     return;
                 }
 
-                // Tier overrides (roadmap T16): the guild owner acts at owner tier in their guild
+                // Tier overrides: the guild owner acts at owner tier in their guild
                 // even without any database entry; the configured bot owner acts at the globally
                 // highest tier in every guild.
                 var overrides = new TierOverrides
@@ -77,7 +77,7 @@ namespace HambotV2.Commands
                     return;
                 }
 
-                // Cooldown check (roadmap T13, NFR-12): after the permission check, before execution,
+                // Cooldown check (NFR-12): after the permission check, before execution,
                 // keyed per (guild, user, command) so a throttled !hello does not block !help. The
                 // window is resolved from the effective tier the permission check already computed.
                 var cooldownCheck = _cooldownService.TryBeginInvocation(guildId, socketMessageCommand.Author.Id, command.Name, permissionCheck.UserEffectiveTier, _databaseContext);
@@ -112,7 +112,7 @@ namespace HambotV2.Commands
             }
             finally
             {
-                // One structured audit event per handled message (roadmap T12, NFR-11): command usage
+                // One structured audit event per handled message (NFR-11): command usage
                 // is traceable from logs without debugging. Named placeholders keep the fields
                 // filterable; message content is deliberately absent (only the failure path logs it).
                 _logger.LogInformation(

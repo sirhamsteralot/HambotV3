@@ -9,7 +9,7 @@ namespace HambotV2.Commands
 {
     /// <summary>
     /// Outcome of the permission check: the verdict plus the user's effective tier it was decided
-    /// with. The tier is carried along (roadmap T13) so the pipeline's cooldown check can resolve
+    /// with. The tier is carried along so the pipeline's cooldown check can resolve
     /// the invoking user's cooldown window without repeating the database lookup.
     /// </summary>
     internal readonly record struct PermissionCheckResult(bool IsAllowed, int UserEffectiveTier);

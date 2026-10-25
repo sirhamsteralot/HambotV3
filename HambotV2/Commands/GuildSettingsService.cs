@@ -27,7 +27,7 @@ namespace HambotV2.Commands
     }
 
     /// <summary>
-    /// Guild-scoped settings resolution (roadmap T14, FR-26): guild overrides with global defaults.
+    /// Guild-scoped settings resolution (FR-26): guild overrides with global defaults.
     /// The service is a singleton so the resolved identifiers are cached in memory — the per-message
     /// path (gateway pre-filter and command parsing) never queries the database on a cache hit.
     /// </summary>

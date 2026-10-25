@@ -11,11 +11,11 @@ namespace BotTests
 {
     /// <summary>
     /// Shared Moq doubles for the Discord message surface plus an in-memory database, so command
-    /// and permission tests run without Discord or PostgreSQL (roadmap T6/T7).
+    /// and permission tests run without Discord or PostgreSQL.
     /// </summary>
     internal static class DiscordTestDoubles
     {
-        /// <summary>The guild id used by the doubles unless a test needs multiple guilds (roadmap T14).</summary>
+        /// <summary>The guild id used by the doubles unless a test needs multiple guilds.</summary>
         public const ulong DefaultGuildId = 1;
 
         /// <summary>Each caller gets its own isolated in-memory database.</summary>
@@ -70,7 +70,7 @@ namespace BotTests
             guild.SetupGet(g => g.OwnerId).Returns(guildOwnerId);
 
             // ITextChannel is both an IMessageChannel and a guild channel carrying the guild (and
-            // with it the owner id used for the guild-owner tier override, roadmap T16).
+            // with it the owner id used for the guild-owner tier override).
             var channel = new Mock<ITextChannel>();
             channel.SetupGet(c => c.GuildId).Returns(guildId);
             channel.SetupGet(c => c.Guild).Returns(guild.Object);
