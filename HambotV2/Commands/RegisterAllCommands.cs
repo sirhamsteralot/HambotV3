@@ -1,6 +1,8 @@
 using HambotV2.Commands.QuoteCommands;
+using HambotV2.Commands.ReminderCommands;
 using HambotV2.Commands.ResponseCommands;
 using HambotV2.Commands.SystemCommands;
+using HambotV2.Scheduling;
 
 namespace HambotV2.Commands
 {
@@ -9,11 +11,12 @@ namespace HambotV2.Commands
     /// </summary>
     internal static class RegisterAllCommands
     {
-        public static void RegisterCommands(ICommandService commandService)
+        public static void RegisterCommands(ICommandService commandService, IScheduledDeliverySignal deliverySignal)
         {
             RegisterSystemCommands.RegisterCommands(commandService);
             RegisterQuoteCommands.RegisterCommands(commandService);
             RegisterResponseCommands.RegisterCommands(commandService);
+            RegisterReminderCommands.RegisterCommands(commandService, deliverySignal);
         }
     }
 }

@@ -75,7 +75,7 @@ Shared conventions for all three tasks (from the design doc):
   10. `!addresponse` invocations carrying file or image attachments are rejected in-channel and nothing is stored (FR-60); dispatched responses are plain text only — links are stored and sent verbatim, and the bot uploads no files.
   11. Unit tests cover: name/content validation, built-in collision rejection, create-vs-update behavior, removal, per-guild isolation, dispatch order (built-in wins over custom, custom wins over "unavailable"), cooldown and permission gating of response dispatch, attachment rejection, and DM behavior.
 
-### [ ] 3. Reminders — timed direct-message reminders *(FR-61–FR-71, NFR-16; design: §3.8)*
+### [x] 3. Reminders — timed direct-message reminders *(FR-61–FR-71, NFR-16; design: §3.8)*
 
 - **Problem**: HambotV2 cannot remind users of things. The old bot's `remindme` used in-memory timers: reminders due during downtime were lost, delivery failures were silently swallowed, and reminders could not be listed or cancelled.
 - **Steps**:

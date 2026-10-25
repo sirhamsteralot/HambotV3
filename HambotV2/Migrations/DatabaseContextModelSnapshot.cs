@@ -113,6 +113,35 @@ namespace HambotV2.Migrations
                     b.ToTable("Quotes");
                 });
 
+            modelBuilder.Entity("HambotV2.Connections.DatabaseContext+Reminder", b =>
+                {
+                    b.Property<decimal>("OwnerDiscordId")
+                        .HasColumnType("numeric(20,0)");
+
+                    b.Property<int>("Number")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("DueAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("FailedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<decimal?>("GuildId")
+                        .HasColumnType("numeric(20,0)");
+
+                    b.Property<string>("Message")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("OwnerDiscordId", "Number");
+
+                    b.ToTable("Reminders");
+                });
+
             modelBuilder.Entity("HambotV2.Connections.DatabaseContext+User", b =>
                 {
                     b.Property<decimal>("GuildId")

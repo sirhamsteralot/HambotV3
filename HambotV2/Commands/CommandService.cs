@@ -1,9 +1,23 @@
 using System.Diagnostics.CodeAnalysis;
+using HambotV2.Scheduling;
 
 namespace HambotV2.Commands
 {
     internal class CommandService : ICommandService
     {
+        /// <summary>Shared with the scheduled-message commands and the delivery loops; production DI supplies the one singleton.</summary>
+        private readonly IScheduledDeliverySignal _deliverySignal;
+
+        /// <summary>
+        /// The signal defaults to an isolated instance, which keeps the registry usable in tests
+        /// that do not exercise scheduled delivery (the default's notifications simply have no
+        /// listener).
+        /// </summary>
+        public CommandService(IScheduledDeliverySignal? deliverySignal = null)
+        {
+            _deliverySignal = deliverySignal ?? new ScheduledDeliverySignal();
+        }
+
         public Dictionary<string, ICommand> Commands { get; } = new();
 
         /// <summary>True once the built-in commands have been registered; guards the lazy registration in <see cref="TryGetCommand"/>.</summary>
@@ -11,7 +25,7 @@ namespace HambotV2.Commands
 
         public void RegisterCommands()
         {
-            RegisterAllCommands.RegisterCommands(this);
+            RegisterAllCommands.RegisterCommands(this, _deliverySignal);
             CommandsRegistered = true;
         }
 

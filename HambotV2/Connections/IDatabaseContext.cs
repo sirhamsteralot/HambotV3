@@ -19,6 +19,8 @@ namespace HambotV2.Connections
 
         DbSet<DatabaseContext.CustomResponse> CustomResponses { get; }
 
+        DbSet<DatabaseContext.Reminder> Reminders { get; }
+
         Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
     }
 }

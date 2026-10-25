@@ -16,6 +16,8 @@ namespace HambotV2.Connections
 
         public DbSet<CustomResponse> CustomResponses { get; set; }
 
+        public DbSet<Reminder> Reminders { get; set; }
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             // Per-guild scoping (FR-20/FR-24): tiers and settings are keyed per guild.
@@ -26,6 +28,7 @@ namespace HambotV2.Connections
             modelBuilder.Entity<GuildSetting>().HasKey(setting => setting.GuildId);
             modelBuilder.Entity<Quote>().HasKey(quote => new { quote.GuildId, quote.Number });
             modelBuilder.Entity<CustomResponse>().HasKey(response => new { response.GuildId, response.Name });
+            modelBuilder.Entity<Reminder>().HasKey(reminder => new { reminder.OwnerDiscordId, reminder.Number });
         }
 
         public class User
@@ -112,6 +115,30 @@ namespace HambotV2.Connections
             public DateTime CreatedAt { get; set; }
 
             public DateTime UpdatedAt { get; set; }
+        }
+
+        /// <summary>A pending reminder, scoped per user (FR-61): the key carries the owner, so reminders follow them across guilds and direct messages.</summary>
+        public class Reminder
+        {
+            /// <summary>Discord ID of the user the reminder belongs to and is delivered to (FR-61).</summary>
+            public ulong OwnerDiscordId { get; set; }
+
+            /// <summary>Per-owner sequential number: MAX(Number) + 1 at creation; never renumbered on cancellation.</summary>
+            public int Number { get; set; }
+
+            /// <summary>The reminder text (1–500 characters, FR-62).</summary>
+            public string Message { get; set; } = string.Empty;
+
+            /// <summary>Due time, always UTC (FR-61).</summary>
+            public DateTimeOffset DueAtUtc { get; set; }
+
+            /// <summary>Guild the reminder was created in; null when created in a direct message (FR-61).</summary>
+            public ulong? GuildId { get; set; }
+
+            public DateTime CreatedAt { get; set; }
+
+            /// <summary>Set when delivery failed after the bounded retries (FR-67); null = pending. Failed rows stay for audit but leave the pending set.</summary>
+            public DateTimeOffset? FailedAtUtc { get; set; }
         }
     }
 }

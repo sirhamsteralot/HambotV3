@@ -1,5 +1,9 @@
+using Discord;
+using Discord.WebSocket;
 using HambotV2.Commands;
 using HambotV2.Connections;
+using HambotV2.Reminders;
+using HambotV2.Scheduling;
 using Microsoft.EntityFrameworkCore;
 using Serilog;
 
@@ -28,6 +32,30 @@ namespace HambotV2
             builder.Services.AddTransient<ICommandHandler, CommandHandler>();
             builder.Services.AddTransient<IPermissionsService, PermissionsService>();
             builder.Services.AddSingleton<ICommandService, CommandService>();
+
+            // The gateway client is shared by the Discord hosted service and the reminder DM
+            // sender; the container owns it and disposes it after the hosted services stop.
+            builder.Services.AddSingleton(new DiscordSocketClient(new DiscordSocketConfig
+            {
+                // Only request the intents the bot actually uses; AllUnprivileged would make
+                // Discord.Net warn about unused intents at every connect (see DiscordClient).
+                GatewayIntents = GatewayIntents.Guilds | GatewayIntents.GuildMessages | GatewayIntents.DirectMessages | GatewayIntents.MessageContent
+            }));
+
+            // Scheduled message delivery (§3.8): the generic engine is wired to one message kind
+            // at a time — reminders today. The commands (registered through CommandService) and
+            // the delivery loop share one wake-up signal, so a schedule change re-schedules
+            // immediately; a future scheduled-message kind plugs in with its own source and
+            // sender plus another hosted engine on the same signal.
+            builder.Services.AddSingleton<IScheduledDeliverySignal, ScheduledDeliverySignal>();
+            builder.Services.AddSingleton<IScheduledMessageSource<ScheduledReminderMessage>, ReminderMessageSource>();
+            builder.Services.AddSingleton<IScheduledMessageSender<ScheduledReminderMessage>, ReminderDmSender>();
+            builder.Services.AddHostedService(serviceProvider => new ScheduledMessageDeliveryService<ScheduledReminderMessage>(
+                serviceProvider.GetRequiredService<IScheduledDeliverySignal>(),
+                serviceProvider.GetRequiredService<IScheduledMessageSource<ScheduledReminderMessage>>(),
+                serviceProvider.GetRequiredService<IScheduledMessageSender<ScheduledReminderMessage>>(),
+                serviceProvider.GetRequiredService<TimeProvider>(),
+                serviceProvider.GetRequiredService<ILogger<ScheduledMessageDeliveryService<ScheduledReminderMessage>>>()));
 
             // Singleton so the per-guild command identifiers stay cached for the gateway
             // pre-filter and command parsing.

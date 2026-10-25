@@ -25,7 +25,7 @@ dotnet test HambotV2.sln
 
 - Building requires the .NET 10 SDK (`10.0.x`).
 
-- Tests run without a database or Discord token; they use Moq and in-memory configuration. All tests are in `BotTests/` (`TestCommandInfrastructure.cs`, `TestCommands.cs`, `TestPermissions.cs`, `TestCommandHandler.cs`, `TestConfigurationValidator.cs`, `TestPermissionCommands.cs`, `TestHelp.cs`, `TestCommandArguments.cs`, `TestGuildSettings.cs`, `TestCooldowns.cs`, `TestQuotes.cs`, plus the shared `DiscordTestDoubles.cs`).
+- Tests run without a database or Discord token; they use Moq and in-memory configuration. All tests are in `BotTests/` (`TestCommandInfrastructure.cs`, `TestCommands.cs`, `TestPermissions.cs`, `TestCommandHandler.cs`, `TestConfigurationValidator.cs`, `TestPermissionCommands.cs`, `TestHelp.cs`, `TestCommandArguments.cs`, `TestGuildSettings.cs`, `TestCooldowns.cs`, `TestQuotes.cs`, `TestCustomResponses.cs`, `TestReminders.cs`, plus the shared `DiscordTestDoubles.cs`).
 - The build is warning-free; keep it that way and avoid introducing new warnings.
 
 ## Docker
@@ -57,7 +57,7 @@ docker logs -f hambot-smoke
 
 ## Architecture
 
-Entry point is `HambotV2/Program.cs`: a generic host registers `DatabaseContext` (transient Npgsql), a `DiscordClient` hosted service, and the command pipeline.
+Entry point is `HambotV2/Program.cs`: a generic host registers `DatabaseContext` (transient Npgsql), two hosted services (the `DiscordClient` gateway connection and the generic scheduled-message delivery engine in `Scheduling/`, hosted for reminders to deliver them as direct messages), and the command pipeline.
 
 ### Message flow
 
@@ -79,12 +79,14 @@ Tiered integer permission system (`Commands/PermissionsService.cs`): a user may 
 
 ### Data model
 
-`Connections/DatabaseContext.cs` defines four DbSets with nested entity classes, all scoped per guild:
+`Connections/DatabaseContext.cs` defines six DbSets with nested entity classes — five scoped per guild, one per user:
 
 - `User` (composite key `GuildId` + `DiscordId`, `PermissionTier`)
 - `CommandMetaData` (composite key `GuildId` + `CommandName`, `PermissionTier`)
 - `GuildSetting` (key `GuildId`; `CommandIdentifier` override, per-tier cooldown overrides used by the cooldown service)
 - `Quote` (composite key `GuildId` + `Number`; `Text`, `AddedByDiscordId`, `CreatedAt` — per-guild sequential numbering, managed by the `Commands/QuoteCommands/` commands)
+- `CustomResponse` (composite key `GuildId` + `Name`; `Content`, `LastModifiedByDiscordId`, timestamps — managed by the `Commands/ResponseCommands/` commands and dispatched by `CommandHandler` on unknown tokens)
+- `Reminder` (composite key `OwnerDiscordId` + `Number`; `Message`, `DueAtUtc`, nullable `GuildId`, `CreatedAt`, `FailedAtUtc` — per-user reminders managed by the `Commands/ReminderCommands/` commands and delivered as DMs by the `Scheduling/ScheduledMessageDeliveryService` engine fed by `Reminders/ReminderMessageSource`)
 
 EF Core migrations live in `HambotV2/Migrations/`. Regenerate with `dotnet ef migrations add <Name>` from the `HambotV2/` project directory (a `DesignTimeDatabaseContextFactory` lets the tools scaffold without running startup; connection string comes from `appsecrets.json`, see below).
 

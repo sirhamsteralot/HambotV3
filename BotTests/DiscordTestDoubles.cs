@@ -55,12 +55,12 @@ namespace BotTests
         }
 
         /// <summary>A direct-message mock: no guild, so only the configured bot owner can raise a tier.</summary>
-        public static Mock<IMessage> CreateDirectMessage(string content, ulong authorId, List<string> sentMessages)
+        public static Mock<IMessage> CreateDirectMessage(string content, ulong authorId, List<string> sentMessages, DateTimeOffset? timestamp = null)
         {
             var channel = new Mock<IMessageChannel>();
             RecordSends(channel, sentMessages);
 
-            return CreateMessage(channel, content, authorId);
+            return CreateMessage(channel, content, authorId, timestamp);
         }
 
         /// <summary>A guild message mock whose channel belongs to a guild owned by <paramref name="guildOwnerId"/>.</summary>

@@ -13,19 +13,16 @@ namespace HambotV2.Connections
         private readonly string _logFormat;
         private readonly DiscordSocketClient _client;
 
-        public DiscordClient(ILogger<DiscordClient> logger, IConfiguration configuration, IServiceProvider serviceProvider, IGuildSettingsService guildSettingsService)
+        public DiscordClient(ILogger<DiscordClient> logger, IConfiguration configuration, IServiceProvider serviceProvider, IGuildSettingsService guildSettingsService, DiscordSocketClient client)
         {
             _logger = logger;
             _configuration = configuration;
             _serviceProvider = serviceProvider;
             _guildSettingsService = guildSettingsService;
             _logFormat = configuration["BotConfiguration:LogFormat"]!;
-            // Only request the intents the bot actually uses; AllUnprivileged would make Discord.Net
-            // warn about unused intents (e.g. GuildScheduledEvents, GuildInvites) at every connect.
-            _client = new DiscordSocketClient(new DiscordSocketConfig
-            {
-                GatewayIntents = GatewayIntents.Guilds | GatewayIntents.GuildMessages | GatewayIntents.DirectMessages | GatewayIntents.MessageContent
-            });
+            // The client comes from DI (shared with ReminderDmSender, container-owned);
+            // its gateway intents are configured once at the composition root.
+            _client = client;
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -61,9 +58,9 @@ namespace HambotV2.Connections
         }
 
         /// <summary>
-        /// Stops the gateway, logs the Discord client out and releases its resources. Runs on
-        /// every exit path of <see cref="ExecuteAsync"/>, so the bot never dies mid-connection
-        /// without a clean logout.
+        /// Stops the gateway and logs the Discord client out. Runs on every exit path of
+        /// <see cref="ExecuteAsync"/>, so the bot never dies mid-connection without a clean
+        /// logout.
         /// </summary>
         private async Task ShutdownAsync()
         {
@@ -83,7 +80,8 @@ namespace HambotV2.Connections
             }
             finally
             {
-                _client.Dispose();
+                // The DI container owns and disposes the shared client after the hosted services
+                // stop; this only logs out and stops the gateway.
                 _logger.LogInformation("Discord connection shut down cleanly.");
             }
         }
