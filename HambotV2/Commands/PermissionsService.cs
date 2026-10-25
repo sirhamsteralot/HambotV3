@@ -5,9 +5,14 @@ namespace HambotV2.Commands
 {
     internal class PermissionsService : IPermissionsService
     {
-        public async Task<PermissionCheckResult> CheckUserPermissions(ulong userDiscordId, ulong? guildId, TierOverrides overrides, ICommand command, IDatabaseContext database)
+        public Task<PermissionCheckResult> CheckUserPermissions(ulong userDiscordId, ulong? guildId, TierOverrides overrides, ICommand command, IDatabaseContext database)
         {
-            int requiredTier = await GetCommandRequiredTier(guildId, command, database);
+            return CheckUserPermissions(userDiscordId, guildId, overrides, command.Name, command.DefaultPermissionTier, database);
+        }
+
+        public async Task<PermissionCheckResult> CheckUserPermissions(ulong userDiscordId, ulong? guildId, TierOverrides overrides, string commandName, int defaultPermissionTier, IDatabaseContext database)
+        {
+            int requiredTier = await GetCommandRequiredTier(guildId, commandName, defaultPermissionTier, database);
             int userTier = await GetUserEffectiveTier(userDiscordId, guildId, overrides, database);
 
             return new PermissionCheckResult(userTier >= requiredTier, userTier);
@@ -35,16 +40,21 @@ namespace HambotV2.Commands
 
         public Task<int> GetCommandRequiredTier(ulong? guildId, ICommand command, IDatabaseContext database)
         {
-            if (guildId is null)
-                return Task.FromResult(command.DefaultPermissionTier);
-
-            return GetCommandRequiredTier(guildId.Value, command, database);
+            return GetCommandRequiredTier(guildId, command.Name, command.DefaultPermissionTier, database);
         }
 
-        private static async Task<int> GetCommandRequiredTier(ulong guildId, ICommand command, IDatabaseContext database)
+        private static Task<int> GetCommandRequiredTier(ulong? guildId, string commandName, int defaultPermissionTier, IDatabaseContext database)
         {
-            var commandMetaData = await database.Commands.FirstOrDefaultAsync(x => x.GuildId == guildId && x.CommandName == command.Name);
-            return commandMetaData?.PermissionTier ?? command.DefaultPermissionTier;
+            if (guildId is null)
+                return Task.FromResult(defaultPermissionTier);
+
+            return GetCommandRequiredTier(guildId.Value, commandName, defaultPermissionTier, database);
+        }
+
+        private static async Task<int> GetCommandRequiredTier(ulong guildId, string commandName, int defaultPermissionTier, IDatabaseContext database)
+        {
+            var commandMetaData = await database.Commands.FirstOrDefaultAsync(x => x.GuildId == guildId && x.CommandName == commandName);
+            return commandMetaData?.PermissionTier ?? defaultPermissionTier;
         }
 
         /// <summary>A user may run a command when their effective tier is at least the command's required tier.</summary>

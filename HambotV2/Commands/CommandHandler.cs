@@ -40,6 +40,10 @@ namespace HambotV2.Commands
         public async Task HandleCommand(IMessage message)
         {
             ICommand? command = null;
+
+            // Set when a custom response was dispatched, so the audit event names it (FR-54).
+            string? responseName = null;
+
             var outcome = CommandOutcome.Ignored;
             var stopwatch = Stopwatch.StartNew();
             ulong? guildId = null;
@@ -55,18 +59,6 @@ namespace HambotV2.Commands
                     ? _guildSettingsService.GetCommandIdentifier(guild)
                     : _guildSettingsService.GlobalCommandIdentifier;
 
-                if (!_commandService.TryGetCommand(message.Content, identifier, out command))
-                {
-                    // Identifier-only messages (a bare "!") are ignored; only unknown command
-                    // names are answered.
-                    if (_commandService.IsIdentifierOnlyMessage(message.Content, identifier))
-                        return;
-
-                    await message.Channel.SendMessageAsync("The requested command is unavailable");
-                    outcome = CommandOutcome.UnknownCommand;
-                    return;
-                }
-
                 // The guild owner and the configured bot owner hold implicit tiers (owner /
                 // bot owner) that need no database entry.
                 var overrides = new TierOverrides
@@ -75,34 +67,42 @@ namespace HambotV2.Commands
                     BotOwnerId = ParseConfiguredDiscordId(_configuration["Permissions:BotOwnerDiscordId"])
                 };
 
-                var permissionCheck = await _permissionsService.CheckUserPermissions(message.Author.Id, guildId, overrides, command, _databaseContext);
-                if (!permissionCheck.IsAllowed)
+                if (_commandService.TryGetCommand(message.Content, identifier, out command))
                 {
-                    await message.Channel.SendMessageAsync("You are not permitted to use that command");
-                    outcome = CommandOutcome.DeniedPermission;
+                    outcome = await ExecuteBuiltInCommandAsync(message, guildId, identifier, overrides, command);
                     return;
                 }
 
-                // Runs after the permission check and reuses the effective tier it already
-                // computed, so the cooldown window cannot be bypassed via the tier lookups.
-                var cooldownCheck = _cooldownService.TryBeginInvocation(guildId, message.Author.Id, command.Name, permissionCheck.UserEffectiveTier, _databaseContext);
-                if (!cooldownCheck.IsAllowed)
-                {
-                    int remainingSeconds = Math.Max(1, (int)Math.Ceiling(cooldownCheck.RemainingWait.TotalSeconds));
-                    string unit = remainingSeconds == 1 ? "second" : "seconds";
-                    await message.Channel.SendMessageAsync($"You're using commands too quickly — please wait {remainingSeconds} more {unit}.");
-                    outcome = CommandOutcome.Throttled;
+                // Identifier-only messages (a bare "!") are ignored; only unknown command
+                // names are answered.
+                if (_commandService.IsIdentifierOnlyMessage(message.Content, identifier))
                     return;
+
+                // Custom-response fallback (FR-54): before the "unavailable" reply, a guild
+                // message's command token is checked against the invoking guild's custom
+                // responses. Built-ins always win — this branch only runs after the built-in
+                // lookup failed (FR-53). Direct messages keep the plain "unavailable" reply
+                // (FR-59).
+                if (guildId is ulong guildIdValue
+                    && CommandParsing.TryGetCommandName(message.Content, identifier, out string token))
+                {
+                    CommandOutcome? responseOutcome = await TryDispatchCustomResponseAsync(message, guildIdValue, overrides, token);
+                    if (responseOutcome is not null)
+                    {
+                        outcome = responseOutcome.Value;
+                        responseName = token;
+                        return;
+                    }
                 }
 
-                await command.ExecuteCommand(message, new CommandContext(_databaseContext, guildId, identifier, _guildSettingsService, overrides));
-                outcome = CommandOutcome.Executed;
+                await message.Channel.SendMessageAsync("The requested command is unavailable");
+                outcome = CommandOutcome.UnknownCommand;
             }
             catch (Exception ex)
             {
                 // Exception details go to the log only — never to Discord.
                 outcome = CommandOutcome.Failed;
-                _logger.LogError(ex, "Command '{commandName}' failed while processing message: {content}", command?.Name ?? "unknown", message.Content);
+                _logger.LogError(ex, "Command '{commandName}' failed while processing message: {content}", command?.Name ?? responseName ?? "unknown", message.Content);
 
                 try
                 {
@@ -116,11 +116,76 @@ namespace HambotV2.Commands
             finally
             {
                 // The single audit event per message; message content is deliberately absent
-                // from it (only the failure path above logs the content).
+                // from it (only the failure path above logs the content). A dispatched custom
+                // response logs its name as the CommandName (NFR-11).
                 _logger.LogInformation(
                     "Command {CommandName} handled with outcome {Outcome} for user {UserId} in guild {GuildId}, channel {ChannelId} within {DurationMs} ms",
-                    command?.Name, outcome, message.Author.Id, guildId, message.Channel.Id, stopwatch.Elapsed.TotalMilliseconds);
+                    command?.Name ?? responseName, outcome, message.Author.Id, guildId, message.Channel.Id, stopwatch.Elapsed.TotalMilliseconds);
             }
+        }
+
+        /// <summary>Executes a built-in command through the permission and cooldown gates; returns the outcome for the audit event.</summary>
+        private async Task<CommandOutcome> ExecuteBuiltInCommandAsync(IMessage message, ulong? guildId, string identifier, TierOverrides overrides, ICommand command)
+        {
+            var permissionCheck = await _permissionsService.CheckUserPermissions(message.Author.Id, guildId, overrides, command, _databaseContext);
+            if (!permissionCheck.IsAllowed)
+            {
+                await message.Channel.SendMessageAsync("You are not permitted to use that command");
+                return CommandOutcome.DeniedPermission;
+            }
+
+            // Runs after the permission check and reuses the effective tier it already
+            // computed, so the cooldown window cannot be bypassed via the tier lookups.
+            var cooldownCheck = _cooldownService.TryBeginInvocation(guildId, message.Author.Id, command.Name, permissionCheck.UserEffectiveTier, _databaseContext);
+            if (!cooldownCheck.IsAllowed)
+            {
+                await SendThrottleReplyAsync(message, cooldownCheck);
+                return CommandOutcome.Throttled;
+            }
+
+            await command.ExecuteCommand(message, new CommandContext(_databaseContext, guildId, identifier, _guildSettingsService, overrides));
+            return CommandOutcome.Executed;
+        }
+
+        /// <summary>
+        /// Dispatches a custom response when the guild defines one under the given name (FR-54);
+        /// returns null when it does not (the caller falls through to the "unavailable" reply).
+        /// The invocation goes through the same checks as a built-in, in the same order (FR-55):
+        /// the permission check — required tier from the (guild, name) CommandMetaData override,
+        /// default 0 — then the cooldown, keyed on the response name so it throttles independently
+        /// of any built-in. Denial and throttle replies are the built-in ones.
+        /// </summary>
+        private async Task<CommandOutcome?> TryDispatchCustomResponseAsync(IMessage message, ulong guildId, TierOverrides overrides, string responseName)
+        {
+            var response = await _databaseContext.CustomResponses.FindAsync(guildId, responseName);
+            if (response is null)
+                return null;
+
+            var permissionCheck = await _permissionsService.CheckUserPermissions(message.Author.Id, guildId, overrides, responseName, PermissionTier.Everyone, _databaseContext);
+            if (!permissionCheck.IsAllowed)
+            {
+                await message.Channel.SendMessageAsync("You are not permitted to use that command");
+                return CommandOutcome.DeniedPermission;
+            }
+
+            var cooldownCheck = _cooldownService.TryBeginInvocation(guildId, message.Author.Id, responseName, permissionCheck.UserEffectiveTier, _databaseContext);
+            if (!cooldownCheck.IsAllowed)
+            {
+                await SendThrottleReplyAsync(message, cooldownCheck);
+                return CommandOutcome.Throttled;
+            }
+
+            // Plain text only (FR-60): the stored content is sent verbatim; the bot uploads no files.
+            await message.Channel.SendMessageAsync(response.Content);
+            return CommandOutcome.Executed;
+        }
+
+        /// <summary>The shared throttle reply for built-in and custom-response dispatch.</summary>
+        private static async Task SendThrottleReplyAsync(IMessage message, CooldownCheck cooldownCheck)
+        {
+            int remainingSeconds = Math.Max(1, (int)Math.Ceiling(cooldownCheck.RemainingWait.TotalSeconds));
+            string unit = remainingSeconds == 1 ? "second" : "seconds";
+            await message.Channel.SendMessageAsync($"You're using commands too quickly — please wait {remainingSeconds} more {unit}.");
         }
 
         public void Dispose()

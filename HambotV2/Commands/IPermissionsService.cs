@@ -18,6 +18,16 @@ namespace HambotV2.Commands
         /// </summary>
         Task<PermissionCheckResult> CheckUserPermissions(ulong userDiscordId, ulong? guildId, TierOverrides overrides, ICommand command, IDatabaseContext database);
 
+        /// <summary>
+        /// Same check for a named command that is not an <see cref="ICommand"/> instance — the
+        /// custom-response dispatch path (FR-55): identical tier semantics to the overload above,
+        /// with the required tier read from the (guild, <paramref name="commandName"/>)
+        /// <c>CommandMetaData</c> override and <paramref name="defaultPermissionTier"/> as the
+        /// fallback, so a custom response's required tier is adjustable at runtime exactly like a
+        /// built-in's.
+        /// </summary>
+        Task<PermissionCheckResult> CheckUserPermissions(ulong userDiscordId, ulong? guildId, TierOverrides overrides, string commandName, int defaultPermissionTier, IDatabaseContext database);
+
         /// <summary>The user's effective tier in the guild: stored database tier (0 if absent), raised by the bootstrap ids. Null guild: the DM scope tier (FR-25), without a database read.</summary>
         Task<int> GetUserEffectiveTier(ulong userDiscordId, ulong? guildId, TierOverrides overrides, IDatabaseContext database);
 

@@ -2,7 +2,7 @@
 
 This document describes the design of HambotV2. It is the overview for contributors and the baseline for changes. Unless a section is marked **(planned)**, it describes the system as implemented today.
 
-Three features from [`software-requirements.md`](software-requirements.md) were specified ahead of implementation: **quotes** (FR-42–FR-50, plus the legacy import FR-72–FR-75, NFR-14), **custom command responses** (FR-51–FR-60, NFR-15), and **reminders** (FR-61–FR-71, NFR-16), designed as §3.6, §3.7, and §3.8. Quotes are implemented (§3.6 describes the system as it is); custom command responses and reminders are still **(planned)** — that is the design the implementation must follow. The [roadmap](roadmap.md) sequences the work; when a feature lands, remove its *planned* markers and fold any deviations back here so this document keeps describing the system as it actually is.
+Three features from [`software-requirements.md`](software-requirements.md) were specified ahead of implementation: **quotes** (FR-42–FR-50, plus the legacy import FR-72–FR-75, NFR-14), **custom command responses** (FR-51–FR-60, NFR-15), and **reminders** (FR-61–FR-71, NFR-16), designed as §3.6, §3.7, and §3.8. Quotes and custom command responses are implemented (§3.6–§3.7 describe the system as it is); reminders are still **(planned)** — that is the design the implementation must follow. The [roadmap](roadmap.md) sequences the work; when a feature lands, remove its *planned* markers and fold any deviations back here so this document keeps describing the system as it actually is.
 
 ## 1. System Overview
 
@@ -103,8 +103,8 @@ Help text lives on the command implementation itself, so it cannot drift from th
 
 **`CommandHandler`** (`ICommandHandler`) — per-message orchestrator, transient and disposable:
 
-1. **DM scope (FR-25)**: commands also run in direct messages. A null guild id marks the DM scope: the user acts at **owner tier (3)** — the configured bot owner at tier 4 — and commands require their **built-in default tiers**; no per-guild state is read or written, so DMs need no database rows and permissions cannot be adjusted from a DM. Commands that manage guild state (`!userpermission`, `!commandpermission`, `!settings`, the quote commands) decline in DMs with "…only available in servers". The `DirectMessages` gateway intent stays enabled so DM commands are received at all.
-2. Resolve the effective command identifier via `IGuildSettingsService` — the guild's identifier, or the global default in DMs — then the command via `ICommandService.TryGetCommand(content, identifier)`; identifier-only messages (a bare `!`) are ignored silently, unknown commands get "The requested command is unavailable". *(Planned, FR-10/FR-54)*: once custom responses exist (§3.7), the unknown-command branch first consults the invoking guild's custom responses — through the same permission and cooldown checks — and falls back to the "unavailable" reply only on a miss; in direct messages the reply stays as-is (FR-59).
+1. **DM scope (FR-25)**: commands also run in direct messages. A null guild id marks the DM scope: the user acts at **owner tier (3)** — the configured bot owner at tier 4 — and commands require their **built-in default tiers**; no per-guild state is read or written, so DMs need no database rows and permissions cannot be adjusted from a DM. Commands that manage guild state (`!userpermission`, `!commandpermission`, `!settings`, the quote commands, the response-management commands) decline in DMs with "…only available in servers". The `DirectMessages` gateway intent stays enabled so DM commands are received at all.
+2. Resolve the effective command identifier via `IGuildSettingsService` — the guild's identifier, or the global default in DMs — then the command via `ICommandService.TryGetCommand(content, identifier)`; identifier-only messages (a bare `!`) are ignored silently, unknown commands get "The requested command is unavailable". The unknown-command branch first consults the invoking guild's custom responses (§3.7, FR-10/FR-54) — through the same permission and cooldown checks — and falls back to the "unavailable" reply only on a miss; in direct messages the reply stays as-is (FR-59).
 3. Check permissions via `IPermissionsService.CheckUserPermissions`, passing the guild id (null = DM scope) and a `TierOverrides` built from the guild owner (null in DMs) and the configured bot owner id; if insufficient, reply "You are not permitted to use that command". The check returns a `PermissionCheckResult` carrying the verdict *and* the user's effective tier, so the cooldown check (next step) resolves its window without repeating the database lookup — and the tier it uses is the guarded one, so the window cannot be bypassed via permission lookups.
 4. Check the command cooldown via `ICooldownService.TryBeginInvocation` (see the cooldown component below); a throttled invocation is answered with "You're using commands too quickly — please wait N more seconds." and never executes the command.
 5. Execute the command with a `CommandContext` wrapping the per-message `IDatabaseContext`, the guild id (nullable), the effective identifier, the settings service, and the permission context.
@@ -123,7 +123,7 @@ The whole pipeline is wrapped in a try/catch: on any failure (throwing command, 
 
 **Command registration** — a small static registration chain:
 
-- `Commands/RegisterAllCommands.cs` → delegates to `Commands/SystemCommands/RegisterSystemCommands.cs` and `Commands/QuoteCommands/RegisterQuoteCommands.cs`. The remaining planned feature groups (§3.7–§3.8) add their own `RegisterResponseCommands` and `RegisterReminderCommands` to the same chain.
+- `Commands/RegisterAllCommands.cs` → delegates to `Commands/SystemCommands/RegisterSystemCommands.cs`, `Commands/QuoteCommands/RegisterQuoteCommands.cs`, and `Commands/ResponseCommands/RegisterResponseCommands.cs`. The remaining planned feature group (§3.8) adds its own `RegisterReminderCommands` to the same chain.
 - To add a command: implement `ICommand` (system commands live in `Commands/SystemCommands/`) and register it in the relevant `Register*Commands` class.
 
 **Shared argument parsing — `Commands/CommandArguments.cs`** (NFR-13) — commands receive typed arguments instead of hand-rolled `Split`/`TryParse` code. `CommandArguments.Parse(content)` splits the raw message content on runs of spaces and drops the first token (identifier + command name), so index 0 is the command's first argument. Accessors: `Count`, `Get(index)` (raw token or null — commands echo it back in replies), `GetJoined(index)` (the remaining tokens joined with single spaces — free-form text like quote text or search terms), and the typed parsers `TryGetString`, `TryGetInt`, and `TryGetDiscordUserId` (raw id or `<@id>`/`<@!id>` mention, delegating to `DiscordUserId`). Quoting is not supported; one whitespace-separated token is one argument. All existing commands (`HelpCommand`, `CommandPermission`, `UserPermission`, `SettingsCommand`, the quote commands) are built on it; new commands must use it too instead of hand-parsing.
@@ -163,7 +163,7 @@ Tiers are read from the database per message and managed at runtime via the two 
 
 ### 3.4 Persistence — `Connections/DatabaseContext.cs`
 
-EF Core `DbContext` against PostgreSQL with four nested entity classes implemented today, all scoped per guild (FR-20/FR-24), plus two planned entities for the roadmap features (§3.7–§3.8):
+EF Core `DbContext` against PostgreSQL with five nested entity classes implemented today, all scoped per guild (FR-20/FR-24), plus one planned entity for the roadmap feature (§3.8):
 
 | Entity | Key | Fields |
 |---|---|---|
@@ -171,14 +171,14 @@ EF Core `DbContext` against PostgreSQL with four nested entity classes implement
 | `CommandMetaData` | `(GuildId ulong, CommandName string)` | `PermissionTier` (int) |
 | `GuildSetting` | `GuildId (ulong)` | `CommandIdentifier` (string?, null = global default applies, FR-26) and the per-tier cooldown overrides `CooldownSecondsTier0`–`CooldownSecondsTier3` (int?, used by the cooldown service; null = inherit the global default). The tier→column mapping lives on the entity (`GetCooldownOverride`/`SetCooldownOverride`) as the single source of truth for both the cooldown service and `!settings`. |
 | `Quote` (§3.6, FR-42) | `(GuildId ulong, Number int)` | `Text` (1–2000 chars), `AddedByDiscordId` (ulong), `CreatedAt`. |
-| `CustomResponse` *(planned, §3.7, FR-51)* | `(GuildId ulong, Name string)` | `Content` (1–1000 chars), `LastModifiedByDiscordId` (ulong), `CreatedAt`, `UpdatedAt`. |
+| `CustomResponse` (§3.7, FR-51) | `(GuildId ulong, Name string)` | `Content` (1–1000 chars), `LastModifiedByDiscordId` (ulong), `CreatedAt`, `UpdatedAt`. |
 | `Reminder` *(planned, §3.8, FR-61)* | `(OwnerDiscordId ulong, Number int)` | `Message` (1–500 chars), `DueAtUtc` (DateTimeOffset), `GuildId` (ulong?, null = created in a DM), `CreatedAt`, `FailedAtUtc` (DateTimeOffset?, null = pending). |
 
-Composite keys are configured in `OnModelCreating`. EF Core migrations live in `HambotV2/Migrations/`: `InitialCreate`, then `PerGuildScoping` (adds the `GuildId` dimension and the `GuildSettings` table), then `AddQuotes` (§3.6). Pre-existing rows keep the sentinel `GuildId = 0` there — it matches no real guild id, so legacy tiers are inert; admins re-grant tiers per guild (guild owners already bootstrap at owner tier, FR-34). Regenerate with `dotnet ef migrations add <Name>` from the `HambotV2/` project directory; the `DesignTimeDatabaseContextFactory` lets the EF tools scaffold migrations without running `Program.Main` (which would attempt a real migration). Each remaining planned feature adds exactly one migration of its own — `AddCustomResponses` (§3.7), `AddReminders` (§3.8) — covered by the automatic startup migration (FR-30), so no manual step is introduced.
+Composite keys are configured in `OnModelCreating`. EF Core migrations live in `HambotV2/Migrations/`: `InitialCreate`, then `PerGuildScoping` (adds the `GuildId` dimension and the `GuildSettings` table), then `AddQuotes` (§3.6), then `AddCustomResponses` (§3.7). Pre-existing rows keep the sentinel `GuildId = 0` there — it matches no real guild id, so legacy tiers are inert; admins re-grant tiers per guild (guild owners already bootstrap at owner tier, FR-34). Regenerate with `dotnet ef migrations add <Name>` from the `HambotV2/` project directory; the `DesignTimeDatabaseContextFactory` lets the EF tools scaffold migrations without running `Program.Main` (which would attempt a real migration). The remaining planned feature adds exactly one migration of its own — `AddReminders` (§3.8) — covered by the automatic startup migration (FR-30), so no manual step is introduced.
 
 Migrations are applied automatically on startup: `Program.Main` runs `Database.Migrate()` before the Discord gateway starts. If the database is unreachable, a critical error is logged (naming the connection configuration) and the host exits with a non-zero code instead of starting a half-functional bot. No manual migration step is required.
 
-There is also an `Connections/IDatabaseContext.cs` abstraction exposing the `DbSet`s and `SaveChangesAsync`. The planned entities (§3.4 table) are exposed on it the same way, keeping command and service code testable against the EF InMemory provider. The whole command pipeline (`CommandHandler`, `CommandContext`, `PermissionsService`) depends on `IDatabaseContext`, and `Program.cs` maps it onto the registered transient `DatabaseContext`. This is what lets the command tests run against the EF InMemory provider instead of PostgreSQL.
+There is also an `Connections/IDatabaseContext.cs` abstraction exposing the `DbSet`s and `SaveChangesAsync`. The planned entity (§3.4 table) is exposed on it the same way, keeping command and service code testable against the EF InMemory provider. The whole command pipeline (`CommandHandler`, `CommandContext`, `PermissionsService`) depends on `IDatabaseContext`, and `Program.cs` maps it onto the registered transient `DatabaseContext`. This is what lets the command tests run against the EF InMemory provider instead of PostgreSQL.
 
 ### 3.5 Commands currently implemented
 
@@ -225,11 +225,11 @@ The random fetch draws the guild's quote count and skips a `Random.Shared`-chose
 - **Storage** (FR-73): entries are appended in file order, continuing the per-guild sequential numbering (FR-43 — `MAX(Number) + 1` at import start, one greater per entry; 0-based, so an empty guild imports starting at `#0`). `AddedByDiscordId` records the importing bot owner; `CreatedAt` takes the legacy `date` (UTC) when present, else the import message's timestamp, so the original quote dates survive the migration. The reply reports the count and the number range assigned.
 - Re-running the import appends the file again (duplicates are the operator's responsibility); the command is idempotent per-invocation only.
 
-### 3.7 Custom command responses — user-defined text commands, per guild *(planned, FR-51–FR-60 / NFR-15)*
+### 3.7 Custom command responses — user-defined text commands, per guild *(FR-51–FR-60 / NFR-15)*
 
 **Entity & persistence.** `DatabaseContext.CustomResponse` with composite key `(GuildId, Name)`: `Content` (1–1000 chars), `LastModifiedByDiscordId`, `CreatedAt`, `UpdatedAt`. Lookups are always by the full composite key — dispatch and management never read across guilds (FR-51). Migration: `AddCustomResponses`.
 
-**Name rules (FR-52).** A single lowercase token of 1–32 characters matching `^[a-z0-9_-]{1,32}$`. The pattern lives in one shared helper so `addresponse` (and any future write path) validates identically.
+**Name rules (FR-52).** A single lowercase token of 1–32 characters matching `^[a-z0-9_-]{1,32}$`. The pattern lives in one shared helper (`Commands/ResponseCommands/CustomResponseNames.cs`) so `addresponse` (and any future write path) validates identically.
 
 **Built-in precedence (FR-53).** Built-ins win by construction: `CommandHandler` resolves the built-in registry first and consults custom responses only after that fails, so a response can never shadow a built-in — including built-ins added later. `addresponse` additionally rejects names of currently registered built-ins with an in-channel error.
 
@@ -321,7 +321,8 @@ docker run -d --name hambot-smoke -e Secrets__BotToken=... -e "ConnectionStrings
   ```
 
 - The build is warning-free and CI treats warnings as errors; new code must not add any.
-- **Planned coverage** (NFR-15–NFR-16): the remaining feature tasks (§3.7–§3.8) add `TestCustomResponses.cs` and `TestReminders.cs` — Moq doubles for the Discord surface, the EF InMemory provider through `IDatabaseContext`, and `FakeTimeProvider` for reminder scheduling. They cover the scenarios the requirements enumerate: custom responses (NFR-15 — name/content validation, built-in collision rejection, create-vs-update, removal, per-guild isolation, dispatch order and gating, attachment rejection, DM behavior), and reminders (NFR-16 — duration parsing across all forms, message validation, confirmation, per-user isolation and caps, list/cancel, due-vs-not-due delivery as time advances including re-scheduling, restart recovery, and the bounded-failure path).
+- **Feature coverage** (NFR-15): `BotTests/TestCustomResponses.cs` covers the scenarios the requirements enumerate — name/content validation, built-in collision rejection, create-vs-update, removal, per-guild isolation, dispatch order and gating (through a full `CommandHandler` pipeline over the EF InMemory provider with the real permission and cooldown services), attachment rejection, and DM behavior.
+- **Planned coverage** (NFR-16): the remaining feature task (§3.8) adds `TestReminders.cs` — Moq doubles for the Discord surface, the EF InMemory provider through `IDatabaseContext`, and `FakeTimeProvider` for reminder scheduling, covering duration parsing across all forms, message validation, confirmation, per-user isolation and caps, list/cancel, due-vs-not-due delivery as time advances including re-scheduling, restart recovery, and the bounded-failure path.
 
 ## 7. Conventions
 
@@ -335,5 +336,5 @@ docker run -d --name hambot-smoke -e Secrets__BotToken=... -e "ConnectionStrings
 These are observations of the current implementation:
 
 - **CI**: a declarative `Jenkinsfile` at the repository root builds the solution and runs the tests (with nullable warnings treated as errors); the Jenkins job must be configured as "Pipeline script from SCM" pointing at it.
-- **Planned features**: custom command responses and reminders (FR-51–FR-71) are specified in the requirements and designed in §3.7–§3.8 but not yet implemented; the [roadmap](roadmap.md) sequences the work.
+- **Planned features**: reminders (FR-61–FR-71) are specified in the requirements and designed in §3.8 but not yet implemented; the [roadmap](roadmap.md) sequences the work.
 

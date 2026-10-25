@@ -25,12 +25,14 @@ namespace BotTests
                 => throw new InvalidOperationException("kaboom");
         }
 
-        /// <summary>DbContext double that records disposal; no database operations are executed against it.</summary>
+        /// <summary>DbContext double that records disposal; in-memory backed, because the unknown-command path reads the custom responses (FR-54).</summary>
         private sealed class RecordingDatabaseContext : DatabaseContext
         {
             public bool WasDisposed { get; private set; }
 
-            public RecordingDatabaseContext() : base(new DbContextOptionsBuilder<DatabaseContext>().Options) { }
+            public RecordingDatabaseContext() : base(new DbContextOptionsBuilder<DatabaseContext>()
+                .UseInMemoryDatabase(Guid.NewGuid().ToString())
+                .Options) { }
 
             public override void Dispose()
             {

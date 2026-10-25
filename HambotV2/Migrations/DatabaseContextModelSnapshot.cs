@@ -38,6 +38,32 @@ namespace HambotV2.Migrations
                     b.ToTable("Commands");
                 });
 
+            modelBuilder.Entity("HambotV2.Connections.DatabaseContext+CustomResponse", b =>
+                {
+                    b.Property<decimal>("GuildId")
+                        .HasColumnType("numeric(20,0)");
+
+                    b.Property<string>("Name")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Content")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<decimal>("LastModifiedByDiscordId")
+                        .HasColumnType("numeric(20,0)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("GuildId", "Name");
+
+                    b.ToTable("CustomResponses");
+                });
+
             modelBuilder.Entity("HambotV2.Connections.DatabaseContext+GuildSetting", b =>
                 {
                     b.Property<decimal>("GuildId")

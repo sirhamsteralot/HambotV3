@@ -14,6 +14,8 @@ namespace HambotV2.Connections
 
         public DbSet<Quote> Quotes { get; set; }
 
+        public DbSet<CustomResponse> CustomResponses { get; set; }
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             // Per-guild scoping (FR-20/FR-24): tiers and settings are keyed per guild.
@@ -23,6 +25,7 @@ namespace HambotV2.Connections
             modelBuilder.Entity<CommandMetaData>().HasKey(command => new { command.GuildId, command.CommandName });
             modelBuilder.Entity<GuildSetting>().HasKey(setting => setting.GuildId);
             modelBuilder.Entity<Quote>().HasKey(quote => new { quote.GuildId, quote.Number });
+            modelBuilder.Entity<CustomResponse>().HasKey(response => new { response.GuildId, response.Name });
         }
 
         public class User
@@ -90,6 +93,25 @@ namespace HambotV2.Connections
 
             /// <summary>Timestamp of the adding message (FR-42).</summary>
             public DateTime CreatedAt { get; set; }
+        }
+
+        /// <summary>A user-defined text response, scoped per guild (FR-51); dispatched when its name matches an otherwise unknown command token (FR-54).</summary>
+        public class CustomResponse
+        {
+            public ulong GuildId { get; set; }
+
+            /// <summary>The response name: a single lowercase token of 1–32 characters — lowercase letters, digits, hyphen, underscore (FR-52).</summary>
+            public string Name { get; set; } = string.Empty;
+
+            /// <summary>The reply text (1–1000 characters, FR-56): plain text only — links are stored verbatim, files are never stored (FR-60).</summary>
+            public string Content { get; set; } = string.Empty;
+
+            /// <summary>Discord ID of the user who last modified the response (FR-51).</summary>
+            public ulong LastModifiedByDiscordId { get; set; }
+
+            public DateTime CreatedAt { get; set; }
+
+            public DateTime UpdatedAt { get; set; }
         }
     }
 }

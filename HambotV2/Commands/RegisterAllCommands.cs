@@ -1,4 +1,5 @@
 using HambotV2.Commands.QuoteCommands;
+using HambotV2.Commands.ResponseCommands;
 using HambotV2.Commands.SystemCommands;
 
 namespace HambotV2.Commands
@@ -12,6 +13,7 @@ namespace HambotV2.Commands
         {
             RegisterSystemCommands.RegisterCommands(commandService);
             RegisterQuoteCommands.RegisterCommands(commandService);
+            RegisterResponseCommands.RegisterCommands(commandService);
         }
     }
 }

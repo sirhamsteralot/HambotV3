@@ -17,6 +17,8 @@ namespace HambotV2.Connections
 
         DbSet<DatabaseContext.Quote> Quotes { get; }
 
+        DbSet<DatabaseContext.CustomResponse> CustomResponses { get; }
+
         Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
     }
 }

@@ -53,7 +53,7 @@ Shared conventions for all three tasks (from the design doc):
 
 - **Later addition** (not part of the original task): **`!importquotes`** (FR-72–FR-75, §2.9 / design §3.6 "Legacy import") — imports the old bot's `quoteSettings.json` attached to the invocation message into the invoking guild: bot-owner-only (default tier 4, effectively immutable at runtime), all-or-nothing validation (empty or over-2000-char entries abort with nothing stored), file-order append continuing the 0-based per-guild numbering, legacy dates preserved. Covered by `TestQuotes.cs` (import lifecycle, all failure paths, the tier-4 gate, DM decline; a fake `IAttachmentContentDownloader` stands in for the HTTP download).
 
-### [ ] 2. Custom command responses — user-defined text commands, per guild *(priority; FR-51–FR-60, NFR-15; design: §3.7)*
+### [x] 2. Custom command responses — user-defined text commands, per guild *(priority; FR-51–FR-60, NFR-15; design: §3.7)*
 
 - **Problem**: Guild staff cannot define their own simple `!<name>` → text responses. The old bot's version was global, had no duplicate/edit handling, and any unmatched token silently fell through to custom responses without permission or cooldown checks.
 - **Steps**:
