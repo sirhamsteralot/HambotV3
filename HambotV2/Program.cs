@@ -1,9 +1,12 @@
 using Discord;
 using Discord.WebSocket;
+using HambotV2.Backups;
 using HambotV2.Commands;
 using HambotV2.Connections;
+using HambotV2.Maintenance;
 using HambotV2.Reminders;
 using HambotV2.Scheduling;
+using HambotV2.Watchdog;
 using Microsoft.EntityFrameworkCore;
 using Serilog;
 
@@ -55,7 +58,9 @@ namespace HambotV2
                 serviceProvider.GetRequiredService<IScheduledMessageSource<ScheduledReminderMessage>>(),
                 serviceProvider.GetRequiredService<IScheduledMessageSender<ScheduledReminderMessage>>(),
                 serviceProvider.GetRequiredService<TimeProvider>(),
-                serviceProvider.GetRequiredService<ILogger<ScheduledMessageDeliveryService<ScheduledReminderMessage>>>()));
+                serviceProvider.GetRequiredService<ILogger<ScheduledMessageDeliveryService<ScheduledReminderMessage>>>(),
+                serviceProvider.GetRequiredService<IMaintenanceMode>(),
+                serviceProvider.GetRequiredService<INotificationPublisher>()));
 
             // Singleton so the per-guild command identifiers stay cached for the gateway
             // pre-filter and command parsing.
@@ -66,6 +71,21 @@ namespace HambotV2
             // an injectable TimeProvider for deterministic tests.
             builder.Services.AddSingleton(TimeProvider.System);
             builder.Services.AddSingleton<ICooldownService, CooldownService>();
+
+            // Phase 1 — backups & stability (roadmap Phase #1, design §5.2/§3.13):
+            // maintenance mode gates the pipeline and the delivery engine during a restore;
+            // the backup manager runs pg_dump/pg_restore over the shared backups volume;
+            // the notification channel, publisher, health snapshot, and watchdog make
+            // degradation loud. All singletons: shared across messages and hosted loops.
+            builder.Services.AddSingleton<IMaintenanceMode, MaintenanceMode>();
+            builder.Services.AddSingleton<IBackupManager, ProcessBackupManager>();
+            builder.Services.AddSingleton<IBackupStatusReader, BackupStatusFileReader>();
+            builder.Services.AddSingleton<IGatewayStatus, DiscordGatewayStatus>();
+            builder.Services.AddSingleton<INotificationChannelStore, NotificationChannelStore>();
+            builder.Services.AddSingleton<IOperatorNotificationSender, DiscordNotificationSender>();
+            builder.Services.AddSingleton<INotificationPublisher, NotificationPublisher>();
+            builder.Services.AddSingleton<IHealthSnapshotProvider, HealthReport>();
+            builder.Services.AddHostedService<WatchdogService>();
 
             builder.Services.AddDbContext<DatabaseContext>(options =>
                 options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")),

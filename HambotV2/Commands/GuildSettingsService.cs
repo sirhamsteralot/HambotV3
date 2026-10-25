@@ -20,6 +20,12 @@ namespace HambotV2.Commands
         /// The caller saves the provided context afterwards.
         /// </summary>
         void SetCommandIdentifier(ulong guildId, string? identifier, IDatabaseContext database);
+
+        /// <summary>
+        /// Drops all cached per-guild identifiers, so the next read comes from the database — used
+        /// after a backup restore replaced the data the cache was derived from (FR-98).
+        /// </summary>
+        void InvalidateCache();
     }
 
     /// <summary>
@@ -70,6 +76,12 @@ namespace HambotV2.Commands
             }
 
             _identifierCache[guildId] = identifier ?? GlobalCommandIdentifier;
+        }
+
+        /// <summary>FR-98: after a restore, the cached identifiers may no longer match the database.</summary>
+        public void InvalidateCache()
+        {
+            _identifierCache.Clear();
         }
     }
 }

@@ -1,3 +1,6 @@
+using HambotV2.Maintenance;
+using HambotV2.Watchdog;
+
 namespace HambotV2.Scheduling
 {
     /// <summary>
@@ -9,11 +12,16 @@ namespace HambotV2.Scheduling
     /// persistence lives behind <see cref="IScheduledMessageSource{TMessage}"/>, transport
     /// behind <see cref="IScheduledMessageSender{TMessage}"/>, and all time comes from the
     /// injected <see cref="TimeProvider"/> (tests advance it via FakeTimeProvider).
+    ///
+    /// While maintenance mode is active (a backup restore is replacing the database, FR-98) the
+    /// whole delivery pass is skipped, so a restore can never exhaust a retry budget and mark a
+    /// message failed; a message that does exhaust its retries is additionally posted to the
+    /// operator notification channel (FR-118).
     /// </summary>
     internal sealed class ScheduledMessageDeliveryService<TMessage> : BackgroundService
         where TMessage : IScheduledMessage
     {
-        /// <summary>Bounded fallback poll: covers clock drift and missed wake-up signals.</summary>
+        /// <summary>Bounded fallback poll: covers clock drift and missed wake-up signals; also the maintenance re-check cadence.</summary>
         internal static readonly TimeSpan FallbackPollInterval = TimeSpan.FromSeconds(10);
 
         /// <summary>Delivery attempts per message before it is recorded failed.</summary>
@@ -30,19 +38,25 @@ namespace HambotV2.Scheduling
         private readonly IScheduledMessageSender<TMessage> _sender;
         private readonly TimeProvider _timeProvider;
         private readonly ILogger<ScheduledMessageDeliveryService<TMessage>> _logger;
+        private readonly IMaintenanceMode? _maintenanceMode;
+        private readonly INotificationPublisher? _notificationPublisher;
 
         public ScheduledMessageDeliveryService(
             IScheduledDeliverySignal signal,
             IScheduledMessageSource<TMessage> source,
             IScheduledMessageSender<TMessage> sender,
             TimeProvider timeProvider,
-            ILogger<ScheduledMessageDeliveryService<TMessage>> logger)
+            ILogger<ScheduledMessageDeliveryService<TMessage>> logger,
+            IMaintenanceMode? maintenanceMode = null,
+            INotificationPublisher? notificationPublisher = null)
         {
             _signal = signal;
             _source = source;
             _sender = sender;
             _timeProvider = timeProvider;
             _logger = logger;
+            _maintenanceMode = maintenanceMode;
+            _notificationPublisher = notificationPublisher;
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -53,6 +67,14 @@ namespace HambotV2.Scheduling
             {
                 try
                 {
+                    // Maintenance mode (FR-98): the pass is skipped entirely — deliveries defer
+                    // until the restore is done, and nothing gets marked failed meanwhile.
+                    if (_maintenanceMode?.IsActive == true)
+                    {
+                        await TryDelayAsync(FallbackPollInterval, stoppingToken);
+                        continue;
+                    }
+
                     await WaitForNextDueTimeAsync(stoppingToken);
                     await DeliverDueMessagesAsync(stoppingToken);
                 }
@@ -157,6 +179,12 @@ namespace HambotV2.Scheduling
                     await _source.RecordFailedAsync(message, _timeProvider.GetUtcNow(), cancellationToken);
                     _logger.LogError("Delivery of {MessageIdentity} failed after {MaxAttempts} attempts; marked as failed.",
                         message.LogIdentity, MaxDeliveryAttempts);
+
+                    // Retry-exhausted deliveries reach the operator notification channel (FR-118);
+                    // the publisher rate-limits, collapses, and never throws back.
+                    if (_notificationPublisher is not null)
+                        await _notificationPublisher.PublishAsync(
+                            $"A scheduled message delivery exhausted its {MaxDeliveryAttempts} attempts and was marked failed: {message.LogIdentity}.");
                 }
             }
             catch (OperationCanceledException)

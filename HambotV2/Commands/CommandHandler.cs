@@ -1,5 +1,7 @@
 using Discord;
 using HambotV2.Connections;
+using HambotV2.Maintenance;
+using HambotV2.Watchdog;
 using System.Diagnostics;
 
 namespace HambotV2.Commands
@@ -11,6 +13,9 @@ namespace HambotV2.Commands
     /// </summary>
     internal sealed class CommandHandler : ICommandHandler
     {
+        /// <summary>The reply other commands get while a backup restore is in progress (FR-98).</summary>
+        internal const string MaintenanceNotice = "The bot is in maintenance mode (a backup restore is in progress) — please try again in a moment.";
+
         private readonly ICommandService _commandService;
         private readonly IGuildSettingsService _guildSettingsService;
         private readonly IPermissionsService _permissionsService;
@@ -18,6 +23,8 @@ namespace HambotV2.Commands
         private readonly IDatabaseContext _databaseContext;
         private readonly IConfiguration _configuration;
         private readonly ILogger<CommandHandler> _logger;
+        private readonly IMaintenanceMode? _maintenanceMode;
+        private readonly INotificationPublisher? _notificationPublisher;
 
         public CommandHandler(
             ICommandService commandService,
@@ -26,7 +33,9 @@ namespace HambotV2.Commands
             ICooldownService cooldownService,
             IDatabaseContext databaseContext,
             IConfiguration configuration,
-            ILogger<CommandHandler> logger)
+            ILogger<CommandHandler> logger,
+            IMaintenanceMode? maintenanceMode = null,
+            INotificationPublisher? notificationPublisher = null)
         {
             _commandService = commandService;
             _guildSettingsService = guildSettingsService;
@@ -35,6 +44,8 @@ namespace HambotV2.Commands
             _databaseContext = databaseContext;
             _configuration = configuration;
             _logger = logger;
+            _maintenanceMode = maintenanceMode;
+            _notificationPublisher = notificationPublisher;
         }
 
         public async Task HandleCommand(IMessage message)
@@ -69,6 +80,15 @@ namespace HambotV2.Commands
 
                 if (_commandService.TryGetCommand(message.Content, identifier, out command))
                 {
+                    // Maintenance mode (FR-98): while a backup restore replaces the database, every
+                    // command declines except the restore command finishing its own confirmation.
+                    if (_maintenanceMode?.IsActive == true && command.Name != BackupCommands.RestoreBackupCommand.CommandName)
+                    {
+                        await message.Channel.SendMessageAsync(MaintenanceNotice);
+                        outcome = CommandOutcome.MaintenanceMode;
+                        return;
+                    }
+
                     outcome = await ExecuteBuiltInCommandAsync(message, guildId, identifier, overrides, command);
                     return;
                 }
@@ -103,6 +123,14 @@ namespace HambotV2.Commands
                 // Exception details go to the log only — never to Discord.
                 outcome = CommandOutcome.Failed;
                 _logger.LogError(ex, "Command '{commandName}' failed while processing message: {content}", command?.Name ?? responseName ?? "unknown", message.Content);
+
+                // The failure is also posted to the operator notification channel when one is
+                // configured (FR-118); the publisher rate-limits and never throws back.
+                if (_notificationPublisher is not null)
+                {
+                    await _notificationPublisher.PublishAsync(
+                        $"Command execution failure: command '{command?.Name ?? responseName ?? "unknown"}' invoked by user {message.Author.Id} in guild {guildId?.ToString() ?? "DMs"} failed.");
+                }
 
                 try
                 {
@@ -157,6 +185,13 @@ namespace HambotV2.Commands
         /// </summary>
         private async Task<CommandOutcome?> TryDispatchCustomResponseAsync(IMessage message, ulong guildId, TierOverrides overrides, string responseName)
         {
+            // Maintenance mode (FR-98): custom responses touch database state too.
+            if (_maintenanceMode?.IsActive == true)
+            {
+                await message.Channel.SendMessageAsync(MaintenanceNotice);
+                return CommandOutcome.MaintenanceMode;
+            }
+
             var response = await _databaseContext.CustomResponses.FindAsync(guildId, responseName);
             if (response is null)
                 return null;

@@ -21,6 +21,8 @@ namespace HambotV2.Connections
 
         DbSet<DatabaseContext.Reminder> Reminders { get; }
 
+        DbSet<DatabaseContext.BotSetting> BotSettings { get; }
+
         Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
     }
 }

@@ -1,5 +1,8 @@
 using System.Diagnostics.CodeAnalysis;
+using HambotV2.Backups;
+using HambotV2.Maintenance;
 using HambotV2.Scheduling;
+using HambotV2.Watchdog;
 
 namespace HambotV2.Commands
 {
@@ -8,14 +11,32 @@ namespace HambotV2.Commands
         /// <summary>Shared with the scheduled-message commands and the delivery loops; production DI supplies the one singleton.</summary>
         private readonly IScheduledDeliverySignal _deliverySignal;
 
+        /// <summary>Phase-1 dependencies (§3.13/§5.2), resolved by production DI and passed through the registration chain.</summary>
+        private readonly IBackupManager? _backupManager;
+        private readonly IMaintenanceMode? _maintenanceMode;
+        private readonly INotificationPublisher? _notificationPublisher;
+        private readonly INotificationChannelStore? _notificationChannelStore;
+        private readonly IHealthSnapshotProvider? _healthSnapshotProvider;
+
         /// <summary>
-        /// The signal defaults to an isolated instance, which keeps the registry usable in tests
-        /// that do not exercise scheduled delivery (the default's notifications simply have no
-        /// listener).
+        /// The signal defaults to an isolated instance, and the Phase-1 dependencies to null, which
+        /// keeps the registry usable in tests that do not exercise those features (the affected
+        /// commands then report "not configured" if actually executed).
         /// </summary>
-        public CommandService(IScheduledDeliverySignal? deliverySignal = null)
+        public CommandService(
+            IScheduledDeliverySignal? deliverySignal = null,
+            IBackupManager? backupManager = null,
+            IMaintenanceMode? maintenanceMode = null,
+            INotificationPublisher? notificationPublisher = null,
+            INotificationChannelStore? notificationChannelStore = null,
+            IHealthSnapshotProvider? healthSnapshotProvider = null)
         {
             _deliverySignal = deliverySignal ?? new ScheduledDeliverySignal();
+            _backupManager = backupManager;
+            _maintenanceMode = maintenanceMode;
+            _notificationPublisher = notificationPublisher;
+            _notificationChannelStore = notificationChannelStore;
+            _healthSnapshotProvider = healthSnapshotProvider;
         }
 
         public Dictionary<string, ICommand> Commands { get; } = new();
@@ -25,7 +46,7 @@ namespace HambotV2.Commands
 
         public void RegisterCommands()
         {
-            RegisterAllCommands.RegisterCommands(this, _deliverySignal);
+            RegisterAllCommands.RegisterCommands(this, _deliverySignal, _backupManager, _maintenanceMode, _notificationPublisher, _notificationChannelStore, _healthSnapshotProvider);
             CommandsRegistered = true;
         }
 

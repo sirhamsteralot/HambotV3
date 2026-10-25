@@ -22,6 +22,19 @@ namespace HambotV2.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("HambotV2.Connections.DatabaseContext+BotSetting", b =>
+                {
+                    b.Property<string>("Key")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Value")
+                        .HasColumnType("text");
+
+                    b.HasKey("Key");
+
+                    b.ToTable("BotSettings");
+                });
+
             modelBuilder.Entity("HambotV2.Connections.DatabaseContext+CommandMetaData", b =>
                 {
                     b.Property<decimal>("GuildId")

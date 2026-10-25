@@ -18,6 +18,8 @@ namespace HambotV2.Connections
 
         public DbSet<Reminder> Reminders { get; set; }
 
+        public DbSet<BotSetting> BotSettings { get; set; }
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             // Per-guild scoping (FR-20/FR-24): tiers and settings are keyed per guild.
@@ -29,6 +31,8 @@ namespace HambotV2.Connections
             modelBuilder.Entity<Quote>().HasKey(quote => new { quote.GuildId, quote.Number });
             modelBuilder.Entity<CustomResponse>().HasKey(response => new { response.GuildId, response.Name });
             modelBuilder.Entity<Reminder>().HasKey(reminder => new { reminder.OwnerDiscordId, reminder.Number });
+            // Global key-value settings (§3.13, FR-117): the global analog of GuildSetting.
+            modelBuilder.Entity<BotSetting>().HasKey(setting => setting.Key);
         }
 
         public class User
@@ -139,6 +143,16 @@ namespace HambotV2.Connections
 
             /// <summary>Set when delivery failed after the bounded retries (FR-67); null = pending. Failed rows stay for audit but leave the pending set.</summary>
             public DateTimeOffset? FailedAtUtc { get; set; }
+        }
+
+        /// <summary>
+        /// A global key-value setting (§3.13): bot-owner-scope state that is not guild- or user-scoped,
+        /// persisted across restarts. First key: the operator notification channel id (FR-117).
+        /// </summary>
+        public class BotSetting
+        {
+            public string Key { get; set; } = string.Empty;
+            public string? Value { get; set; }
         }
     }
 }

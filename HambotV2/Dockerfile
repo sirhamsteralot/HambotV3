@@ -31,6 +31,14 @@ RUN dotnet publish "./HambotV2.csproj" -c $BUILD_CONFIGURATION -o /app/publish /
 
 # This stage is used in production or when running from VS in regular mode (Default when not using the Debug configuration)
 FROM base AS final
+USER root
+# pg_dump/pg_restore for the in-bot backup commands (design §5.2): they run against the
+# shared backups volume mounted by compose. postgresql-client is pinned to major 17 to
+# match the database server (pg_dump cannot dump from a server newer than itself).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends postgresql-client-17 \
+    && rm -rf /var/lib/apt/lists/*
+USER $APP_UID
 WORKDIR /app
 COPY --from=publish /app/publish .
 ENTRYPOINT ["dotnet", "HambotV2.dll"]

@@ -75,6 +75,38 @@ No manual migration step is required: on startup the bot applies the EF Core mig
 
 If the database is unreachable at startup, the bot logs a critical error and exits with a non-zero code instead of starting half-functional — so a failed startup is always visible.
 
+## Backups
+
+The Compose stack includes a dedicated `backup` sidecar (built from `scripts/backup/`), so the database is backed up on schedule even while the bot container is stopped, restarting, or failing. Backups are configured entirely through `.env` (see `.env.example`):
+
+| Key | Default | Meaning |
+|---|---|---|
+| `BACKUP_INTERVAL` | `86400` (24 h) | Seconds between scheduled backups. |
+| `BACKUP_RETENTION` | `7` | How many of the most recent dumps to keep in the `backups` volume. |
+| `BACKUP_TEST_INTERVAL` | `2592000` (30 days) | Seconds between automated restore tests. |
+| `BACKUP_RCLONE_REMOTE` | *(empty)* | Offsite push target, e.g. `backup:my-bucket/hambotv2` (S3-compatible storage via rclone). Leave empty to skip the offsite push. |
+| `BACKUP_S3_*` | *(empty)* | Offsite storage credentials (endpoint, region, access key, secret) — only used when `BACKUP_RCLONE_REMOTE` is set. |
+
+Each pass of the backup loop: `pg_dump -Fc` into the shared `backups` volume → validate the dump (`pg_restore --list` plus a size floor — an invalid dump is deleted and counts for nothing) → prune local dumps beyond the retention count (only after a good dump, so a failed dump never deletes good backups) → push offsite when configured (a failed push is logged and otherwise harmless) → write the `backups/.backup-status` file that `!health` and the watchdog read. On `BACKUP_TEST_INTERVAL` (default monthly, and immediately on a fresh deployment) the loop also proves restorability: it restores the newest valid dump into a scratch database, verifies the expected tables, drops the scratch database again, and records the outcome.
+
+### Restoring a backup — two paths
+
+**From Discord (healthy bot)** — bot-owner tier, works in DMs:
+
+- `!backup` — creates an on-demand backup immediately (same format and directory as the scheduled ones) and replies with its name and size.
+- `!backups` — lists the available backups, newest first (capped at 10 entries).
+- `!restorebackup <name>` — warns that all current data will be replaced and asks you to confirm.
+- `!restorebackup <name> confirm` — performs the restore. The bot enters maintenance mode while it runs (all other commands decline), pooled database connections are cleared, and the guild-settings cache is invalidated afterwards.
+
+**From the host (broken bot or broken database)** — `scripts/restore-backup.sh <dump-file>` is the authoritative recovery path; it runs from outside the stack: stop the bot → drop and recreate the database → `pg_restore` the dump → restart → verify the known startup lines in the logs. See the header of the script for the expected environment.
+
+## Watchdog, health & operator notifications
+
+- `!health` — bot-owner tier, works in DMs: one report with the bot's version, uptime, gateway state, database reachability, pending reminder count, backup and restore-test status, and the configured notification channel. (LLM, MCP, and presence fields show as inactive until those features land.)
+- `!notifychannel` — bot-owner tier, works in DMs: show / set / clear the operator notification channel (`!notifychannel <#channel>` or a raw channel id; `!notifychannel clear`). The setting persists across restarts; `NOTIFY_CHANNEL_ID` in `.env` is the configuration default.
+- When a notification channel is set, command execution failures, retry-exhausted reminder deliveries, maintenance-mode entry/exit and restore outcomes, and watchdog alerts are posted there — rate-limited (default 5 posts per minute) with identical consecutive messages collapsed, so an error storm cannot flood the channel. Failed notification posts are logged and additionally DM'd to the bot owner.
+- The watchdog checks every 5 minutes (`WATCHDOG_CHECK_INTERVAL_MINUTES`) and alerts the bot owner by DM (and the notification channel) when: the gateway has been down for more than 10 minutes (`WATCHDOG_GATEWAY_DOWN_ALERT_MINUTES`), a backup failed validation or is overdue, a restore test failed or is overdue, the bot is in maintenance mode, or the notification channel is unreachable. Each condition alerts once, re-alerts hourly (`WATCHDOG_RE_ALERT_MINUTES`) while it persists, and announces recovery once. Without a configured `BOT_OWNER_DISCORD_ID`, alerts degrade to logs.
+
 ## Building & running locally (from source)
 
 You need a reachable PostgreSQL instance; the easiest option is a container:
@@ -102,7 +134,7 @@ The unit tests (MSTest + Moq, in `BotTests/`) run without a database, Discord to
 dotnet test HambotV2.sln
 ```
 
-They cover command registration (lowercase names, help text, default tiers), command lookup and parsing edge cases, the typed argument-parsing helper, the permission tier scale with tier overrides and escalation guards, per-guild scoping and the DM scope, the permission-management, `!settings` and `!help` command behavior, command cooldowns, startup configuration validation, and the command pipeline failure paths (throwing commands, database errors during permission checks).
+They cover command registration (lowercase names, help text, default tiers), command lookup and parsing edge cases, the typed argument-parsing helper, the permission tier scale with tier overrides and escalation guards, per-guild scoping and the DM scope, the permission-management, `!settings` and `!help` command behavior, command cooldowns, startup configuration validation, the command pipeline failure paths (throwing commands, database errors during permission checks), the backup commands (trigger, list, two-step restore confirmation, maintenance-mode gating), and the watchdog/health/notification surface (condition detection, alert cadence, `!health`, `!notifychannel`).
 
 ## Running in production
 
@@ -113,9 +145,9 @@ cp .env.example .env   # fill in your real token and a strong database password
 docker compose up -d --build
 ```
 
-- Database data persists in the `db-data` volume across restarts.
-- Both services use `restart: unless-stopped`, so the stack survives crashes and (with Docker running) host reboots.
-- The bot container waits for the database healthcheck before starting.
+- Database data persists in the `db-data` volume across restarts; backups persist in the `backups` volume.
+- All services use `restart: unless-stopped`, so the stack survives crashes and (with Docker running) host reboots.
+- The bot container waits for the database healthcheck before starting; the backup sidecar waits for it too.
 - Check logs with `docker compose logs -f bot`, and update to a new build with `docker compose up -d --build`.
 
 **Plain Docker** (no Compose) — build from the repository root (the Dockerfile's build context is the repo root):
@@ -159,6 +191,11 @@ If the token is wrong/missing you'll instead see a critical message naming the m
 | `!settings` | Shows the server's effective command identifier and per-tier cooldown overrides. Admin-only by default. |
 | `!settings commandidentifier <value>` / `reset` | Sets or clears the server's command identifier override (≤ 5 chars; `reset` reverts to the global default). |
 | `!settings cooldown <tier> <seconds>` / `reset` | Sets or clears the server's per-tier cooldown override (tiers 0–3; `0` disables throttling for that tier). |
+| `!health` | Shows the bot's operational state: version, uptime, gateway, database, pending reminders, backups, restore test, notification channel. Bot-owner tier; works in DMs. |
+| `!notifychannel [<#channel or id>` / `clear`]` | Shows, sets, or clears the operator notification channel where errors and alerts are posted. Bot-owner tier; works in DMs. |
+| `!backup` | Creates a database backup immediately and replies with its name and size. Bot-owner tier; works in DMs. |
+| `!backups` | Lists the available backups, newest first. Bot-owner tier; works in DMs. |
+| `!restorebackup <name> [confirm]` | Restores a backup — destructive, so it demands the explicit `confirm` step. Bot-owner tier; works in DMs. |
 
 Permission tiers form a named scale:
 

@@ -24,5 +24,8 @@ namespace HambotV2.Commands
 
         /// <summary>The pipeline caught an exception; the user got the generic error reply.</summary>
         Failed,
+
+        /// <summary>The command was declined because a backup restore is in progress (FR-98).</summary>
+        MaintenanceMode,
     }
 }
