@@ -22,16 +22,14 @@ The 1.0.0 release is out. All previously planned work is implemented and in prod
 - **Jenkins auto-deploy** (NFR-6/NFR-8; design §5.1) — version tags (`v<major.minor.patch>`) that build and test cleanly deploy automatically; ordinary pushes (including `master`) are built and tested only.
 - **Version reporting** (FR-76–FR-77 / NFR-17 / C-5; design §3.9) — including the final operator action: the `v1.0.0` release tag has been created and deployed, so the running bot reports a real release version.
 
-The tasks below are the post-1.0.0 backlog, specified ahead of implementation (FR-78–FR-118 / NFR-18–NFR-26) and listed in intended implementation order:
+The tasks below are the post-1.0.0 backlog, specified ahead of implementation (FR-78–FR-118 / NFR-18–NFR-26) and organised into phases:
 
-1. **Database backups** (FR-81–FR-85, FR-96–FR-98, FR-100–FR-101 / NFR-19, NFR-22; design §5.2) — protects the data everything else builds on; independent of bot code.
-2. **Discord presence & profile identity** (FR-78–FR-80, FR-113, FR-115–FR-116 / NFR-18; design §3.10) — the foundation of the LLM presence feature.
-3. **LLM-driven presence and bio updates** (FR-92–FR-95, FR-99, FR-102–FR-104, FR-114 / NFR-21, NFR-25; design §3.12) — small once presence exists; includes the persona and the cost guardrails.
-4. **MCP server for Odysseus** (FR-86–FR-91 / NFR-20; design §3.11) — independent of the LLM work.
-5. **Watchdog, health reporting & operator notifications** (FR-105–FR-106, FR-117–FR-118 / NFR-23; design §3.13) — makes degradation loud; observes the backups, LLM, and maintenance state introduced above, and posts errors/failures/criticals to an owner-configured channel.
-6. **Recurring reminders** (FR-107–FR-109 / NFR-24; design §3.14) — small extension of the existing reminder engine.
-7. **Slash commands** (FR-110–FR-112 / NFR-26; design §3.15) — the command surface exposed as Discord application commands.
-8. **LLM conversation participation & memory** — a deliberately unspecced placeholder (bottom of this file); design it after the tasks above are in production.
+- **Phase #1: Backup & Stability improvements** — Database backups (FR-81–FR-85, FR-96–FR-98, FR-100–FR-101 / NFR-19, NFR-22; design §5.2) and watchdog, health reporting & operator notifications (FR-105–FR-106, FR-117–FR-118 / NFR-23; design §3.13). Protects the data everything else builds on and makes degradation loud. The health snapshot's LLM (§3.12) and MCP (§3.11) fields stay dormant until those phases land.
+- **Phase #2: Rich Presence, Recurring reminders, Slash Commands** — Discord presence & profile identity (FR-78–FR-80, FR-113, FR-115–FR-116 / NFR-18; design §3.10), recurring reminders (FR-107–FR-109 / NFR-24; design §3.14), and slash commands (FR-110–FR-112 / NFR-26; design §3.15). The slash-command handler's virtual invocation builds the shared run-through-`CommandHandler` mechanism specified in design §3.11 — extract it as a reusable component here, so Phase #3's `run_command` tool consumes it rather than re-inventing it.
+- **Phase #3: MCP** — the MCP server for Odysseus (FR-86–FR-91 / NFR-20; design §3.11).
+- **Phase #4: LLM Integration** — LLM-driven presence and bio updates (FR-92–FR-95, FR-99, FR-102–FR-104, FR-114 / NFR-21, NFR-25; design §3.12), then LLM conversation participation & memory (a deliberately unspecced placeholder; design it after everything above is in production).
+
+## Phase #1: Backup & Stability improvements
 
 - [ ] **Database backups — scheduled `pg_dump` with local retention, offsite push, in-bot recovery, and verified restorability (FR-81–FR-85, FR-96–FR-98, FR-100–FR-101 / NFR-19, NFR-22; design §5.2)**
 
@@ -51,54 +49,6 @@ The tasks below are the post-1.0.0 backlog, specified ahead of implementation (F
 
     **Acceptance criteria**: FR-81–FR-85, FR-96–FR-98, and FR-100–FR-101 hold — dumps appear on schedule in the volume (and in the offsite bucket when configured), each validated before it counts; retention prunes only after a successful dump; a failed offsite push is logged and harmless; the bot owner can create, list, and restore backups entirely from Discord, with an explicit confirm step before the destructive one; the monthly restore test runs and its outcome is recorded; the bot is unaffected throughout; the restore drill (both paths) is done and documented.
 
-- [ ] **Discord presence & profile identity — activity, bio, avatar, banner (FR-78–FR-80, FR-113, FR-115–FR-116 / NFR-18; design §3.10)**
-
-    **Problem**: the bot has no Discord presence/activity — it always shows the plain "online" state — and its profile is bare: no "About Me", no custom profile picture, no banner. There is no way for server members to see what the bot is doing or what it is, and no foundation for the LLM to drive its identity later.
-
-    **Steps**:
-
-    1. Add `Connections/PresenceService.cs` — singleton `IPresenceService` over the shared gateway client: `ApplyAsync`/`ClearAsync`/`Current` for the activity, plus bio/avatar/banner apply and clear alongside, single-flight serialization, deferred apply until the gateway is ready, apply failures logged never thrown.
-    2. Add the optional `BotConfiguration:Presence` config section (`Type` + `Text`) and `BotConfiguration:Bio` with startup validation naming the offending key; apply on gateway Ready. No startup configuration for images.
-    3. **Spike (design §3.10)**: verify how bots set bio/avatar/banner with Discord.Net 3.20.2 — the API has allowed bot accounts to set these since September 2025 via the per-guild modify-current-member route, so the service applies them in every guild the bot is a member of; the avatar additionally uses the global user route; use Discord.Net's native support where present, else a small REST call on the shared client's REST layer.
-    4. Add the `!presence` command (`SystemCommands`): show / `<type> <text...>` set / `clear`; default tier 4 (bot owner), DM-usable, help text, in-channel validation errors, not persisted across restarts.
-    5. Add the `!bio` command mirroring it: show / `<text...>` set (≤ 190 chars, line breaks allowed) / `clear`; same tier-4 default, DM-usable, help text; absent config never wipes an existing bio at startup.
-    6. Add the `!avatar` and `!banner` commands: no args → current image URL; exactly one image attachment or a single image URL → download (attachment path reuses the `IAttachmentContentDownloader` pattern, URL path the shared `HttpClient`), validate as an image within Discord's limits, apply; `!avatar reset` / `!banner clear` remove the custom images. Tier 4, DM-usable, help text, failures in-channel.
-    7. Unit tests per NFR-18 (mocked client, fake image downloader): config validation (presence and bio, both boundaries), command behavior, tier gates, DMs, serialization, apply-failure path, per-guild applies, not-persisted semantics, avatar/banner attachment and URL paths with rejection cases.
-
-    **Acceptance criteria**: FR-78–FR-80, FR-113, and FR-115–FR-116 hold; the build stays warning-free and tests green; design §3.10 loses its **(planned)** marker and reflects the as-built behavior (including the spike's outcome on the member route).
-
-- [ ] **LLM integration, phase 1 — automatic presence and bio updates, including the bot's persona (FR-92–FR-95, FR-99, FR-102–FR-104, FR-114 / NFR-21, NFR-25; design §3.12)**
-
-    **Problem**: the bot's presence and bio are static. The plan is for the bot to use an LLM (a raw Mistral API key) to keep its identity surfaces fresh — phase 1 of the broader LLM integration (conversation participation and memory are later phases, deliberately out of this scope).
-
-    **Steps**:
-
-    1. Add `Llm/ILlmClient.cs` (chat-completion abstraction) and `Llm/MistralLmClient.cs` (Mistral API, key from `Llm:ApiKey`, model from `Llm:Model`, default `mistral-small-latest`); no key = every LLM feature inactive.
-    2. Add `Llm/PresenceUpdateService.cs` — opt-in hosted loop (`Llm:PresenceUpdates:Enabled`, interval `IntervalMinutes`, default 60): build the prompt from `Llm:Persona` + bot name/version + current date/time + current presence, validate the output (single line ≤ 128 chars), apply via `IPresenceService`.
-    3. **Author the bot's persona (FR-99)**: draft the default persona seed — the hamster character's voice, tone, and humor — as a documented, configuration-overridable default, then tune it against real presence outputs once the job runs. The persona is part of the feature, not an afterthought.
-    4. Failure path: request error or invalid output → keep the current presence (and bio), log, retry next tick (FR-94).
-    5. Add bio updates (FR-114): `Llm:BioUpdates:Enabled` (default false) makes the same tick generate and apply a bio — non-empty, ≤ 190 chars, line breaks allowed, from the same persona — with identical validation, failure handling, and budget accounting.
-    6. Add the cost & usage guardrails (FR-102–FR-104): per-feature/per-day usage accounting in the LLM client, the `Llm:DailyRequestBudget` hard stop (suspend for the rest of the UTC day, like any other failure — skip, change nothing, log), and the `!llm` runtime kill switch (`status` / `off` / `on`, tier 4, DM-usable; a restart restores the configured state).
-    7. Wire configuration defaults into `appsettings.json`, secrets per NFR-3, and document in design §4.
-    8. Unit tests per NFR-21 and NFR-25 (fake `ILlmClient`, `FakeTimeProvider`): prompt building, output validation at both boundaries (128-char presence, 190-char bio), scheduling, failure path, inactive-without-key; usage accounting, budget suspension and UTC-rollover resumption, kill-switch states and replies.
-
-    **Acceptance criteria**: FR-92–FR-95, FR-99, FR-102–FR-104, and FR-114 hold; with a key and the flags on, the presence and bio change on schedule in the bot's own voice; without them, nothing changes; the budget can be observed via `!llm status` and enforced (a spent budget suspends the features until UTC rollover), and `!llm off` stops all API calls until re-enabled or restarted; tests green and warning-free; design §3.12 loses its **(planned)** marker.
-
-- [ ] **MCP server — Odysseus hook-in (FR-86–FR-91 / NFR-20; design §3.11)**
-
-    **Problem**: there is no way for the operator's agent (Odysseus) to interact with the bot programmatically — no status introspection, no message reading/sending, no command execution.
-
-    **Steps**:
-
-    1. Add the official `ModelContextProtocol` C# SDK and host the streamable-HTTP endpoint via Kestrel in the worker; config `Mcp:Enabled` (default false) / `Mcp:ListenUri` / `Mcp:ApiKey`; bearer-key auth in front of everything; startup log line naming the state and URI.
-    2. Implement the status & identity tools: `bot_status` (version, uptime, guild count, presence and bio), `list_guilds`, `set_presence` and `set_bio` (via `IPresenceService`, design §3.10).
-    3. Implement the messaging tools: `get_recent_messages` (Discord REST, capped at 50) and `send_message` (plain text ≤ 2000 chars).
-    4. Implement `run_command` — virtual invocation through the real `CommandHandler` as tier 4: reply captured and returned as the tool result, never posted to a real channel; cooldowns, custom responses, audit events reused unchanged.
-    5. Wire compose (loopback-only publish) and `.env.example`; document the endpoint and tool surface.
-    6. Unit tests per NFR-20: bearer rejection, each tool over fakes, `run_command` capture/cooldown/audit semantics.
-
-    **Acceptance criteria**: FR-86–FR-91 hold; Odysseus connects with the API key and completes a status → read → `run_command` round trip (and is rejected without the key); tests green and warning-free; design §3.11 loses its **(planned)** marker.
-
 - [ ] **Watchdog, health reporting & operator notifications — `!health`, proactive alerts, and a configured error channel (FR-105–FR-106, FR-117–FR-118 / NFR-23; design §3.13)**
 
     **Problem**: degradation is silent. If the gateway gets stuck reconnecting, backups quietly stop validating, the LLM budget runs dry, or the bot sits in maintenance mode, nobody notices until something is lost or broken. The operator has no single place to see the bot's state, and errors/failures/criticals are buried in server-side logs instead of surfacing somewhere the bot owner actually looks — a dedicated Discord channel.
@@ -114,6 +64,24 @@ The tasks below are the post-1.0.0 backlog, specified ahead of implementation (F
     7. Unit tests per NFR-23 (fakes + `FakeTimeProvider`): each condition's detection, the alert/re-alert/recovery cadence, delivery via a mocked sender to both the DM and the channel, the no-owner fallback, `!health` fields and tier gate, notification posting with rate limiting and collapse, `!notifychannel` show/set/clear with persistence.
 
     **Acceptance criteria**: FR-105–FR-106 and FR-117–FR-118 hold; `!health` gives the bot owner the full picture from Discord (including DMs); the bot owner can point a channel at the bot with `!notifychannel` and see errors, failures, and criticals land there — throttled so storms collapse instead of flooding, and with notification failures themselves reaching the owner DM; the DM alerts remain as the out-of-band path; nothing in the watchdog or publisher can crash the bot; tests green and warning-free; design §3.13 loses its **(planned)** marker.
+
+## Phase #2: Rich Presence, Recurring reminders, Slash Commands
+
+- [ ] **Discord presence & profile identity — activity, bio, avatar, banner (FR-78–FR-80, FR-113, FR-115–FR-116 / NFR-18; design §3.10)**
+
+    **Problem**: the bot has no Discord presence/activity — it always shows the plain "online" state — and its profile is bare: no "About Me", no custom profile picture, no banner. There is no way for server members to see what the bot is doing or what it is, and no foundation for the LLM to drive its identity later.
+
+    **Steps**:
+
+    1. Add `Connections/PresenceService.cs` — singleton `IPresenceService` over the shared gateway client: `ApplyAsync`/`ClearAsync`/`Current` for the activity, plus bio/avatar/banner apply and clear alongside, single-flight serialization, deferred apply until the gateway is ready, apply failures logged never thrown.
+    2. Add the optional `BotConfiguration:Presence` config section (`Type` + `Text`) and `BotConfiguration:Bio` with startup validation naming the offending key; apply on gateway Ready. No startup configuration for images.
+    3. **Spike (design §3.10)**: verify how bots set bio/avatar/banner with Discord.Net 3.20.2 — the API has allowed bot accounts to set these since September 2025 via the per-guild modify-current-member route, so the service applies them in every guild the bot is a member of; the avatar additionally uses the global user route; use Discord.Net's native support where present, else a small REST call on the shared client's REST layer.
+    4. Add the `!presence` command (`SystemCommands`): show / `<type> <text...>` set / `clear`; default tier 4 (bot owner), DM-usable, help text, in-channel validation errors, not persisted across restarts.
+    5. Add the `!bio` command mirroring it: show / `<text...>` set (≤ 190 chars, line breaks allowed) / `clear`; same tier-4 default, DM-usable, help text; absent config never wipes an existing bio at startup.
+    6. Add the `!avatar` and `!banner` commands: no args → current image URL; exactly one image attachment or a single image URL → download (attachment path reuses the `IAttachmentContentDownloader` pattern, URL path the shared `HttpClient`), validate as an image within Discord's limits, apply; `!avatar reset` / `!banner clear` remove the custom images. Tier 4, DM-usable, help text, failures in-channel.
+    7. Unit tests per NFR-18 (mocked client, fake image downloader): config validation (presence and bio, both boundaries), command behavior, tier gates, DMs, serialization, apply-failure path, per-guild applies, not-persisted semantics, avatar/banner attachment and URL paths with rejection cases.
+
+    **Acceptance criteria**: FR-78–FR-80, FR-113, and FR-115–FR-116 hold; the build stays warning-free and tests green; design §3.10 loses its **(planned)** marker and reflects the as-built behavior (including the spike's outcome on the member route).
 
 - [ ] **Recurring reminders — `!remindme every <duration> <message...>` (FR-107–FR-109 / NFR-24; design §3.14)**
 
@@ -144,6 +112,42 @@ The tasks below are the post-1.0.0 backlog, specified ahead of implementation (F
     6. Verify in production behind the flag, then flip the default to true.
 
     **Acceptance criteria**: FR-110–FR-112 hold; with the flag on, every registered command appears in Discord's `/` picker with sensible options and executes exactly as its text twin (same tiers, throttles, audit, errors); denials are ephemeral, output is public and identical to the text surface; the text surface is unchanged; tests green and warning-free; design §3.15 loses its **(planned)** marker.
+
+## Phase #3: MCP
+
+- [ ] **MCP server — Odysseus hook-in (FR-86–FR-91 / NFR-20; design §3.11)**
+
+    **Problem**: there is no way for the operator's agent (Odysseus) to interact with the bot programmatically — no status introspection, no message reading/sending, no command execution.
+
+    **Steps**:
+
+    1. Add the official `ModelContextProtocol` C# SDK and host the streamable-HTTP endpoint via Kestrel in the worker; config `Mcp:Enabled` (default false) / `Mcp:ListenUri` / `Mcp:ApiKey`; bearer-key auth in front of everything; startup log line naming the state and URI.
+    2. Implement the status & identity tools: `bot_status` (version, uptime, guild count, presence and bio), `list_guilds`, `set_presence` and `set_bio` (via `IPresenceService`, design §3.10).
+    3. Implement the messaging tools: `get_recent_messages` (Discord REST, capped at 50) and `send_message` (plain text ≤ 2000 chars).
+    4. Implement `run_command` — virtual invocation through the real `CommandHandler` as tier 4: reply captured and returned as the tool result, never posted to a real channel; cooldowns, custom responses, audit events reused unchanged.
+    5. Wire compose (loopback-only publish) and `.env.example`; document the endpoint and tool surface.
+    6. Unit tests per NFR-20: bearer rejection, each tool over fakes, `run_command` capture/cooldown/audit semantics.
+
+    **Acceptance criteria**: FR-86–FR-91 hold; Odysseus connects with the API key and completes a status → read → `run_command` round trip (and is rejected without the key); tests green and warning-free; design §3.11 loses its **(planned)** marker.
+
+## Phase #4: LLM Integration
+
+- [ ] **LLM integration, phase 1 — automatic presence and bio updates, including the bot's persona (FR-92–FR-95, FR-99, FR-102–FR-104, FR-114 / NFR-21, NFR-25; design §3.12)**
+
+    **Problem**: the bot's presence and bio are static. The plan is for the bot to use an LLM (a raw Mistral API key) to keep its identity surfaces fresh — phase 1 of the broader LLM integration (conversation participation and memory are later phases, deliberately out of this scope).
+
+    **Steps**:
+
+    1. Add `Llm/ILlmClient.cs` (chat-completion abstraction) and `Llm/MistralLmClient.cs` (Mistral API, key from `Llm:ApiKey`, model from `Llm:Model`, default `mistral-small-latest`); no key = every LLM feature inactive.
+    2. Add `Llm/PresenceUpdateService.cs` — opt-in hosted loop (`Llm:PresenceUpdates:Enabled`, interval `IntervalMinutes`, default 60): build the prompt from `Llm:Persona` + bot name/version + current date/time + current presence, validate the output (single line ≤ 128 chars), apply via `IPresenceService`.
+    3. **Author the bot's persona (FR-99)**: draft the default persona seed — the hamster character's voice, tone, and humor — as a documented, configuration-overridable default, then tune it against real presence outputs once the job runs. The persona is part of the feature, not an afterthought.
+    4. Failure path: request error or invalid output → keep the current presence (and bio), log, retry next tick (FR-94).
+    5. Add bio updates (FR-114): `Llm:BioUpdates:Enabled` (default false) makes the same tick generate and apply a bio — non-empty, ≤ 190 chars, line breaks allowed, from the same persona — with identical validation, failure handling, and budget accounting.
+    6. Add the cost & usage guardrails (FR-102–FR-104): per-feature/per-day usage accounting in the LLM client, the `Llm:DailyRequestBudget` hard stop (suspend for the rest of the UTC day, like any other failure — skip, change nothing, log), and the `!llm` runtime kill switch (`status` / `off` / `on`, tier 4, DM-usable; a restart restores the configured state).
+    7. Wire configuration defaults into `appsettings.json`, secrets per NFR-3, and document in design §4.
+    8. Unit tests per NFR-21 and NFR-25 (fake `ILlmClient`, `FakeTimeProvider`): prompt building, output validation at both boundaries (128-char presence, 190-char bio), scheduling, failure path, inactive-without-key; usage accounting, budget suspension and UTC-rollover resumption, kill-switch states and replies.
+
+    **Acceptance criteria**: FR-92–FR-95, FR-99, FR-102–FR-104, and FR-114 hold; with a key and the flags on, the presence and bio change on schedule in the bot's own voice; without them, nothing changes; the budget can be observed via `!llm status` and enforced (a spent budget suspends the features until UTC rollover), and `!llm off` stops all API calls until re-enabled or restarted; tests green and warning-free; design §3.12 loses its **(planned)** marker.
 
 - [ ] **LLM conversation participation & memory — future (not yet specified)**
 
