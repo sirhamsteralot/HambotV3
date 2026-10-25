@@ -128,9 +128,10 @@ The repository ships a Jenkins pipeline ([`Jenkinsfile`](Jenkinsfile)): every bu
 
 Expected startup log sequence (from source, Compose, or plain Docker):
 
-1. `Database migrations applied successfully`
-2. `Initializing Discord connection...`
-3. Gateway ready (Discord.Net logs a `Ready` message; afterwards `Worker running at: ...` lines appear every 5 minutes).
+1. `Bot version: <version>` — the release tag semver plus the build commit's short hash (e.g. `1.2.3+1639324`; fallback `0.0.0+<hash>` on untagged commits)
+2. `Database migrations applied successfully`
+3. `Initializing Discord connection...`
+4. Gateway ready (Discord.Net logs a `Ready` message; afterwards `Worker running at: ...` lines appear every 5 minutes).
 
 Then, in a Discord channel the bot can see, send `!hello` — it should reply `Hello World`.
 
@@ -141,6 +142,7 @@ If the token is wrong/missing you'll instead see a critical message naming the m
 | Command | Behavior |
 |---|---|
 | `!hello` | Replies "Hello World". |
+| `!version` | Replies with the bot's version: the release tag semver plus the build commit's short hash (e.g. `1.2.3+1639324`). Works in DMs. |
 | `!help [commandName]` | Lists the commands you can use, or shows detailed help (description, usage, required tier) for one command. |
 | `!commandpermission <name> [tier]` | Prints a command's required tier, or sets/creates it. Admin-only by default. |
 | `!userpermission <user> [tier]` | Prints a user's tier, or sets/creates it. `<user>` is a raw Discord id or an @mention. Admin-only by default. |

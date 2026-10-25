@@ -25,4 +25,37 @@
     <PackageReference Include="Serilog.Sinks.Console" Version="6.1.1" />
     <PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />
   </ItemGroup>
+
+  <!-- Version embedding (FR-76, design §3.9): the raw release tag and commit hash are read
+       from git and compiled into the assembly as metadata; the runtime BotVersion provider
+       turns them into the reported version string with pure, unit-tested formatting (NFR-17).
+       The raw pieces — not a composed version — are embedded so the formatting exists in
+       exactly one place. Local and Jenkins agent builds run git here for free (the workspace
+       has .git); container builds cannot (the Docker build context excludes .git), so
+       Dockerfile/deploy.sh pass the same two values in via these properties. Any git failure
+       leaves the properties empty, which the provider turns into the 0.0.0+unknown fallback —
+       never a build failure. Stderr is redirected because ConsoleToMSBuild captures it too:
+       git's "fatal:" diagnostics on untagged/no-git builds must not become the version. -->
+  <!-- Note: the hook must run before GenerateAssemblyInfo's own dependency chain
+       (CoreGenerateAssemblyInfo writes the file when GenerateAssemblyInfo's deps are done,
+       before any BeforeTargets="GenerateAssemblyInfo" target runs), so the attributes are
+       attached ahead of the input-cache hash that gates the file's regeneration. -->
+  <Target Name="ComputeBotVersion" BeforeTargets="GetAssemblyAttributes;CreateGeneratedAssemblyInfoInputsCacheFile">
+    <Exec Condition="'$(BotVersionTag)' == ''" Command="git describe --tags --match &quot;v*&quot; --abbrev=0 HEAD 2>&quot;$(IntermediateOutputPath)bot-version-tag.err&quot;" ConsoleToMSBuild="true" IgnoreExitCode="true" StandardOutputImportance="low">
+      <Output TaskParameter="ConsoleOutput" PropertyName="BotVersionTag" />
+    </Exec>
+    <Exec Condition="'$(BotVersionCommit)' == ''" Command="git rev-parse --short=7 HEAD 2>&quot;$(IntermediateOutputPath)bot-version-commit.err&quot;" ConsoleToMSBuild="true" IgnoreExitCode="true" StandardOutputImportance="low">
+      <Output TaskParameter="ConsoleOutput" PropertyName="BotVersionCommit" />
+    </Exec>
+    <ItemGroup>
+      <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+        <_Parameter1>BotVersionTag</_Parameter1>
+        <_Parameter2>$(BotVersionTag)</_Parameter2>
+      </AssemblyAttribute>
+      <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+        <_Parameter1>BotVersionCommit</_Parameter1>
+        <_Parameter2>$(BotVersionCommit)</_Parameter2>
+      </AssemblyAttribute>
+    </ItemGroup>
+  </Target>
 </Project>

@@ -16,7 +16,7 @@ Safety properties:
 
 - A stage only runs if the previous ones succeeded — **a failed build or test run never deploys anything**.
 - The deploy script builds the new Docker image *before* replacing any container, so a failed image build leaves the running stack untouched.
-- After starting the new container, the script waits for the database healthcheck and the bot's known startup lines (`Database migrations applied successfully`, `Discord gateway connection established.`); if they don't appear in time, it rolls back to the previously running image and the Jenkins job fails.
+- After starting the new container, the script waits for the database healthcheck and the bot's known startup lines (`Database migrations applied successfully`, `Discord gateway connection established.`, and `Bot version: <version>` matching the deployed tag + commit); if they don't appear in time, it rolls back to the previously running image and the Jenkins job fails.
 - Secrets never pass through Jenkins: the production `.env` (gitignored) lives on the server next to `docker-compose.yml` and is read by Compose there.
 
 ## Setup in the order you'll do it

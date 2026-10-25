@@ -23,6 +23,12 @@ services:
     build:
       context: .
       dockerfile: HambotV2/Dockerfile
+      # The version pieces the bot embeds (design §3.9); deploy.sh exports both from the
+      # server clone. A plain `docker compose up --build` without them leaves the bot on
+      # the 0.0.0+unknown fallback (FR-76).
+      args:
+        BOT_VERSION_TAG: ${BOT_VERSION_TAG:-}
+        BOT_VERSION_COMMIT: ${BOT_VERSION_COMMIT:-}
     restart: unless-stopped
     depends_on:
       db:

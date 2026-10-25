@@ -11,10 +11,10 @@
 #     leaves the currently running stack untouched.
 #   - After starting the new container, the script waits for the database to be
 #     healthy and for the bot's known startup lines ("Database migrations
-#     applied successfully" and "Discord gateway connection established.").
-#     If they do not appear in time, the previously running image is restored
-#     and the script exits non-zero, so Jenkins fails the job instead of
-#     shipping a broken bot.
+#     applied successfully", "Discord gateway connection established.", and
+#     "Bot version:" matching the deployed tag + commit). If they do not appear
+#     in time, the previously running image is restored and the script exits
+#     non-zero, so Jenkins fails the job instead of shipping a broken bot.
 #   - On success, images left dangling by the rebuild are pruned so the disk
 #     does not fill up.
 #
@@ -61,6 +61,21 @@ fail() {
 
 echo "==> Deploying commit ${commit} (Jenkins build #${build_number})"
 
+# The version the deployed bot must report (§3.9): raw release tag + commit hash for the
+# exact commit being deployed, read here — the Docker build stage has no .git — and passed
+# to the image build as MSBuild properties. An untagged deploy leaves the tag empty and the
+# bot reports the 0.0.0+<hash> fallback (FR-76); expected_version mirrors the bot's own
+# formatting for the startup-log verification below.
+bot_version_tag="$(git describe --tags --match 'v*' --abbrev=0 "$commit" 2>/dev/null || true)"
+bot_version_commit="$(git rev-parse --short=7 "$commit")"
+export BOT_VERSION_TAG="$bot_version_tag"
+export BOT_VERSION_COMMIT="$bot_version_commit"
+expected_version="${bot_version_tag#v}+${bot_version_commit}"
+if [ -z "$bot_version_tag" ]; then
+    expected_version="0.0.0+${bot_version_commit}"
+fi
+echo "==> Expected bot version: $expected_version"
+
 # 1. Build the new image before touching any container: a failed build must
 #    not disturb the running stack (deploy failure != outage).
 docker compose build bot
@@ -83,13 +98,15 @@ while [ "$(docker inspect -f '{{.State.Health.Status}}' "$db_id")" != "healthy" 
     sleep 3
 done
 
-# 3b. Bot startup lines within 3 minutes.
+# 3b. Bot startup lines within 3 minutes, including the version line matching the
+#     deployed commit — a mis-versioned build rolls back like any other failure.
 echo "==> Waiting for bot startup lines..."
 deadline=$((SECONDS + 180))
 while :; do
     logs="$(docker compose logs --since "$deploy_started" bot 2>/dev/null || true)"
     if printf '%s\n' "$logs" | grep -qF 'Database migrations applied successfully' \
-        && printf '%s\n' "$logs" | grep -qF 'Discord gateway connection established.'; then
+        && printf '%s\n' "$logs" | grep -qF 'Discord gateway connection established.' \
+        && printf '%s\n' "$logs" | grep -qF "Bot version: $expected_version"; then
         break
     fi
     bot_id="$(docker compose ps -q bot)"
@@ -108,7 +125,7 @@ docker image prune -f
 
 # 5. Record what is now running (untracked file next to the checkout) so the
 #    deployment is traceable alongside the Jenkins build.
-printf 'commit=%s\nbuild=%s\nbuild_url=%s\ndeployed_at=%s\n' \
-    "$commit" "$build_number" "$build_url" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > .deploy-info
+printf 'commit=%s\nversion=%s\nbuild=%s\nbuild_url=%s\ndeployed_at=%s\n' \
+    "$commit" "$expected_version" "$build_number" "$build_url" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > .deploy-info
 
-echo "==> Deploy succeeded: commit ${commit} (Jenkins build #${build_number}) is live."
+echo "==> Deploy succeeded: commit ${commit} (version ${expected_version}, Jenkins build #${build_number}) is live."

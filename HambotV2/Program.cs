@@ -79,6 +79,11 @@ namespace HambotV2
 
             using var host = builder.Build();
 
+            // The version line is what the deploy verification matches (§3.9): it logs before
+            // validation so every start, even a misconfigured one, identifies the exact build.
+            host.Services.GetRequiredService<ILogger<Program>>()
+                .LogInformation("Bot version: {Version}", BotVersion.Current);
+
             // Both fail fast with a critical log line and a non-zero exit code: a
             // half-configured or schema-less bot is worse than no bot.
             if (!ValidateConfiguration(host) || !ApplyMigrations(host))
