@@ -5,7 +5,7 @@
 # SSH, after the deploy directory has been checked out at the commit to deploy.
 # It only ever runs after a successful build and test run, and only for master.
 #
-# Guarantees (roadmap task 4, design §5):
+# Guarantees (design §5.1):
 #   - The image is built before any container is replaced, so a failed build
 #     leaves the currently running stack untouched.
 #   - After starting the new container, the script waits for the database to be

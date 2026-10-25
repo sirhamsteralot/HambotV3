@@ -2,7 +2,7 @@
 
 This document describes the design of HambotV2. It is the overview for contributors and the baseline for changes. Unless a section is marked **(planned)**, it describes the system as implemented today.
 
-Three features from [`software-requirements.md`](software-requirements.md) were specified ahead of implementation: **quotes** (FR-42–FR-50, plus the legacy import FR-72–FR-75, NFR-14), **custom command responses** (FR-51–FR-60, NFR-15), and **reminders** (FR-61–FR-71, NFR-16), designed as §3.6, §3.7, and §3.8. All three are implemented (§3.6–§3.8 describe the system as it is). The [roadmap](roadmap.md) sequences the remaining work (the Jenkins auto-deploy infrastructure task); when a task lands, fold any deviations back here so this document keeps describing the system as it actually is.
+Three features from [`software-requirements.md`](software-requirements.md) were specified ahead of implementation: **quotes** (FR-42–FR-50, plus the legacy import FR-72–FR-75, NFR-14), **custom command responses** (FR-51–FR-60, NFR-15), and **reminders** (FR-61–FR-71, NFR-16), designed as §3.6, §3.7, and §3.8. All three are implemented, along with the Jenkins auto-deploy pipeline (§5.1) (§3.6–§3.8 describe the system as it is). When future work lands, fold any deviations back here so this document keeps describing the system as it actually is.
 
 ## 1. System Overview
 

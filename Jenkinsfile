@@ -16,7 +16,7 @@ pipeline {
         DOTNET_CLI_TELEMETRY_OPTOUT = '1'
         DOTNET_NOLOGO = '1'
 
-        // Auto-deploy target (roadmap task 4, design §5). Jenkins reaches the
+        // Auto-deploy target (design §5.1). Jenkins reaches the
         // host over SSH; fill these in once per Jenkins install. The deploy
         // directory is a git clone of the same origin, so the pipeline only
         // needs to name the commit — it never transfers files or secrets.
