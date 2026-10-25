@@ -515,7 +515,12 @@ namespace BotTests
             Assert.AreEqual(0, harness.DeliveredMessages.Count, "A reminder must not be delivered before its due time");
 
             harness.Time.Advance(TimeSpan.FromSeconds(1));
-            await WaitUntilAsync(() => ContainsMessage(harness.DeliveredMessages, "water the plants"), harness.Time);
+            // The engine records the delivery (removing the row) only after the send, so the
+            // wait must cover both: sending alone would observe the pre-recording gap.
+            await WaitUntilAsync(() =>
+                ContainsMessage(harness.DeliveredMessages, "water the plants")
+                && harness.CreateDatabase().Reminders.Count() == 1,
+                harness.Time);
 
             Assert.IsFalse(ContainsMessage(harness.DeliveredMessages, "call the doctor"), "A not-yet-due reminder must stay pending");
             Assert.AreEqual(1, harness.CreateDatabase().Reminders.Count());
@@ -537,13 +542,21 @@ namespace BotTests
             Assert.AreEqual(0, harness.DeliveredMessages.Count, "The earlier reminder must not be delivered before its due time");
 
             harness.Time.Advance(TimeSpan.FromSeconds(1));
-            await WaitUntilAsync(() => ContainsMessage(harness.DeliveredMessages, "quick reminder"), harness.Time);
+            // The engine records the delivery (removing the row) only after the send, so the
+            // wait must cover both: sending alone would observe the pre-recording gap.
+            await WaitUntilAsync(() =>
+                ContainsMessage(harness.DeliveredMessages, "quick reminder")
+                && harness.CreateDatabase().Reminders.Count() == 1,
+                harness.Time);
 
             Assert.IsFalse(ContainsMessage(harness.DeliveredMessages, "slow reminder"), "Only the due reminder is delivered");
             Assert.AreEqual(1, harness.CreateDatabase().Reminders.Count(), "The later reminder stays pending");
 
             harness.Time.Advance(TimeSpan.FromMinutes(55));
-            await WaitUntilAsync(() => ContainsMessage(harness.DeliveredMessages, "slow reminder"), harness.Time);
+            await WaitUntilAsync(() =>
+                ContainsMessage(harness.DeliveredMessages, "slow reminder")
+                && harness.CreateDatabase().Reminders.Count() == 0,
+                harness.Time);
             Assert.AreEqual(0, harness.CreateDatabase().Reminders.Count(), "All reminders are delivered and removed");
         }
 
@@ -556,7 +569,12 @@ namespace BotTests
             await harness.SeedReminderAsync(AuthorId, 0, "missed while offline", TimeSpan.FromMinutes(-30));
             await harness.StartAsync();
 
-            await WaitUntilAsync(() => ContainsMessage(harness.DeliveredMessages, "missed while offline"), harness.Time);
+            // The engine records the delivery (removing the row) only after the send, so the
+            // wait must cover both: sending alone would observe the pre-recording gap.
+            await WaitUntilAsync(() =>
+                ContainsMessage(harness.DeliveredMessages, "missed while offline")
+                && harness.CreateDatabase().Reminders.Count() == 0,
+                harness.Time);
             Assert.AreEqual(0, harness.CreateDatabase().Reminders.Count(), "The recovered reminder is delivered and removed");
         }
 
@@ -601,7 +619,12 @@ namespace BotTests
 
             await harness.Execute(remindMe, "!remindme 1m wake up");
             harness.Time.Advance(TimeSpan.FromMinutes(1));
-            await WaitUntilAsync(() => ContainsMessage(harness.DeliveredMessages, "wake up"), harness.Time);
+            // The engine records the delivery (removing the row) only after the send, so the
+            // wait must cover both: sending alone would observe the pre-recording gap.
+            await WaitUntilAsync(() =>
+                ContainsMessage(harness.DeliveredMessages, "wake up")
+                && harness.CreateDatabase().Reminders.Count() == 0,
+                harness.Time);
             Assert.AreEqual(0, harness.CreateDatabase().Reminders.Count());
         }
     }

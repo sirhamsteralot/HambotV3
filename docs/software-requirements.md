@@ -116,6 +116,12 @@ HambotV2 ("HamBot") is a Discord chat bot. It listens to messages in the guilds 
 - **FR-74**: The import shall be all-or-nothing: an unreadable or malformed attachment, a file containing no quotes, or any entry whose text is empty or longer than 2000 characters (FR-47) shall produce an in-channel error naming the problem, and nothing shall be stored. The file itself has no size or quote-count limit.
 - **FR-75**: `!importquotes` shall have a built-in default required tier of **bot owner (tier 4)** — a tier reachable only through configuration (FR-37), so only the configured bot owner can ever run it. It is subject to the standard command pipeline behavior (FR-49) and, because it writes guild state, declines in direct messages (FR-50).
 
+### 2.10 Version reporting *(planned)*
+
+- **FR-76 (build version)**: Every build of the bot shall embed a version string derived from source control: the semver of the most recent `v`-prefixed git tag reachable from the built commit, plus the built commit's abbreviated (7-character) hash, formatted as semver build metadata (e.g. tag `v1.2.3` at commit `1639324…` → `1.2.3+1639324`). The version shall be embedded into the binary at build time in every deployment mode (source run, plain Docker, Compose) so a running bot always reports the exact code it was built from. Builds whose commit has no reachable tag shall report the fallback semver `0.0.0` plus the commit hash; builds without git metadata shall report `0.0.0+unknown`. A running bot shall never report a version that misidentifies its code as a released one.
+- **FR-77 (persistent presence)**: The bot shall expose its current version persistently as its Discord presence: the activity showing the version is set right after gateway startup and re-asserted on every new gateway session (including the sessions created for automatic reconnects), so the version stays visible wherever the bot appears — across restarts, without user interaction.
+- **FR-78 (`!version`)**: A `!version` command shall reply in-channel with the bot's current version string — the same value the presence shows, from the same single source. It shall have a built-in default required tier of 0 (everyone), shall work in direct messages (it reads no guild state, FR-25), and shall provide help text like every command (FR-39, FR-40).
+
 ## 3. Non-Functional Requirements
 
 - **NFR-1 Platform**: The bot targets .NET 10 (`net10.0`) and runs as a long-lived worker service (generic host).
@@ -134,6 +140,7 @@ HambotV2 ("HamBot") is a Discord chat bot. It listens to messages in the guilds 
 - **NFR-14 Quotes testability**: The quotes feature shall be covered by unit tests that run without a live database or Discord connection (MSTest + Moq, EF InMemory), including: add/get/remove lifecycle with sequential numbering (including number reuse when the highest-numbered quote is removed), per-guild isolation, random fetch on a populated guild and the empty-guild message, fetch-by-number, add-by-text (including a numeric-looking argument that is out of range), text validation at the 2000-character boundary and the reply trimming of over-limit fetches and search results, search behavior and its result cap, permission gating, and DM declines.
 - **NFR-15 Custom-response testability**: The custom-response feature shall be covered by unit tests that run without a live database or Discord connection, including: name/content validation, built-in collision rejection, create-vs-update behavior, removal, per-guild isolation, dispatch order (built-in wins over custom, custom wins over "unavailable"), cooldown and permission gating of response dispatch, attachment rejection (FR-60), and DM behavior.
 - **NFR-16 Reminders testability**: The reminders feature shall be covered by unit tests that run without a live database or Discord connection (using `FakeTimeProvider` and EF InMemory), including: duration parsing (units, long/compact/spaced forms, sums, invalid input, non-positive durations, multi-year durations), message validation, confirmation reply, per-user isolation and caps, list and cancel behavior, due-vs-not-due delivery as time advances (including re-scheduling when an earlier reminder is added), restart recovery (a persisted due reminder is delivered when the service starts), and the bounded-failure path.
+- **NFR-17 Version testability** *(planned)*: Version reporting shall be covered by unit tests that run without a live database or Discord connection, including: version string formatting (tag + commit hash, untagged and no-git fallbacks — pure string logic), `!version` command registration (lowercase name, help text, default tier 0), and the command's reply.
 
 ## 4. Constraints
 
@@ -141,6 +148,7 @@ HambotV2 ("HamBot") is a Discord chat bot. It listens to messages in the guilds 
 - **C-2**: A reachable PostgreSQL instance is required for startup (migrations, per FR-27/FR-28) and for any command that touches persistence (including permission checks and the permission-management commands); connection defaults assume `host.docker.internal:5432` when containerized.
 - **C-3**: The Message Content intent must be enabled for the bot application in the Discord developer portal for command parsing to work.
 - **C-4**: Command names must be lowercase; lookups lowercase the input token.
+- **C-5** *(planned)*: Releases are identified by git tags of the form `v<major.minor.patch>` (semver). A build's version is derived from the most recent such tag reachable from the built commit plus that commit's abbreviated hash (FR-76).
 
 ## 5. Command Interface
 
@@ -170,6 +178,7 @@ HambotV2 ("HamBot") is a Discord chat bot. It listens to messages in the guilds 
 | `!remindme <duration> <message...>` | duration tokens (`s`, `m`, `h`, `d`, `w`, with long forms; compact `10d 5h` and spaced `10 d 5 h`, multiple tokens summed), message text | Schedules a personal reminder and confirms in-channel, echoing the message and due time. No minimum or maximum duration (years are fine); the message is capped at 500 characters. Works in DMs. |
 | `!reminders` | none | Lists the invoking user's pending reminders (number, due time, message), soonest first, capped at 10 entries. |
 | `!cancelreminder <number>` | integer | Cancels one of the invoking user's own pending reminders and confirms; unknown or foreign numbers produce an in-channel error. |
+| `!version` *(planned)* | none | Replies with the bot's current version: the semver of the latest release tag plus the build commit's short hash (e.g. `1.2.3+1639324`; fallback `0.0.0+<hash>` on untagged commits). Default required tier: everyone; works in DMs. The same version is shown persistently in the bot's Discord presence (FR-77). |
 
 Argument errors (unparseable tier, unparseable user/ID, too few arguments) produce an in-channel error message. The quote and response-management commands manage per-guild state and decline in direct messages with the "only available in servers" message (FR-50, FR-59). An unknown command token is checked against the invoking guild's custom responses — subject to the same cooldown and permission checks — before the "unavailable" reply (FR-10, FR-54); custom responses do not apply in direct messages. The reminder commands are user-scoped and remain fully usable in direct messages (FR-71).
 
