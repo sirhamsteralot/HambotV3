@@ -29,16 +29,30 @@ namespace BotTests
         {
             public DatabaseContext Database { get; } = DiscordTestDoubles.CreateDatabase();
 
-            public async Task<List<string>> Execute(ICommand command, string content, ulong? guildId = GuildId, ulong authorId = AuthorId, DateTimeOffset? timestamp = null)
+            public async Task<List<string>> Execute(ICommand command, string content, ulong? guildId = GuildId, ulong authorId = AuthorId, DateTimeOffset? timestamp = null, IAttachment? attachment = null)
             {
                 var sentMessages = new List<string>();
                 var message = guildId is ulong guild
-                    ? DiscordTestDoubles.CreateGuildMessage(content, authorId, 999, sentMessages, guild, timestamp)
+                    ? DiscordTestDoubles.CreateGuildMessage(content, authorId, 999, sentMessages, guild, timestamp, attachment)
                     : DiscordTestDoubles.CreateDirectMessage(content, authorId, sentMessages);
                 var context = DiscordTestDoubles.CreateContext(Database, guildId: guildId);
 
                 await command.ExecuteCommand(message.Object, context);
                 return sentMessages;
+            }
+        }
+
+        /// <summary>Downloader double for !importquotes: returns canned content or throws (FR-72).</summary>
+        private sealed class FakeAttachmentDownloader : IAttachmentContentDownloader
+        {
+            public string? Content { get; set; }
+            public Exception? Failure { get; set; }
+            public List<string> RequestedUrls { get; } = new();
+
+            public Task<string> DownloadTextAsync(string url)
+            {
+                RequestedUrls.Add(url);
+                return Failure is not null ? Task.FromException<string>(Failure) : Task.FromResult(Content!);
             }
         }
 
@@ -341,7 +355,7 @@ namespace BotTests
         {
             var harness = Harness();
 
-            foreach (ICommand command in new ICommand[] { new QuoteCommand(), new SearchQuotesCommand(), new RemoveQuoteCommand() })
+            foreach (ICommand command in new ICommand[] { new QuoteCommand(), new SearchQuotesCommand(), new RemoveQuoteCommand(), new ImportQuotesCommand(new FakeAttachmentDownloader()) })
             {
                 var replies = await harness.Execute(command, $"!{command.Name}", guildId: null);
 
@@ -350,6 +364,88 @@ namespace BotTests
             }
 
             Assert.AreEqual(0, harness.Database.Quotes.Count(), "No quotes may be stored from a DM");
+        }
+
+        // --- Legacy import (FR-72–FR-75, NFR-14) ---
+
+        [TestMethod]
+        public async Task Import_Appends_In_File_Order_With_Continued_Numbering_And_Legacy_Dates()
+        {
+            var harness = Harness();
+            await harness.Execute(new QuoteCommand(), "!quote one");
+            var importTimestamp = new DateTimeOffset(2026, 2, 3, 4, 5, 6, TimeSpan.Zero);
+
+            // The old bot's file shape, including its savingRequired field (ignored) and an
+            // entry without a date (falls back to the import message's timestamp).
+            var downloader = new FakeAttachmentDownloader
+            {
+                Content = "{\"quotes\":[{\"quote\":\"legacy a\",\"date\":\"2020-05-06T07:08:09Z\"},{\"quote\":\"legacy b\"}],\"savingRequired\":false}"
+            };
+            var attachment = DiscordTestDoubles.CreateAttachment(url: "https://cdn.example.test/quotes.json");
+
+            var replies = await harness.Execute(new ImportQuotesCommand(downloader), "!importquotes", timestamp: importTimestamp, attachment: attachment);
+
+            CollectionAssert.AreEqual(new List<string> { "Imported 2 quotes, assigned numbers #2 to #3" }, replies);
+            CollectionAssert.AreEqual(new List<string> { "https://cdn.example.test/quotes.json" }, downloader.RequestedUrls);
+
+            var quotes = harness.Database.Quotes.OrderBy(quote => quote.Number).ToList();
+            Assert.AreEqual(3, quotes.Count);
+            Assert.AreEqual(("one", 1), (quotes[0].Text, quotes[0].Number));
+            Assert.AreEqual(("legacy a", 2), (quotes[1].Text, quotes[1].Number));
+            Assert.AreEqual(("legacy b", 3), (quotes[2].Text, quotes[2].Number));
+            Assert.AreEqual(AuthorId, quotes[1].AddedByDiscordId, "The importing user is recorded as the adder (FR-73)");
+            Assert.AreEqual(new DateTime(2020, 5, 6, 7, 8, 9, DateTimeKind.Utc), quotes[1].CreatedAt, "The legacy date must survive the migration (FR-73)");
+            Assert.AreEqual(importTimestamp.UtcDateTime, quotes[2].CreatedAt, "An entry without a date falls back to the import message's timestamp (FR-73)");
+        }
+
+        [TestMethod]
+        public async Task Import_Failures_Produce_In_Channel_Errors_And_Store_Nothing()
+        {
+            var overLimit = new string('x', 501);
+
+            // (name, attachment, downloader, expected fragment) — each failure path must reply
+            // in-channel and leave the database untouched (all-or-nothing, FR-74).
+            var cases = new (string Name, IAttachment? Attachment, FakeAttachmentDownloader Downloader, string Expected)[]
+            {
+                ("no attachment", null, new FakeAttachmentDownloader { Content = "{\"quotes\":[{\"quote\":\"a\"}]}" }, "Attach the old bot's quoteSettings.json"),
+                ("download failure", DiscordTestDoubles.CreateAttachment(), new FakeAttachmentDownloader { Failure = new HttpRequestException() }, "could not be downloaded"),
+                ("malformed json", DiscordTestDoubles.CreateAttachment(), new FakeAttachmentDownloader { Content = "not json at all" }, "could not be parsed"),
+                ("empty quotes list", DiscordTestDoubles.CreateAttachment(), new FakeAttachmentDownloader { Content = "{\"quotes\":[]}" }, "contains no quotes"),
+                ("over-long entry", DiscordTestDoubles.CreateAttachment(), new FakeAttachmentDownloader { Content = $"{{\"quotes\":[{{\"quote\":\"valid first\"}},{{\"quote\":\"{overLimit}\"}}]}}" }, "longer than 500 characters"),
+            };
+
+            foreach (var testCase in cases)
+            {
+                var harness = Harness();
+
+                var replies = await harness.Execute(new ImportQuotesCommand(testCase.Downloader), "!importquotes", attachment: testCase.Attachment);
+
+                Assert.AreEqual(1, replies.Count, $"{testCase.Name}: expected exactly one in-channel reply");
+                StringAssert.Contains(replies[0], testCase.Expected, testCase.Name);
+                Assert.AreEqual(0, harness.Database.Quotes.Count(), $"{testCase.Name}: nothing may be stored on a failed import");
+            }
+        }
+
+        [TestMethod]
+        public void Import_Default_Tier_Is_BotOwner()
+        {
+            Assert.AreEqual(PermissionTier.BotOwner, new ImportQuotesCommand().DefaultPermissionTier);
+        }
+
+        [TestMethod]
+        public async Task Import_Is_Allowed_Only_For_The_Configured_Bot_Owner()
+        {
+            var database = DiscordTestDoubles.CreateDatabase();
+            var permissionsService = new PermissionsService();
+            var command = new ImportQuotesCommand();
+
+            // The guild owner tops out at tier 3 — below the command's tier-4 default.
+            var guildOwnerOverrides = new TierOverrides { GuildOwnerId = 999 };
+            Assert.IsFalse((await permissionsService.CheckUserPermissions(999, GuildId, guildOwnerOverrides, command, database)).IsAllowed, "A guild owner (tier 3) must not run the import");
+
+            // Only the configured bot owner reaches tier 4 (FR-37).
+            var botOwnerOverrides = new TierOverrides { BotOwnerId = 250 };
+            Assert.IsTrue((await permissionsService.CheckUserPermissions(250, GuildId, botOwnerOverrides, command, database)).IsAllowed, "The configured bot owner must be allowed");
         }
     }
 }

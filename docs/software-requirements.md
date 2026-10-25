@@ -109,6 +109,13 @@ HambotV2 ("HamBot") is a Discord chat bot. It listens to messages in the guilds 
 - **FR-70**: A per-user cap of 10 pending reminders shall be enforced; exceeding it shall produce an in-channel error instead of storing the reminder.
 - **FR-71**: The reminder commands (`!remindme`, `!reminders`, `!cancelreminder`) shall default to tier 0 (everyone) and be subject to the standard command pipeline behavior: per-tier cooldown throttling (NFR-12) and help text (FR-39, FR-40). Because reminders are user-scoped, not guild-scoped, all three shall remain fully usable in direct messages (DM scope, FR-25).
 
+### 2.9 Quote import (legacy migration)
+
+- **FR-72**: The bot owner shall be able to import the old bot's quotes into a guild: `!importquotes`, run in the target guild with the old bot's `quoteSettings.json` attached as a file to the invocation message. The command shall download the attachment from its Discord CDN URL and parse the legacy format — a JSON object with a `quotes` array whose entries carry a `quote` text and an optional `date` timestamp.
+- **FR-73**: Imported quotes shall be appended to the invoking guild in file order, continuing the per-guild sequential numbering (FR-43). Each imported quote shall record the Discord ID of the importing user as `AddedByDiscordId` and shall take its `CreatedAt` from the legacy entry's `date` when present, falling back to the import message's timestamp otherwise.
+- **FR-74**: The import shall be all-or-nothing: an unreadable or malformed attachment, a file containing no quotes, or any entry whose text is empty or longer than 500 characters (FR-47) shall produce an in-channel error naming the problem, and nothing shall be stored.
+- **FR-75**: `!importquotes` shall have a built-in default required tier of **bot owner (tier 4)** — a tier reachable only through configuration (FR-37), so only the configured bot owner can ever run it. It is subject to the standard command pipeline behavior (FR-49) and, because it writes guild state, declines in direct messages (FR-50).
+
 ## 3. Non-Functional Requirements
 
 - **NFR-1 Platform**: The bot targets .NET 10 (`net10.0`) and runs as a long-lived worker service (generic host).
@@ -156,6 +163,7 @@ HambotV2 ("HamBot") is a Discord chat bot. It listens to messages in the guilds 
 | `!quote <text...>` | quote text | Any argument that is not a number adds the text as a new quote and replies with its assigned number; text over 500 characters is rejected in-channel. |
 | `!searchquotes <text...>` | search text | Lists this guild's quotes whose text contains the search string (case-insensitive), number-prefixed, capped at 10 results. |
 | `!removequote <number>` | integer | Removes that quote from this guild and confirms; an unknown number produces an in-channel error. Default required tier: moderator. |
+| `!importquotes` | legacy `quoteSettings.json` attached to the message | Imports the old bot's quotes into this guild (file order, continuing numbering, legacy dates preserved). Any failure — no attachment, unreadable/malformed file, no quotes, an entry that is empty or over 500 characters — is an in-channel error and stores nothing. Default required tier: bot owner. |
 | `!addresponse <name> <content...>` | name (1–32 chars: lowercase letters, digits, `-`, `_`), content text | Creates the response, or updates its content if the name already exists in this guild; the reply says "created" or "updated". Empty content and content over 1000 characters are rejected in-channel. Content is text only — including links (e.g. an image link, rendered as an embed by Discord); invocations carrying file/image attachments are rejected in-channel (FR-60). Default required tier: moderator. |
 | `!removeresponse <name>` | response name | Deletes that response from this guild and confirms; an unknown name produces an in-channel error. Default required tier: moderator. |
 | `!listresponses` | none | Lists this guild's response names alphabetically; a guild with none gets a message saying so. |

@@ -7,6 +7,7 @@ namespace HambotV2.Commands.QuoteCommands
             commandService.RegisterCommand("quote", new QuoteCommand());
             commandService.RegisterCommand("searchquotes", new SearchQuotesCommand());
             commandService.RegisterCommand("removequote", new RemoveQuoteCommand());
+            commandService.RegisterCommand("importquotes", new ImportQuotesCommand());
         }
     }
 }
