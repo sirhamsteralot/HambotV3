@@ -25,30 +25,30 @@ namespace BotTests
         {
             var database = DiscordTestDoubles.CreateDatabase();
             foreach (var (id, tier) in users)
-                database.Users.Add(new DatabaseContext.User { DiscordId = id, PermissionTier = tier });
+                database.Users.Add(new DatabaseContext.User { GuildId = DiscordTestDoubles.DefaultGuildId, DiscordId = id, PermissionTier = tier });
             database.SaveChanges();
             return database;
         }
 
-        private static async Task<List<string>> ExecuteUserPermission(DatabaseContext database, string content, ulong authorId, ulong? guildOwnerId = null, ulong? botOwnerId = null)
+        private static async Task<List<string>> ExecuteUserPermission(DatabaseContext database, string content, ulong authorId, ulong? guildOwnerId = null, ulong? botOwnerId = null, ulong? guildId = DiscordTestDoubles.DefaultGuildId)
         {
             var sentMessages = new List<string>();
             var message = guildOwnerId.HasValue
                 ? DiscordTestDoubles.CreateGuildMessage(content, authorId, guildOwnerId.Value, sentMessages)
                 : DiscordTestDoubles.CreateDirectMessage(content, authorId, sentMessages);
-            var context = DiscordTestDoubles.CreateContext(database, guildOwnerId, botOwnerId);
+            var context = DiscordTestDoubles.CreateContext(database, guildOwnerId, botOwnerId, guildId);
 
             await new UserPermission().ExecuteCommand(message.Object, context);
             return sentMessages;
         }
 
-        private static async Task<List<string>> ExecuteCommandPermission(DatabaseContext database, string content, ulong authorId, ulong? guildOwnerId = null, ulong? botOwnerId = null)
+        private static async Task<List<string>> ExecuteCommandPermission(DatabaseContext database, string content, ulong authorId, ulong? guildOwnerId = null, ulong? botOwnerId = null, ulong? guildId = DiscordTestDoubles.DefaultGuildId)
         {
             var sentMessages = new List<string>();
             var message = guildOwnerId.HasValue
                 ? DiscordTestDoubles.CreateGuildMessage(content, authorId, guildOwnerId.Value, sentMessages)
                 : DiscordTestDoubles.CreateDirectMessage(content, authorId, sentMessages);
-            var context = DiscordTestDoubles.CreateContext(database, guildOwnerId, botOwnerId);
+            var context = DiscordTestDoubles.CreateContext(database, guildOwnerId, botOwnerId, guildId);
 
             await new CommandPermission().ExecuteCommand(message.Object, context);
             return sentMessages;
@@ -285,6 +285,43 @@ namespace BotTests
         }
 
         [TestMethod]
+        public async Task UserPermission_Tier_Is_Scoped_To_The_Invoking_Guild()
+        {
+            // Roadmap T14 (FR-24): a tier set in guild 1 does not show up when the same user is
+            // queried in guild 2.
+            var database = DiscordTestDoubles.CreateDatabase();
+
+            await ExecuteUserPermission(database, "!userpermission 500 1", authorId: GuildOwner, guildOwnerId: GuildOwner);
+            var otherGuildReply = await ExecuteUserPermission(database, "!userpermission 500", authorId: GuildOwner, guildOwnerId: GuildOwner, guildId: 77);
+
+            StringAssert.Contains(otherGuildReply[0], "Permission tier for user 500: 0");
+        }
+
+        [TestMethod]
+        public async Task UserPermission_InDirectMessage_Is_Refused_Without_Writes()
+        {
+            // DM scope (FR-25): the command manages per-server state and must decline in direct
+            // messages without touching the database.
+            var database = DiscordTestDoubles.CreateDatabase();
+
+            var replies = await ExecuteUserPermission(database, "!userpermission 500 1", authorId: RandomUser, guildId: null);
+
+            StringAssert.Contains(replies[0], "only available in servers");
+            Assert.AreEqual(0, database.Users.Count(), "No state may be written from a direct message");
+        }
+
+        [TestMethod]
+        public async Task CommandPermission_InDirectMessage_Is_Refused_Without_Writes()
+        {
+            var database = DiscordTestDoubles.CreateDatabase();
+
+            var replies = await ExecuteCommandPermission(database, "!commandpermission hello 1", authorId: RandomUser, guildId: null);
+
+            StringAssert.Contains(replies[0], "only available in servers");
+            Assert.AreEqual(0, database.Commands.Count(), "No state may be written from a direct message");
+        }
+
+        [TestMethod]
         public async Task CommandPermission_Read_NoOverride_Shows_Default_Hint()
         {
             var database = DiscordTestDoubles.CreateDatabase();
@@ -298,7 +335,7 @@ namespace BotTests
         public async Task CommandPermission_Read_Shows_Override()
         {
             var database = DiscordTestDoubles.CreateDatabase();
-            database.Commands.Add(new DatabaseContext.CommandMetaData { CommandName = "hello", PermissionTier = PermissionTier.Moderator });
+            database.Commands.Add(new DatabaseContext.CommandMetaData { GuildId = DiscordTestDoubles.DefaultGuildId, CommandName = "hello", PermissionTier = PermissionTier.Moderator });
             database.SaveChanges();
 
             var replies = await ExecuteCommandPermission(database, "!commandpermission hello", authorId: AdminUser);
@@ -345,7 +382,7 @@ namespace BotTests
             // The permission-management commands default to admin tier; an admin must not be able
             // to move them (that would hand the permission system to a lower tier).
             var database = CreateUserDatabase((AdminUser, PermissionTier.Admin));
-            database.Commands.Add(new DatabaseContext.CommandMetaData { CommandName = "userpermission", PermissionTier = PermissionTier.Admin });
+            database.Commands.Add(new DatabaseContext.CommandMetaData { GuildId = DiscordTestDoubles.DefaultGuildId, CommandName = "userpermission", PermissionTier = PermissionTier.Admin });
             database.SaveChanges();
 
             var replies = await ExecuteCommandPermission(database, "!commandpermission userpermission 0", authorId: AdminUser);
@@ -358,7 +395,7 @@ namespace BotTests
         public async Task CommandPermission_Set_By_Owner_Can_Adjust_Admin_Gated_Command()
         {
             var database = DiscordTestDoubles.CreateDatabase();
-            database.Commands.Add(new DatabaseContext.CommandMetaData { CommandName = "userpermission", PermissionTier = PermissionTier.Admin });
+            database.Commands.Add(new DatabaseContext.CommandMetaData { GuildId = DiscordTestDoubles.DefaultGuildId, CommandName = "userpermission", PermissionTier = PermissionTier.Admin });
             database.SaveChanges();
 
             var replies = await ExecuteCommandPermission(database, "!commandpermission userpermission 1", authorId: GuildOwner, guildOwnerId: GuildOwner);
@@ -370,13 +407,27 @@ namespace BotTests
         [TestMethod]
         public async Task CommandPermission_Set_By_BotOwner_Can_Raise_Command_To_Owner_Tier()
         {
-            // Command tiers are global (cross-guild) state; only the bot owner can gate a command at owner tier.
+            // The bot owner acts at the globally highest tier in every guild, so they can gate a
+            // command at owner tier in the invoking guild (roadmap T14: tiers are per guild).
             var database = DiscordTestDoubles.CreateDatabase();
 
             var replies = await ExecuteCommandPermission(database, "!commandpermission hello 3", authorId: BotOwner, botOwnerId: BotOwner);
 
             StringAssert.Contains(replies[0], "Updated required permission tier for command hello to 3");
             Assert.AreEqual(PermissionTier.Owner, database.Commands.Single().PermissionTier);
+        }
+
+        [TestMethod]
+        public async Task CommandPermission_Override_Is_Scoped_To_The_Invoking_Guild()
+        {
+            // Roadmap T14 (FR-24): a tier override set in guild 1 leaves the command at its default
+            // in guild 2.
+            var database = DiscordTestDoubles.CreateDatabase();
+
+            await ExecuteCommandPermission(database, "!commandpermission hello 3", authorId: BotOwner, botOwnerId: BotOwner);
+            var otherGuildReply = await ExecuteCommandPermission(database, "!commandpermission hello", authorId: BotOwner, botOwnerId: BotOwner, guildId: 77);
+
+            StringAssert.Contains(otherGuildReply[0], "No permission tier override set for command hello");
         }
 
         [TestMethod]

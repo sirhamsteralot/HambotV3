@@ -42,8 +42,12 @@ namespace BotTests
         /// <summary>Wires a CommandHandler with fully mocked Discord dependencies and records all channel replies.</summary>
         private sealed class TestPipeline
         {
+            public const ulong GuildId = 1;
+            public const ulong GuildOwnerId = 999;
+
             public Mock<ILogger<CommandHandler>> Logger { get; } = new();
             public Mock<IPermissionsService> Permissions { get; } = new();
+            public Mock<IGuildSettingsService> GuildSettings { get; } = new();
             public Mock<IUser> Author { get; } = new();
             public Mock<IMessage> Message { get; } = new();
             public List<string> SentMessages { get; } = new();
@@ -51,12 +55,46 @@ namespace BotTests
 
             public CommandService CommandService { get; }
 
-            public TestPipeline(string content)
+            public TestPipeline(string content, bool directMessage = false)
             {
                 var configuration = new ConfigurationBuilder().Build();
                 CommandService = new CommandService(Mock.Of<ILogger<CommandService>>(), configuration);
 
                 var channel = new Mock<IMessageChannel>();
+                if (!directMessage)
+                {
+                    var guildChannel = channel.As<ITextChannel>();
+                    var guild = new Mock<IGuild>();
+                    guild.SetupGet(g => g.OwnerId).Returns(GuildOwnerId);
+                    guildChannel.SetupGet(c => c.GuildId).Returns(GuildId);
+                    guildChannel.SetupGet(c => c.Guild).Returns(guild.Object);
+                }
+
+                RecordSends(channel);
+                GuildSettings.Setup(service => service.GetCommandIdentifier(It.IsAny<ulong>())).Returns("!");
+                GuildSettings.SetupGet(service => service.GlobalCommandIdentifier).Returns("!");
+
+                Author.SetupGet(a => a.Id).Returns(123456789UL);
+
+                Message.SetupGet(m => m.Content).Returns(content);
+                Message.SetupGet(m => m.Channel).Returns(channel.Object);
+                Message.SetupGet(m => m.Author).Returns(Author.Object);
+            }
+
+            public CommandHandler CreateHandler()
+            {
+                return new CommandHandler(CommandService, Logger.Object, Mock.Of<IConfiguration>(), Database, Permissions.Object, GuildSettings.Object);
+            }
+
+            public void AllowPermissions()
+            {
+                Permissions
+                    .Setup(p => p.CheckUserPermissions(It.IsAny<ulong>(), It.IsAny<ulong?>(), It.IsAny<TierOverrides>(), It.IsAny<ICommand>(), It.IsAny<IDatabaseContext>()))
+                    .ReturnsAsync(true);
+            }
+
+            private void RecordSends(Mock<IMessageChannel> channel)
+            {
                 channel
                     .Setup(c => c.SendMessageAsync(
                         It.IsAny<string>(),
@@ -73,24 +111,6 @@ namespace BotTests
                     .Callback<string, bool, Embed?, RequestOptions?, AllowedMentions?, MessageReference?, MessageComponent, ISticker[]?, Embed[]?, MessageFlags, PollProperties?>(
                         (text, _, _, _, _, _, _, _, _, _, _) => SentMessages.Add(text))
                     .Returns(Task.FromResult<IUserMessage?>(null));
-
-                Author.SetupGet(a => a.Id).Returns(123456789UL);
-
-                Message.SetupGet(m => m.Content).Returns(content);
-                Message.SetupGet(m => m.Channel).Returns(channel.Object);
-                Message.SetupGet(m => m.Author).Returns(Author.Object);
-            }
-
-            public CommandHandler CreateHandler()
-            {
-                return new CommandHandler(CommandService, Logger.Object, Mock.Of<IConfiguration>(), Database, Permissions.Object);
-            }
-
-            public void AllowPermissions()
-            {
-                Permissions
-                    .Setup(p => p.CheckUserPermissions(It.IsAny<ulong>(), It.IsAny<TierOverrides>(), It.IsAny<ICommand>(), It.IsAny<IDatabaseContext>()))
-                    .ReturnsAsync(true);
             }
         }
 
@@ -157,7 +177,7 @@ namespace BotTests
             var command = DiscordTestDoubles.CreateMockCommand("greet");
             pipeline.CommandService.RegisterCommand("greet", command.Object);
             pipeline.Permissions
-                .Setup(p => p.CheckUserPermissions(It.IsAny<ulong>(), It.IsAny<TierOverrides>(), command.Object, It.IsAny<IDatabaseContext>()))
+                .Setup(p => p.CheckUserPermissions(It.IsAny<ulong>(), It.IsAny<ulong?>(), It.IsAny<TierOverrides>(), command.Object, It.IsAny<IDatabaseContext>()))
                 .ReturnsAsync(false);
 
             await pipeline.CreateHandler().HandleCommand(pipeline.Message.Object);
@@ -207,6 +227,39 @@ namespace BotTests
         }
 
         [TestMethod]
+        public async Task HandleCommand_DirectMessage_ExecutesCommand()
+        {
+            // DM scope (roadmap T14/FR-25): direct messages run commands (owner-tier user, built-in
+            // default command tiers) instead of being rejected.
+            var pipeline = new TestPipeline("!greet", directMessage: true);
+            var command = DiscordTestDoubles.CreateMockCommand("greet");
+            pipeline.CommandService.RegisterCommand("greet", command.Object);
+            pipeline.AllowPermissions();
+
+            await pipeline.CreateHandler().HandleCommand(pipeline.Message.Object);
+
+            command.Verify(c => c.ExecuteCommand(pipeline.Message.Object, It.IsAny<ICommandContext>()), Times.Once);
+            pipeline.Permissions.Verify(
+                p => p.CheckUserPermissions(It.IsAny<ulong>(), null, It.IsAny<TierOverrides>(), It.IsAny<ICommand>(), It.IsAny<IDatabaseContext>()),
+                Times.Once, "The DM permission check must run with a null guild id");
+        }
+
+        [TestMethod]
+        public async Task HandleCommand_DirectMessage_LogsExecutedAuditEvent()
+        {
+            var pipeline = new TestPipeline("!greet", directMessage: true);
+            var command = DiscordTestDoubles.CreateMockCommand("greet");
+            pipeline.CommandService.RegisterCommand("greet", command.Object);
+            pipeline.AllowPermissions();
+
+            await pipeline.CreateHandler().HandleCommand(pipeline.Message.Object);
+
+            VerifyAuditEvent(pipeline.Logger,
+                state => state.Contains("outcome Executed", StringComparison.Ordinal),
+                Times.Once);
+        }
+
+        [TestMethod]
         public async Task HandleCommand_CommandThrows_RepliesWithGenericErrorWithoutExceptionDetails()
         {
             var pipeline = new TestPipeline("!boom");
@@ -228,7 +281,7 @@ namespace BotTests
             var command = DiscordTestDoubles.CreateMockCommand("greet");
             pipeline.CommandService.RegisterCommand("greet", command.Object);
             pipeline.Permissions
-                .Setup(p => p.CheckUserPermissions(It.IsAny<ulong>(), It.IsAny<TierOverrides>(), command.Object, It.IsAny<IDatabaseContext>()))
+                .Setup(p => p.CheckUserPermissions(It.IsAny<ulong>(), It.IsAny<ulong?>(), It.IsAny<TierOverrides>(), command.Object, It.IsAny<IDatabaseContext>()))
                 .ThrowsAsync(new InvalidOperationException("database outage"));
 
             await pipeline.CreateHandler().HandleCommand(pipeline.Message.Object);
@@ -261,7 +314,7 @@ namespace BotTests
             var command = DiscordTestDoubles.CreateMockCommand("greet");
             pipeline.CommandService.RegisterCommand("greet", command.Object);
             pipeline.Permissions
-                .Setup(p => p.CheckUserPermissions(It.IsAny<ulong>(), It.IsAny<TierOverrides>(), command.Object, It.IsAny<IDatabaseContext>()))
+                .Setup(p => p.CheckUserPermissions(It.IsAny<ulong>(), It.IsAny<ulong?>(), It.IsAny<TierOverrides>(), command.Object, It.IsAny<IDatabaseContext>()))
                 .ReturnsAsync(false);
 
             await pipeline.CreateHandler().HandleCommand(pipeline.Message.Object);
@@ -282,7 +335,7 @@ namespace BotTests
             Assert.AreEqual(1, pipeline.SentMessages.Count);
             StringAssert.Contains(pipeline.SentMessages[0], "unavailable");
             pipeline.Permissions.Verify(
-                p => p.CheckUserPermissions(It.IsAny<ulong>(), It.IsAny<TierOverrides>(), It.IsAny<ICommand>(), It.IsAny<IDatabaseContext>()),
+                p => p.CheckUserPermissions(It.IsAny<ulong>(), It.IsAny<ulong?>(), It.IsAny<TierOverrides>(), It.IsAny<ICommand>(), It.IsAny<IDatabaseContext>()),
                 Times.Never);
         }
 
@@ -295,7 +348,7 @@ namespace BotTests
 
             Assert.AreEqual(0, pipeline.SentMessages.Count, "A bare identifier message must not be answered");
             pipeline.Permissions.Verify(
-                p => p.CheckUserPermissions(It.IsAny<ulong>(), It.IsAny<TierOverrides>(), It.IsAny<ICommand>(), It.IsAny<IDatabaseContext>()),
+                p => p.CheckUserPermissions(It.IsAny<ulong>(), It.IsAny<ulong?>(), It.IsAny<TierOverrides>(), It.IsAny<ICommand>(), It.IsAny<IDatabaseContext>()),
                 Times.Never);
         }
 

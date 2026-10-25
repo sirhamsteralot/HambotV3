@@ -14,13 +14,10 @@ namespace HambotV2.Commands
         Dictionary<string, ICommand> Commands { get; }
         bool CommandsRegistered { get; internal set; }
 
-        /// <summary>The configured command identifier (BotConfiguration:CommandIdentifier, default "!").</summary>
-        string CommandIdentifier { get; }
-
         /// <summary>True when the message is the command identifier (plus whitespace) only; such messages are ignored silently.</summary>
-        bool IsIdentifierOnlyMessage(string content);
+        bool IsIdentifierOnlyMessage(string content, string identifier);
 
-        bool TryGetCommand(string content, [NotNullWhen(true)] out ICommand? command);
+        bool TryGetCommand(string content, string identifier, [NotNullWhen(true)] out ICommand? command);
         void RegisterCommand(string commandName, ICommand command);
         void RegisterCommands();
     }

@@ -33,6 +33,9 @@ namespace HambotV2
             builder.Services.AddTransient<ICommandHandler, CommandHandler>();
             builder.Services.AddTransient<IPermissionsService, PermissionsService>();
             builder.Services.AddSingleton<ICommandService, CommandService>();
+            // Guild-scoped settings resolution (roadmap T14): singleton so the per-guild command
+            // identifiers stay cached in memory for the gateway pre-filter and command parsing.
+            builder.Services.AddSingleton<IGuildSettingsService>(serviceProvider => new GuildSettingsService(serviceProvider, builder.Configuration));
 
             var host = builder.Build();
 

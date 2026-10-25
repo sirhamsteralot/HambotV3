@@ -32,13 +32,13 @@ namespace BotTests
             return commandService;
         }
 
-        private static async Task<string> ExecuteHelp(CommandService commandService, DatabaseContext database, string content, ulong authorId, ulong? guildOwnerId = null)
+        private static async Task<string> ExecuteHelp(CommandService commandService, DatabaseContext database, string content, ulong authorId, ulong? guildOwnerId = null, ulong? guildId = DiscordTestDoubles.DefaultGuildId)
         {
             var sentMessages = new List<string>();
             var message = guildOwnerId.HasValue
                 ? DiscordTestDoubles.CreateGuildMessage(content, authorId, guildOwnerId.Value, sentMessages)
                 : DiscordTestDoubles.CreateDirectMessage(content, authorId, sentMessages);
-            var context = DiscordTestDoubles.CreateContext(database, guildOwnerId);
+            var context = DiscordTestDoubles.CreateContext(database, guildOwnerId, botOwnerId: null, guildId);
 
             await commandService.Commands["help"].ExecuteCommand(message.Object, context);
             return sentMessages[0];
@@ -63,7 +63,7 @@ namespace BotTests
         {
             var commandService = CreateRegisteredService();
             var database = DiscordTestDoubles.CreateDatabase();
-            database.Users.Add(new DatabaseContext.User { DiscordId = AdminUser, PermissionTier = PermissionTier.Admin });
+            database.Users.Add(new DatabaseContext.User { GuildId = DiscordTestDoubles.DefaultGuildId, DiscordId = AdminUser, PermissionTier = PermissionTier.Admin });
             database.SaveChanges();
 
             string reply = await ExecuteHelp(commandService, database, "!help", authorId: AdminUser);
@@ -92,7 +92,7 @@ namespace BotTests
         {
             var commandService = CreateRegisteredService();
             var database = DiscordTestDoubles.CreateDatabase();
-            database.Commands.Add(new DatabaseContext.CommandMetaData { CommandName = "hello", PermissionTier = PermissionTier.Owner });
+            database.Commands.Add(new DatabaseContext.CommandMetaData { GuildId = DiscordTestDoubles.DefaultGuildId, CommandName = "hello", PermissionTier = PermissionTier.Owner });
             database.SaveChanges();
 
             string reply = await ExecuteHelp(commandService, database, "!help", authorId: RandomUser);
@@ -155,10 +155,37 @@ namespace BotTests
         {
             var commandService = CreateRegisteredService();
             var database = DiscordTestDoubles.CreateDatabase();
-            database.Users.Add(new DatabaseContext.User { DiscordId = AdminUser, PermissionTier = PermissionTier.Admin });
+            database.Users.Add(new DatabaseContext.User { GuildId = DiscordTestDoubles.DefaultGuildId, DiscordId = AdminUser, PermissionTier = PermissionTier.Admin });
             database.SaveChanges();
 
             string reply = await ExecuteHelp(commandService, database, "!help userpermission", authorId: AdminUser);
+
+            StringAssert.Contains(reply, "Usage: !userpermission <user> [tier]");
+            StringAssert.Contains(reply, "Required permission: admin (tier 2)");
+        }
+
+        [TestMethod]
+        public async Task Help_In_DirectMessage_Shows_Commands_At_Default_Tiers()
+        {
+            // DM scope (FR-25): the user acts at owner tier and command tiers are their built-in
+            // defaults, so a random user sees every command whose default is at most owner.
+            var commandService = CreateRegisteredService();
+            var database = DiscordTestDoubles.CreateDatabase();
+
+            string reply = await ExecuteHelp(commandService, database, "!help", authorId: RandomUser, guildOwnerId: null, guildId: null);
+
+            StringAssert.Contains(reply, "!hello");
+            StringAssert.Contains(reply, "!help");
+            StringAssert.Contains(reply, "!userpermission", "Default admin tier is below the DM owner tier, so the command must be listed");
+        }
+
+        [TestMethod]
+        public async Task Help_Detail_In_DirectMessage_Shows_Default_Tier()
+        {
+            var commandService = CreateRegisteredService();
+            var database = DiscordTestDoubles.CreateDatabase();
+
+            string reply = await ExecuteHelp(commandService, database, "!help userpermission", authorId: RandomUser, guildOwnerId: null, guildId: null);
 
             StringAssert.Contains(reply, "Usage: !userpermission <user> [tier]");
             StringAssert.Contains(reply, "Required permission: admin (tier 2)");

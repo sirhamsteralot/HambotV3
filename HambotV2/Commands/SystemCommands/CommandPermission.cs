@@ -21,6 +21,14 @@ namespace HambotV2.Commands.SystemCommands
 
         public async Task ExecuteCommand(IMessage socketMessage, ICommandContext context)
         {
+            // Command tiers are per-guild state (roadmap T14); in the DM scope (FR-25) there is no
+            // guild to manage and no state may be written, so the command declines.
+            if (context.GuildId is not ulong guildId)
+            {
+                await socketMessage.Channel.SendMessageAsync("This command manages per-server state and is only available in servers");
+                return;
+            }
+
             var arguments = CommandArguments.Parse(socketMessage.Content);
 
             if (!arguments.TryGetString(0, out string commandNameArgument))
@@ -33,7 +41,7 @@ namespace HambotV2.Commands.SystemCommands
 
             if (arguments.Get(1) is null)
             {
-                var commandMetaData = context.DbContext.Commands.FirstOrDefault(item => item.CommandName == commandName);
+                var commandMetaData = context.DbContext.Commands.FirstOrDefault(item => item.GuildId == guildId && item.CommandName == commandName);
                 if (commandMetaData != null)
                 {
                     await socketMessage.Channel.SendMessageAsync($"Required permission tier for command {commandName}: {commandMetaData.PermissionTier}");
@@ -53,7 +61,7 @@ namespace HambotV2.Commands.SystemCommands
 
             int invokerTier = context.GetUserEffectiveTier(socketMessage.Author.Id);
 
-            var existingMetaData = context.DbContext.Commands.FirstOrDefault(item => item.CommandName == commandName);
+            var existingMetaData = context.DbContext.Commands.FirstOrDefault(item => item.GuildId == guildId && item.CommandName == commandName);
             int currentRequiredTier = existingMetaData?.PermissionTier ?? PermissionTier.Everyone;
             if (currentRequiredTier >= invokerTier)
             {
@@ -67,7 +75,7 @@ namespace HambotV2.Commands.SystemCommands
                 return;
             }
 
-            PermissionPersistence.UpsertCommandTier(context.DbContext, commandName, newTier);
+            PermissionPersistence.UpsertCommandTier(context.DbContext, guildId, commandName, newTier);
             await context.DbContext.SaveChangesAsync();
             await socketMessage.Channel.SendMessageAsync($"Updated required permission tier for command {commandName} to {newTier}");
         }

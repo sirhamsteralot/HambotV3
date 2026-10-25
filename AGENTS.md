@@ -79,12 +79,13 @@ Tiered integer permission system (`Commands/PermissionsService.cs`): a user may 
 
 ### Data model
 
-`Connections/DatabaseContext.cs` defines two DbSets with nested entity classes:
+`Connections/DatabaseContext.cs` defines three DbSets with nested entity classes, all scoped per guild (roadmap T14):
 
-- `User` (`DiscordId` key, `PermissionTier`)
-- `CommandMetaData` (`CommandName` key, `PermissionTier`)
+- `User` (composite key `GuildId` + `DiscordId`, `PermissionTier`)
+- `CommandMetaData` (composite key `GuildId` + `CommandName`, `PermissionTier`)
+- `GuildSetting` (key `GuildId`; `CommandIdentifier` override, per-tier cooldown columns reserved for T13)
 
-EF Core migrations live in `HambotV2/Migrations/`. Regenerate with `dotnet ef migrations add <Name>` from the `HambotV2/` project directory (connection string comes from `appsecrets.json`, see below).
+EF Core migrations live in `HambotV2/Migrations/`. Regenerate with `dotnet ef migrations add <Name>` from the `HambotV2/` project directory (a `DesignTimeDatabaseContextFactory` lets the tools scaffold without running startup; connection string comes from `appsecrets.json`, see below).
 
 ## Configuration & Secrets
 

@@ -16,34 +16,65 @@ namespace HambotV2.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "9.0.0")
+                .HasAnnotation("ProductVersion", "10.0.13")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
             modelBuilder.Entity("HambotV2.Connections.DatabaseContext+CommandMetaData", b =>
                 {
+                    b.Property<decimal>("GuildId")
+                        .HasColumnType("numeric(20,0)");
+
                     b.Property<string>("CommandName")
                         .HasColumnType("text");
 
                     b.Property<int>("PermissionTier")
                         .HasColumnType("integer");
 
-                    b.HasKey("CommandName");
+                    b.HasKey("GuildId", "CommandName");
 
                     b.ToTable("Commands");
                 });
 
+            modelBuilder.Entity("HambotV2.Connections.DatabaseContext+GuildSetting", b =>
+                {
+                    b.Property<decimal>("GuildId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("numeric(20,0)");
+
+                    b.Property<string>("CommandIdentifier")
+                        .HasColumnType("text");
+
+                    b.Property<int?>("CooldownSecondsTier0")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("CooldownSecondsTier1")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("CooldownSecondsTier2")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("CooldownSecondsTier3")
+                        .HasColumnType("integer");
+
+                    b.HasKey("GuildId");
+
+                    b.ToTable("GuildSettings");
+                });
+
             modelBuilder.Entity("HambotV2.Connections.DatabaseContext+User", b =>
                 {
+                    b.Property<decimal>("GuildId")
+                        .HasColumnType("numeric(20,0)");
+
                     b.Property<decimal>("DiscordId")
-                        .ValueGeneratedOnAdd()
                         .HasColumnType("numeric(20,0)");
 
                     b.Property<int>("PermissionTier")
                         .HasColumnType("integer");
 
-                    b.HasKey("DiscordId");
+                    b.HasKey("GuildId", "DiscordId");
 
                     b.ToTable("Users");
                 });

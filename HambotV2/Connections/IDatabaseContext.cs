@@ -16,6 +16,8 @@ namespace HambotV2.Connections
 
         DbSet<DatabaseContext.CommandMetaData> Commands { get; }
 
+        DbSet<DatabaseContext.GuildSetting> GuildSettings { get; }
+
         Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
     }
 }

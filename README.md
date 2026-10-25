@@ -154,7 +154,9 @@ On a fresh guild (empty database) **nobody can grant themselves permissions**: t
 
 Bootstrap administrator (roadmap T16): the **guild owner** automatically acts at owner tier in their guild, without any database entry. That is how the first admin exists on a fresh guild; they can then grant tiers to others with `!userpermission`.
 
-The **bot owner** is configured in `.env` as `BOT_OWNER_DISCORD_ID` (wired through to `Permissions:BotOwnerDiscordId`). They hold tier 4 in every guild — the highest permission level of all, above guild owners — and are the designated operator for things that apply across guilds (today: global command permission tiers; later: per-guild settings fallbacks). The tier comes from configuration only: it can never be granted through commands, not even by the bot owner themselves.
+The **bot owner** is configured in `.env` as `BOT_OWNER_DISCORD_ID` (wired through to `Permissions:BotOwnerDiscordId`). They hold tier 4 in every guild — the highest permission level of all, above guild owners — and are the designated operator for things that apply across guilds (e.g. managing any guild's settings by running `!settings` there). The tier comes from configuration only: it can never be granted through commands, not even by the bot owner themselves.
+
+Permission tiers and bot settings are **scoped per guild**: a user's tier or a command's required tier in one server has no effect in any other, and each server can override the global command identifier with `!settings commandidentifier <value>` (admins; `!settings commandidentifier reset` reverts to the global default). In **direct messages**, commands run in a DM scope: you act at owner tier and commands require their built-in default tiers — no per-server state is read or written. Commands that manage per-server state (`!userpermission`, `!commandpermission`, `!settings`) are only available in servers.
 
 Tiers are then managed at runtime, e.g.:
 

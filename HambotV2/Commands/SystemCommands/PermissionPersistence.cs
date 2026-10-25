@@ -9,9 +9,9 @@ namespace HambotV2.Commands.SystemCommands
     /// </summary>
     internal static class PermissionPersistence
     {
-        public static void UpsertUserTier(IDatabaseContext database, ulong discordId, int permissionTier)
+        public static void UpsertUserTier(IDatabaseContext database, ulong guildId, ulong discordId, int permissionTier)
         {
-            var user = database.Users.FirstOrDefault(item => item.DiscordId == discordId);
+            var user = database.Users.FirstOrDefault(item => item.GuildId == guildId && item.DiscordId == discordId);
             if (user != null)
             {
                 user.PermissionTier = permissionTier;
@@ -20,15 +20,16 @@ namespace HambotV2.Commands.SystemCommands
             {
                 database.Users.Add(new DatabaseContext.User
                 {
+                    GuildId = guildId,
                     DiscordId = discordId,
                     PermissionTier = permissionTier
                 });
             }
         }
 
-        public static void UpsertCommandTier(IDatabaseContext database, string commandName, int permissionTier)
+        public static void UpsertCommandTier(IDatabaseContext database, ulong guildId, string commandName, int permissionTier)
         {
-            var command = database.Commands.FirstOrDefault(item => item.CommandName == commandName);
+            var command = database.Commands.FirstOrDefault(item => item.GuildId == guildId && item.CommandName == commandName);
             if (command != null)
             {
                 command.PermissionTier = permissionTier;
@@ -37,6 +38,7 @@ namespace HambotV2.Commands.SystemCommands
             {
                 database.Commands.Add(new DatabaseContext.CommandMetaData
                 {
+                    GuildId = guildId,
                     CommandName = commandName,
                     PermissionTier = permissionTier
                 });

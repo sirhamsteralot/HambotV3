@@ -14,6 +14,7 @@ namespace HambotV2.Commands.SystemCommands
             commandService.RegisterCommand("help", new HelpCommand(commandService, new PermissionsService()));
             commandService.RegisterCommand("commandpermission", new CommandPermission());
             commandService.RegisterCommand("userpermission", new UserPermission());
+            commandService.RegisterCommand("settings", new SettingsCommand());
         }
     }
 }

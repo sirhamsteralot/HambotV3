@@ -45,9 +45,9 @@ namespace HambotV2.Commands.SystemCommands
             var lines = new List<string> { "Available commands:" };
             foreach (ICommand command in _commandService.Commands.Values.OrderBy(command => command.Name))
             {
-                int requiredTier = await _permissionsService.GetCommandRequiredTier(command, context.DbContext);
+                int requiredTier = await _permissionsService.GetCommandRequiredTier(context.GuildId, command, context.DbContext);
                 if (requiredTier <= userTier)
-                    lines.Add($"{_commandService.CommandIdentifier}{command.Name} — {command.Description}");
+                    lines.Add($"{context.CommandIdentifier}{command.Name} — {command.Description}");
             }
 
             await socketMessage.Channel.SendMessageAsync(string.Join(Environment.NewLine, lines));
@@ -62,7 +62,7 @@ namespace HambotV2.Commands.SystemCommands
             }
 
             int userTier = context.GetUserEffectiveTier(socketMessage.Author.Id);
-            int requiredTier = await _permissionsService.GetCommandRequiredTier(command, context.DbContext);
+            int requiredTier = await _permissionsService.GetCommandRequiredTier(context.GuildId, command, context.DbContext);
 
             if (requiredTier > userTier)
             {
@@ -73,8 +73,8 @@ namespace HambotV2.Commands.SystemCommands
             }
 
             await socketMessage.Channel.SendMessageAsync(
-                $"{_commandService.CommandIdentifier}{command.Name} — {command.Description}" + Environment.NewLine +
-                $"Usage: {_commandService.CommandIdentifier}{command.Usage}" + Environment.NewLine +
+                $"{context.CommandIdentifier}{command.Name} — {command.Description}" + Environment.NewLine +
+                $"Usage: {context.CommandIdentifier}{command.Usage}" + Environment.NewLine +
                 $"Required permission: {PermissionTier.GetName(requiredTier)} (tier {requiredTier})");
         }
 

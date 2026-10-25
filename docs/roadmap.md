@@ -217,7 +217,7 @@ The first two phases address the limitations recorded in [`software-design.md`](
 
 **Acceptance criteria**: repeated `!hello` spam is throttled with a user-friendly response; behavior is unit-tested.
 
-### T14. Per-guild configuration and permission scoping
+### T14. [x] Per-guild configuration and permission scoping
 
 **Problem**: State is global to the bot; any multi-server deployment shares permission tiers and settings across guilds. Per-guild scoping is a committed requirement (FR-24 to FR-26 in [`software-requirements.md`](software-requirements.md)).
 
@@ -236,12 +236,11 @@ The first two phases address the limitations recorded in [`software-design.md`](
 
 ## Suggested pick-up order
 
-Completed so far: **T1**–**T4** (error handling, DB init, container secrets, config validation), **T5**–**T7**, **T16**, **T17** (parsing robustness, persistence abstraction, permission bootstrap/escalation guard, mention parsing, help command) — Phase 1 is done — and **T9** (README), **T11** (nullable-warning cleanup), **T8** (graceful shutdown/reconnect logging), **T10** (Jenkinsfile CI pipeline), **T12** (Serilog structured logging with command audit events), and **T15** (the `CommandArguments` typed argument-parsing helper; all commands refactored onto it).
+Completed so far: **T1**–**T4** (error handling, DB init, container secrets, config validation), **T5**–**T7**, **T16**, **T17** (parsing robustness, persistence abstraction, permission bootstrap/escalation guard, mention parsing, help command) — Phase 1 is done — and **T9** (README), **T11** (nullable-warning cleanup), **T8** (graceful shutdown/reconnect logging), **T10** (Jenkinsfile CI pipeline), **T12** (Serilog structured logging with command audit events), **T15** (the `CommandArguments` typed argument-parsing helper; all commands refactored onto it), and **T14** (per-guild scoping: composite-keyed permission state, the DM scope — owner-tier user with built-in default command tiers — `IGuildSettingsService` with per-guild command identifiers, the `!settings` command, and the `PerGuildScoping` migration with sentinel legacy rows).
 
 Remaining work, in dependency and risk order:
 
-1. **T13, stage 1** (in-memory throttle + global per-tier defaults from `appsettings.json`) — independent of T14 and already keyed per guild in its design (§9.1), so nothing needs rework when per-guild scoping lands. Delivers the anti-spam acceptance criterion early even if T14 stalls.
-2. **T14** (per-guild scoping) — largest and riskiest change (schema migration, guild-scoped permission lookups, DM fallback, `!settings`), deliberately last; its `!settings` command is written on the T15 framework.
-3. **T13, stage 2** — rides on T14 as designed (§9.1): the per-guild `GuildSetting` cooldown columns plus the `!settings cooldown` subcommand, plugged into the same window-resolution chain.
+1. **T13, stage 1** (in-memory throttle + global per-tier defaults from `appsettings.json`) — independent of anything else; the cooldown key is already guild-aware in its design (§9.1). Delivers the anti-spam acceptance criterion.
+2. **T13, stage 2** — the per-guild runtime override: the `!settings cooldown` subcommand (written on the T15 framework), plugged into the same window-resolution chain; the `GuildSetting` cooldown columns already exist from T14's migration.
 
 When a task is completed, tick it off here (e.g. `- [x]`) and update `software-design.md` / `software-requirements.md` so the docs keep describing the system as it actually is.

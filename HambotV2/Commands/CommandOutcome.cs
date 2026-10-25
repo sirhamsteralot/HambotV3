@@ -22,9 +22,6 @@ namespace HambotV2.Commands
         /// <summary>The command exists but the user is on cooldown (roadmap T13).</summary>
         Throttled,
 
-        /// <summary>The message arrived in a direct message and was rejected (roadmap T14).</summary>
-        DmRejected,
-
         /// <summary>The pipeline caught an exception; the user got the generic error reply.</summary>
         Failed,
     }

@@ -4,20 +4,22 @@ using HambotV2.Commands;
 
 namespace HambotV2.Connections
 {
-    public class DiscordClient : BackgroundService
+    internal class DiscordClient : BackgroundService
     {
         private readonly ILogger<DiscordClient> _logger;
         private readonly IConfiguration _configuration;
+        private readonly IGuildSettingsService _guildSettingsService;
 
         private DiscordSocketClient _client;
         private string _logFormat;
         private IServiceProvider _serviceProvider;
 
-        public DiscordClient(ILogger<DiscordClient> logger, IConfiguration configuration, IServiceProvider serviceProvider)
+        public DiscordClient(ILogger<DiscordClient> logger, IConfiguration configuration, IServiceProvider serviceProvider, IGuildSettingsService guildSettingsService)
         {
             _serviceProvider = serviceProvider;
             _logger = logger;
             _configuration = configuration;
+            _guildSettingsService = guildSettingsService;
             _logFormat = _configuration["BotConfiguration:LogFormat"]!;
             // Only request the intents the bot actually uses; AllUnprivileged would make Discord.Net
             // warn about unused intents (e.g. GuildScheduledEvents, GuildInvites) at every connect.
@@ -109,7 +111,14 @@ namespace HambotV2.Connections
             if (arg.Author.IsBot || arg.Author.IsWebhook)
                 return;
 
-            if (arg.Content.StartsWith(_configuration["BotConfiguration:CommandIdentifier"] ?? "!"))
+            // Per-guild identifier (roadmap T14, FR-26): each guild's effective identifier decides
+            // which messages are command invocations; direct messages use the global default, since
+            // DM commands run in the DM scope (see CommandHandler).
+            string identifier = arg.Channel is SocketGuildChannel guildChannel
+                ? _guildSettingsService.GetCommandIdentifier(guildChannel.Guild.Id)
+                : _guildSettingsService.GlobalCommandIdentifier;
+
+            if (arg.Content.StartsWith(identifier))
             {
                 using (var commandHandler = _serviceProvider.GetService<ICommandHandler>())
                 {

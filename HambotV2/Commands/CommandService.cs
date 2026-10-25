@@ -14,8 +14,6 @@ namespace HambotV2.Commands
         private IConfiguration _configuration;
         public bool CommandsRegistered { get; set; } = false;
 
-        public string CommandIdentifier => _configuration["BotConfiguration:CommandIdentifier"] ?? "!";
-
         public CommandService(ILogger<CommandService> logger, IConfiguration configuration)
         {
             _logger = logger;
@@ -52,14 +50,14 @@ namespace HambotV2.Commands
             Commands.Add(commandName, command);
         }
 
-        public bool TryGetCommand(string content, [NotNullWhen(true)] out ICommand? command)
+        public bool TryGetCommand(string content, string identifier, [NotNullWhen(true)] out ICommand? command)
         {
             if (!CommandsRegistered)
                 RegisterCommands();
 
             command = null;
 
-            if (!CommandParsing.TryGetCommandName(content, CommandIdentifier, out string commandString))
+            if (!CommandParsing.TryGetCommandName(content, identifier, out string commandString))
                 return false;
 
             if (!Commands.TryGetValue(commandString, out ICommand? selectedCommand))
@@ -69,9 +67,9 @@ namespace HambotV2.Commands
             return true;
         }
 
-        public bool IsIdentifierOnlyMessage(string content)
+        public bool IsIdentifierOnlyMessage(string content, string identifier)
         {
-            return CommandParsing.IsIdentifierOnly(content, CommandIdentifier);
+            return CommandParsing.IsIdentifierOnly(content, identifier);
         }
     }
 }

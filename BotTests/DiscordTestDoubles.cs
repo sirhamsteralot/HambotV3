@@ -15,6 +15,9 @@ namespace BotTests
     /// </summary>
     internal static class DiscordTestDoubles
     {
+        /// <summary>The guild id used by the doubles unless a test needs multiple guilds (roadmap T14).</summary>
+        public const ulong DefaultGuildId = 1;
+
         /// <summary>Each caller gets its own isolated in-memory database.</summary>
         public static DatabaseContext CreateDatabase()
         {
@@ -42,9 +45,9 @@ namespace BotTests
             return command;
         }
 
-        public static CommandContext CreateContext(DatabaseContext database, ulong? guildOwnerId = null, ulong? botOwnerId = null)
+        public static CommandContext CreateContext(DatabaseContext database, ulong? guildOwnerId = null, ulong? botOwnerId = null, ulong? guildId = DefaultGuildId, IGuildSettingsService? guildSettings = null)
         {
-            return new CommandContext(database, new TierOverrides
+            return new CommandContext(database, guildId, "!", guildSettings ?? Mock.Of<IGuildSettingsService>(), new TierOverrides
             {
                 GuildOwnerId = guildOwnerId,
                 BotOwnerId = botOwnerId
@@ -61,7 +64,7 @@ namespace BotTests
         }
 
         /// <summary>A guild message mock whose channel belongs to a guild owned by <paramref name="guildOwnerId"/>.</summary>
-        public static Mock<IMessage> CreateGuildMessage(string content, ulong authorId, ulong guildOwnerId, List<string> sentMessages)
+        public static Mock<IMessage> CreateGuildMessage(string content, ulong authorId, ulong guildOwnerId, List<string> sentMessages, ulong guildId = DefaultGuildId)
         {
             var guild = new Mock<IGuild>();
             guild.SetupGet(g => g.OwnerId).Returns(guildOwnerId);
@@ -69,6 +72,7 @@ namespace BotTests
             // ITextChannel is both an IMessageChannel and a guild channel carrying the guild (and
             // with it the owner id used for the guild-owner tier override, roadmap T16).
             var channel = new Mock<ITextChannel>();
+            channel.SetupGet(c => c.GuildId).Returns(guildId);
             channel.SetupGet(c => c.Guild).Returns(guild.Object);
             RecordSends(channel, sentMessages);
 

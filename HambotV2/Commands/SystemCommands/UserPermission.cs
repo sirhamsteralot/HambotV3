@@ -21,6 +21,14 @@ namespace HambotV2.Commands.SystemCommands
 
         public async Task ExecuteCommand(IMessage socketMessage, ICommandContext context)
         {
+            // User tiers are per-guild state (roadmap T14); in the DM scope (FR-25) there is no
+            // guild to manage and no state may be written, so the command declines.
+            if (context.GuildId is not ulong guildId)
+            {
+                await socketMessage.Channel.SendMessageAsync("This command manages per-server state and is only available in servers");
+                return;
+            }
+
             var arguments = CommandArguments.Parse(socketMessage.Content);
 
             if (arguments.Count == 0)
@@ -39,7 +47,7 @@ namespace HambotV2.Commands.SystemCommands
 
             if (arguments.Get(1) is null)
             {
-                int storedTier = GetStoredUserTier(context, targetDiscordId);
+                int storedTier = GetStoredUserTier(context, guildId, targetDiscordId);
                 int effectiveTier = context.Overrides.EffectiveTierOf(targetDiscordId, storedTier);
                 string? overrideLabel = context.Overrides.DescribeOverride(targetDiscordId, storedTier);
                 string overrideNote = overrideLabel != null ? $" ({overrideLabel})" : string.Empty;
@@ -60,7 +68,7 @@ namespace HambotV2.Commands.SystemCommands
                 return;
             }
 
-            int targetStoredTier = GetStoredUserTier(context, targetDiscordId);
+            int targetStoredTier = GetStoredUserTier(context, guildId, targetDiscordId);
             int targetEffectiveTier = context.Overrides.EffectiveTierOf(targetDiscordId, targetStoredTier);
 
             if (targetEffectiveTier >= invokerTier)
@@ -75,14 +83,14 @@ namespace HambotV2.Commands.SystemCommands
                 return;
             }
 
-            PermissionPersistence.UpsertUserTier(context.DbContext, targetDiscordId, newTier);
+            PermissionPersistence.UpsertUserTier(context.DbContext, guildId, targetDiscordId, newTier);
             await context.DbContext.SaveChangesAsync();
             await socketMessage.Channel.SendMessageAsync($"Updated permission tier for user {arguments.Get(0)} to {newTier}");
         }
 
-        private static int GetStoredUserTier(ICommandContext context, ulong discordId)
+        private static int GetStoredUserTier(ICommandContext context, ulong guildId, ulong discordId)
         {
-            return context.DbContext.Users.FirstOrDefault(user => user.DiscordId == discordId)?.PermissionTier
+            return context.DbContext.Users.FirstOrDefault(user => user.GuildId == guildId && user.DiscordId == discordId)?.PermissionTier
                 ?? PermissionTier.Everyone;
         }
     }
