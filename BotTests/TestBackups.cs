@@ -473,6 +473,7 @@ namespace BotTests
 
                 var source = new ReminderMessageSource(
                     _provider.GetRequiredService<IServiceScopeFactory>(),
+                    Time,
                     NullLogger<ReminderMessageSource>.Instance);
 
                 Service = new ScheduledMessageDeliveryService<ScheduledReminderMessage>(

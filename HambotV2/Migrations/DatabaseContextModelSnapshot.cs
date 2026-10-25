@@ -150,6 +150,9 @@ namespace HambotV2.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<TimeSpan?>("RecurrenceInterval")
+                        .HasColumnType("interval");
+
                     b.HasKey("OwnerDiscordId", "Number");
 
                     b.ToTable("Reminders");

@@ -7,6 +7,7 @@ using HambotV2.Scheduling;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Time.Testing;
 using Moq;
 using System;
@@ -372,6 +373,213 @@ namespace BotTests
             }
         }
 
+        // --- Recurring reminders: creation, floor, caps, list, cancellation (FR-107–FR-109, NFR-24) ---
+
+        [TestMethod]
+        public async Task RecurringRemindMe_Persists_The_Interval_And_Confirms_The_Recurrence()
+        {
+            var harness = Harness();
+            var command = new RemindMeCommand(harness.Signal.Object);
+
+            List<string> replies = await harness.Execute(command, "!remindme every 1d 12h water the plants", timestamp: BaseTimestamp);
+
+            var reminder = harness.Database.Reminders.Single();
+            Assert.AreEqual(TimeSpan.FromHours(36), reminder.RecurrenceInterval, "The row is recurring and carries the interval (FR-107)");
+            Assert.AreEqual(BaseTimestamp.Add(TimeSpan.FromHours(36)), reminder.DueAtUtc, "The first due time is now + interval");
+            Assert.IsNull(reminder.FailedAtUtc, "A new recurring reminder is pending");
+
+            Assert.AreEqual(1, replies.Count);
+            StringAssert.Contains(replies[0], "Recurring reminder #0");
+            StringAssert.Contains(replies[0], "repeating every 1d 12h");
+            StringAssert.Contains(replies[0], "water the plants");
+            StringAssert.Contains(replies[0], BaseTimestamp.Add(TimeSpan.FromHours(36)).ToString("yyyy-MM-dd HH:mm"));
+
+            // Like a one-shot, the new row may be the earliest pending one (FR-65).
+            harness.Signal.Verify(signal => signal.NotifyPendingSetChanged(), Times.Once);
+        }
+
+        [TestMethod]
+        [DataRow("every 15m", 900.0)]
+        [DataRow("every 15 m", 900.0)]
+        [DataRow("every 2h", 7200.0)]
+        [DataRow("every 1d 12h", 129600.0)]
+        [DataRow("every 30 minutes", 1800.0)]
+        [DataRow("EVERY 2h", 7200.0)]
+        [DataRow("Every 1w", 604800.0)]
+        public async Task RecurringRemindMe_Accepts_All_Duration_Forms_After_The_Every_Token(string duration, double expectedSeconds)
+        {
+            var harness = Harness();
+            var command = new RemindMeCommand(harness.Signal.Object);
+
+            List<string> replies = await harness.Execute(command, $"!remindme {duration} stretch", timestamp: BaseTimestamp);
+
+            var reminder = harness.Database.Reminders.Single();
+            Assert.AreEqual(TimeSpan.FromSeconds(expectedSeconds), reminder.RecurrenceInterval, $"'{duration}' must parse with the shared duration parser (FR-107)");
+            Assert.AreEqual(1, replies.Count);
+        }
+
+        [TestMethod]
+        public async Task RecurringRemindMe_Rejects_Intervals_Below_The_Floor_With_An_In_Channel_Error()
+        {
+            var harness = Harness();
+            var command = new RemindMeCommand(harness.Signal.Object);
+
+            List<string> rejected = await harness.Execute(command, "!remindme every 9m too soon", timestamp: BaseTimestamp);
+            List<string> accepted = await harness.Execute(command, "!remindme every 10m on the floor", timestamp: BaseTimestamp);
+
+            Assert.AreEqual(1, harness.Database.Reminders.Count(), "Only the on-the-floor reminder is stored (FR-107)");
+            StringAssert.Contains(rejected.Single(), "at least 10m");
+            StringAssert.Contains(accepted.Single(), "Recurring reminder #");
+        }
+
+        [TestMethod]
+        public async Task RecurringRemindMe_Honors_A_Configured_Floor()
+        {
+            var harness = Harness();
+            var command = new RemindMeCommand(harness.Signal.Object, new ReminderSettings { MinRecurrenceInterval = TimeSpan.FromMinutes(30) });
+
+            List<string> rejected = await harness.Execute(command, "!remindme every 15m too soon", timestamp: BaseTimestamp);
+            List<string> accepted = await harness.Execute(command, "!remindme every 30m on the floor", timestamp: BaseTimestamp);
+
+            Assert.AreEqual(1, harness.Database.Reminders.Count(), "Only the on-the-configured-floor reminder is stored");
+            StringAssert.Contains(rejected.Single(), "at least 30m");
+            StringAssert.Contains(accepted.Single(), "Recurring reminder #");
+        }
+
+        [TestMethod]
+        [DataRow("!remindme every")]
+        [DataRow("!remindme every 1d")]
+        [DataRow("!remindme every bananas hello")]
+        [DataRow("!remindme every 0s hello")]
+        public async Task RecurringRemindMe_Rejects_Invalid_Input_Without_Storing(string content)
+        {
+            var harness = Harness();
+            var command = new RemindMeCommand(harness.Signal.Object);
+
+            List<string> replies = await harness.Execute(command, content);
+
+            Assert.AreEqual(0, harness.Database.Reminders.Count(), "Nothing may be stored for rejected invocations");
+            Assert.AreEqual(1, replies.Count);
+            StringAssert.Contains(replies[0], "duration");
+            harness.Signal.Verify(signal => signal.NotifyPendingSetChanged(), Times.Never);
+        }
+
+        [TestMethod]
+        public async Task RecurringRemindMe_Enforces_Its_Own_Cap_And_Never_Consumes_OneShot_Slots()
+        {
+            var harness = Harness();
+            var remindMe = new RemindMeCommand(harness.Signal.Object);
+
+            // A full one-shot roster (FR-70) must not block recurring rows (FR-109)...
+            for (int i = 0; i < RemindMeCommand.MaxPendingReminders; i++)
+                await harness.Execute(remindMe, $"!remindme 1h one-shot {i}");
+
+            // ...and a full recurring roster must not block one-shot rows.
+            for (int i = 0; i < ReminderSettings.DefaultMaxRecurring; i++)
+                await harness.Execute(remindMe, $"!remindme every 1h recurring {i}");
+
+            Assert.AreEqual(RemindMeCommand.MaxPendingReminders, harness.Database.Reminders.Count(reminder => reminder.RecurrenceInterval == null));
+            Assert.AreEqual(ReminderSettings.DefaultMaxRecurring, harness.Database.Reminders.Count(reminder => reminder.RecurrenceInterval != null));
+
+            List<string> rejectedRecurring = await harness.Execute(remindMe, "!remindme every 1h one recurring too many");
+            List<string> rejectedOneShot = await harness.Execute(remindMe, "!remindme 1h one one-shot too many");
+
+            StringAssert.Contains(rejectedRecurring.Single(), "5 recurring reminders");
+            StringAssert.Contains(rejectedOneShot.Single(), "10 pending reminders");
+            Assert.AreEqual(RemindMeCommand.MaxPendingReminders, harness.Database.Reminders.Count(reminder => reminder.RecurrenceInterval == null), "The rejected recurring row is not stored");
+            Assert.AreEqual(ReminderSettings.DefaultMaxRecurring, harness.Database.Reminders.Count(reminder => reminder.RecurrenceInterval != null), "The rejected one-shot row is not stored");
+        }
+
+        [TestMethod]
+        public async Task RecurringRemindMe_Honors_A_Configured_Cap()
+        {
+            var harness = Harness();
+            var remindMe = new RemindMeCommand(harness.Signal.Object, new ReminderSettings { MaxRecurring = 1 });
+
+            await harness.Execute(remindMe, "!remindme every 1h first");
+            List<string> rejected = await harness.Execute(remindMe, "!remindme every 1h second");
+
+            Assert.AreEqual(1, harness.Database.Reminders.Count(reminder => reminder.RecurrenceInterval != null));
+            StringAssert.Contains(rejected.Single(), "1 recurring reminders");
+        }
+
+        [TestMethod]
+        public async Task Reminders_Marks_Recurring_Entries_With_Their_Interval()
+        {
+            var harness = Harness();
+            var now = BaseTimestamp;
+            harness.Database.Reminders.AddRange(
+                new DatabaseContext.Reminder { OwnerDiscordId = AuthorId, Number = 0, Message = "one-shot", DueAtUtc = now.AddHours(1), GuildId = GuildId },
+                new DatabaseContext.Reminder { OwnerDiscordId = AuthorId, Number = 1, Message = "recurring", DueAtUtc = now.AddHours(2), GuildId = GuildId, RecurrenceInterval = TimeSpan.FromHours(12) });
+            await harness.Database.SaveChangesAsync();
+
+            List<string> replies = await harness.Execute(new RemindersCommand(), "!reminders");
+
+            string reply = replies.Single();
+            StringAssert.Contains(reply, "#1");
+            StringAssert.Contains(reply, "repeats every 12h");
+            string recurringLine = reply.Split('\n').Single(line => line.Contains("recurring"));
+            StringAssert.Contains(recurringLine, "repeats every 12h", "The recurring marker sits on the recurring entry's line");
+            Assert.IsFalse(reply.Split('\n').Single(line => line.Contains("one-shot")).Contains("repeats"), "One-shot entries carry no recurrence marker");
+            Assert.IsFalse(reply.Split('\n').Single(line => line.Contains("one-shot")).Contains("repeats"), "One-shot entries carry no recurrence marker");
+        }
+
+        [TestMethod]
+        public async Task CancelReminder_Cancels_A_Recurring_Row_And_Frees_Its_Recurring_Slot()
+        {
+            var harness = Harness();
+            var remindMe = new RemindMeCommand(harness.Signal.Object);
+            var cancel = new CancelReminderCommand(harness.Signal.Object);
+
+            for (int i = 0; i < ReminderSettings.DefaultMaxRecurring; i++)
+                await harness.Execute(remindMe, $"!remindme every 1h recurring {i}");
+
+            List<string> rejected = await harness.Execute(remindMe, "!remindme every 1h over the cap");
+            List<string> cancelled = await harness.Execute(cancel, $"!cancelreminder {ReminderSettings.DefaultMaxRecurring - 1}");
+            List<string> accepted = await harness.Execute(remindMe, "!remindme every 1h after cancel");
+
+            StringAssert.Contains(rejected.Single(), "5 recurring reminders");
+            StringAssert.Contains(cancelled.Single(), $"Cancelled reminder #{ReminderSettings.DefaultMaxRecurring - 1}");
+            StringAssert.Contains(accepted.Single(), $"Recurring reminder #{ReminderSettings.DefaultMaxRecurring - 1}", "Cancelling frees the recurring slot (and its number)");
+        }
+
+        [TestMethod]
+        public void ReminderSettings_Falls_Back_To_Defaults_Without_Or_With_Invalid_Configuration()
+        {
+            var defaults = ReminderSettings.FromConfiguration(null);
+            Assert.AreEqual(TimeSpan.FromMinutes(10), defaults.MinRecurrenceInterval);
+            Assert.AreEqual(5, defaults.MaxRecurring);
+
+            var invalid = ReminderSettings.FromConfiguration(BuildConfiguration(new Dictionary<string, string?>
+            {
+                { "Reminders:MinRecurrenceMinutes", "bananas" },
+                { "Reminders:MaxRecurring", "-1" }
+            }));
+            Assert.AreEqual(TimeSpan.FromMinutes(10), invalid.MinRecurrenceInterval, "An unparsable floor falls back to the default");
+            Assert.AreEqual(5, invalid.MaxRecurring, "A negative cap falls back to the default");
+
+            var configured = ReminderSettings.FromConfiguration(BuildConfiguration(new Dictionary<string, string?>
+            {
+                { "Reminders:MinRecurrenceMinutes", "30" },
+                { "Reminders:MaxRecurring", "2" }
+            }));
+            Assert.AreEqual(TimeSpan.FromMinutes(30), configured.MinRecurrenceInterval);
+            Assert.AreEqual(2, configured.MaxRecurring);
+
+            var disabled = ReminderSettings.FromConfiguration(BuildConfiguration(new Dictionary<string, string?>
+            {
+                { "Reminders:MaxRecurring", "0" }
+            }));
+            Assert.AreEqual(0, disabled.MaxRecurring, "A cap of 0 is a valid value: recurring reminders disabled");
+        }
+
+        private static IConfiguration BuildConfiguration(Dictionary<string, string?> values)
+        {
+            return new ConfigurationBuilder()
+                .AddInMemoryCollection(values)
+                .Build();
+        }
+
         // --- Delivery (FR-65–FR-67) ---
 
         /// <summary>
@@ -414,6 +622,7 @@ namespace BotTests
 
                 var source = new ReminderMessageSource(
                     _provider.GetRequiredService<IServiceScopeFactory>(),
+                    Time,
                     NullLogger<ReminderMessageSource>.Instance);
 
                 Service = new ScheduledMessageDeliveryService<ScheduledReminderMessage>(
@@ -437,7 +646,7 @@ namespace BotTests
                 await Service.StartAsync(_stop.Token);
             }
 
-            public async Task<DatabaseContext.Reminder> SeedReminderAsync(ulong owner, int number, string message, TimeSpan dueIn)
+            public async Task<DatabaseContext.Reminder> SeedReminderAsync(ulong owner, int number, string message, TimeSpan dueIn, TimeSpan? recurrenceInterval = null)
             {
                 var database = CreateDatabase();
                 var reminder = new DatabaseContext.Reminder
@@ -446,6 +655,7 @@ namespace BotTests
                     Number = number,
                     Message = message,
                     DueAtUtc = Time.GetUtcNow() + dueIn,
+                    RecurrenceInterval = recurrenceInterval,
                     GuildId = GuildId
                 };
                 database.Reminders.Add(reminder);
@@ -626,6 +836,86 @@ namespace BotTests
                 && harness.CreateDatabase().Reminders.Count() == 0,
                 harness.Time);
             Assert.AreEqual(0, harness.CreateDatabase().Reminders.Count());
+        }
+
+        // --- Recurring delivery (FR-107/FR-108, NFR-24) ---
+
+        [TestMethod]
+        public async Task Delivery_Redelivers_A_Recurring_Reminder_Each_Interval_From_The_Delivery_Time()
+        {
+            using var harness = new DeliveryHarness();
+            await harness.SeedReminderAsync(AuthorId, 0, "water the plants", TimeSpan.FromMinutes(10), TimeSpan.FromMinutes(10));
+            await harness.StartAsync();
+
+            // First occurrence.
+            harness.Time.Advance(TimeSpan.FromMinutes(10));
+            await WaitUntilAsync(() => ContainsMessage(harness.DeliveredMessages, "water the plants"), harness.Time);
+
+            // The row persists — re-scheduled, not deleted — and keeps its number (FR-108).
+            var database = harness.CreateDatabase();
+            var stored = database.Reminders.Single();
+            Assert.AreEqual(0, stored.Number, "The recurring row keeps its number across deliveries");
+            Assert.IsNotNull(stored.RecurrenceInterval);
+            Assert.IsNull(stored.FailedAtUtc, "A delivered recurring reminder is pending again, not failed");
+
+            // Re-scheduled from the actual delivery time: the next due is delivery + interval.
+            DateTimeOffset nextDue = stored.DueAtUtc;
+            Assert.IsTrue(nextDue > harness.Time.GetUtcNow(), "The next occurrence is in the future again");
+            Assert.AreEqual(1, harness.DeliveredMessages.Count(entry => entry.Message == "water the plants"), "Exactly one delivery so far");
+
+            // Second occurrence: the clock reaches the re-scheduled due time.
+            harness.Time.Advance(nextDue - harness.Time.GetUtcNow());
+            await WaitUntilAsync(() => harness.DeliveredMessages.Count(entry => entry.Message == "water the plants") == 2, harness.Time);
+
+            stored = harness.CreateDatabase().Reminders.Single();
+            Assert.AreEqual(0, stored.Number, "The number is stable across multiple cycles");
+            Assert.AreEqual(2, harness.DeliveredMessages.Count(entry => entry.Message == "water the plants"), "Delivered once per interval");
+        }
+
+        [TestMethod]
+        public async Task Delivery_Does_Not_Burst_Catch_Up_After_Downtime()
+        {
+            using var harness = new DeliveryHarness();
+
+            // A recurring reminder that came due long ago while the bot was down: overdue by
+            // three intervals, it must be delivered once and shifted, not three times.
+            await harness.SeedReminderAsync(AuthorId, 0, "medication", TimeSpan.FromMinutes(-30), TimeSpan.FromMinutes(10));
+            await harness.StartAsync();
+
+            await WaitUntilAsync(() => ContainsMessage(harness.DeliveredMessages, "medication"), harness.Time);
+
+            Assert.AreEqual(1, harness.DeliveredMessages.Count(entry => entry.Message == "medication"),
+                "An overdue recurring reminder delivers once — downtime shifts the schedule, it never bursts catch-ups");
+
+            var stored = harness.CreateDatabase().Reminders.Single();
+            Assert.IsTrue(stored.DueAtUtc > harness.Time.GetUtcNow(),
+                "The next occurrence is scheduled from the delivery time, not the old due time");
+        }
+
+        [TestMethod]
+        public async Task Delivery_A_Recurring_Reminder_That_Keeps_Failing_Stops_Repeating()
+        {
+            using var harness = new DeliveryHarness();
+            harness.FailingOwnerId = 300;
+
+            await harness.SeedReminderAsync(300, 0, "into closed DMs", TimeSpan.FromMinutes(-10), TimeSpan.FromMinutes(10));
+            await harness.StartAsync();
+
+            await WaitUntilAsync(() =>
+                harness.CreateDatabase().Reminders.Any(reminder => reminder.OwnerDiscordId == 300 && reminder.FailedAtUtc != null),
+                harness.Time);
+
+            // Bounded retries (FR-67/FR-108): exactly three attempts, then the recurring row is
+            // marked failed and never re-scheduled.
+            harness.DmSender.Verify(
+                sender => sender.SendAsync(
+                    It.Is<ScheduledReminderMessage>(message => message.OwnerDiscordId == 300),
+                    It.IsAny<CancellationToken>()),
+                Times.Exactly(ScheduledMessageDeliveryService<ScheduledReminderMessage>.MaxDeliveryAttempts));
+
+            var stored = harness.CreateDatabase().Reminders.Single(reminder => reminder.OwnerDiscordId == 300);
+            Assert.IsNotNull(stored.FailedAtUtc, "The failed recurring reminder is marked, not deleted");
+            Assert.IsNotNull(stored.RecurrenceInterval, "The row keeps its recurrence for the audit trail");
         }
     }
 }

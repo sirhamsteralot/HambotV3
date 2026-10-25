@@ -26,12 +26,23 @@ namespace HambotV2.Commands.ReminderCommands
         /// </summary>
         public static bool TryParse(CommandArguments arguments, out TimeSpan duration, out int consumedTokens)
         {
+            return TryParse(arguments, 0, out duration, out consumedTokens);
+        }
+
+        /// <summary>
+        /// Same parse starting at <paramref name="startIndex"/> — the recurring form's interval
+        /// begins after the leading <c>every</c> token (FR-107). <paramref name="consumedTokens"/>
+        /// counts from the arguments' start, so the message still starts at
+        /// <c><paramref name="startIndex"/> + consumedTokens</c>.
+        /// </summary>
+        public static bool TryParse(CommandArguments arguments, int startIndex, out TimeSpan duration, out int consumedTokens)
+        {
             duration = TimeSpan.Zero;
             consumedTokens = 0;
 
             double totalSeconds = 0;
-            while (consumedTokens < arguments.Count
-                && TryParseDurationToken(arguments, consumedTokens, out double tokenSeconds, out int tokensConsumed))
+            while (startIndex + consumedTokens < arguments.Count
+                && TryParseDurationToken(arguments, startIndex + consumedTokens, out double tokenSeconds, out int tokensConsumed))
             {
                 totalSeconds += tokenSeconds;
                 consumedTokens += tokensConsumed;

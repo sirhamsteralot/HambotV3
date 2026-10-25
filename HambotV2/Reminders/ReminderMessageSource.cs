@@ -6,20 +6,25 @@ namespace HambotV2.Reminders
 {
     /// <summary>
     /// The reminder persistence behind the generic scheduled-message engine: the earliest
-    /// pending due time, the due list, and the delivery outcomes. Delivered rows are deleted
-    /// from the pending set; rows that exhausted the bounded retries are marked
-    /// <see cref="DatabaseContext.Reminder.FailedAtUtc"/> and stay for audit. All database work
-    /// goes through fresh <see cref="IServiceScopeFactory"/> scopes, so the singleton never
-    /// holds a DbContext.
+    /// pending due time, the due list, and the delivery outcomes. Delivered one-shot rows are
+    /// deleted from the pending set; a delivered recurring row is re-scheduled from the actual
+    /// delivery time (FR-107), so downtime shifts its schedule instead of piling up a burst of
+    /// catch-up deliveries; rows that exhausted the bounded retries are marked
+    /// <see cref="DatabaseContext.Reminder.FailedAtUtc"/> and stay for audit — a recurring row
+    /// that keeps failing stops repeating like a one-shot (FR-108). All database work goes
+    /// through fresh <see cref="IServiceScopeFactory"/> scopes, so the singleton never holds a
+    /// DbContext.
     /// </summary>
     internal sealed class ReminderMessageSource : IScheduledMessageSource<ScheduledReminderMessage>
     {
         private readonly IServiceScopeFactory _scopeFactory;
+        private readonly TimeProvider _timeProvider;
         private readonly ILogger<ReminderMessageSource> _logger;
 
-        public ReminderMessageSource(IServiceScopeFactory scopeFactory, ILogger<ReminderMessageSource> logger)
+        public ReminderMessageSource(IServiceScopeFactory scopeFactory, TimeProvider timeProvider, ILogger<ReminderMessageSource> logger)
         {
             _scopeFactory = scopeFactory;
+            _timeProvider = timeProvider;
             _logger = logger;
         }
 
@@ -42,7 +47,7 @@ namespace HambotV2.Reminders
                 .Where(reminder => reminder.FailedAtUtc == null && reminder.DueAtUtc <= now)
                 .OrderBy(reminder => reminder.DueAtUtc)
                 .ThenBy(reminder => reminder.Number)
-                .Select(reminder => new ScheduledReminderMessage(reminder.OwnerDiscordId, reminder.Number, reminder.Message))
+                .Select(reminder => new ScheduledReminderMessage(reminder.OwnerDiscordId, reminder.Number, reminder.Message, reminder.RecurrenceInterval))
                 .ToListAsync(cancellationToken);
 
             return due;
@@ -57,6 +62,19 @@ namespace HambotV2.Reminders
             if (stored is null)
             {
                 // Cancelled while delivery was in flight; nothing to record.
+                return;
+            }
+
+            if (stored.RecurrenceInterval is TimeSpan interval)
+            {
+                // Recurring row (FR-107): re-schedule from the actual delivery time instead of
+                // deleting, so downtime shifts the schedule rather than bursting catch-ups. The
+                // number and row persist, keeping the entry's identity stable (FR-108).
+                stored.DueAtUtc = _timeProvider.GetUtcNow().Add(interval);
+                await database.SaveChangesAsync(cancellationToken);
+
+                _logger.LogInformation("Recurring reminder {ReminderNumber} delivered to user {OwnerDiscordId}; re-scheduled.",
+                    stored.Number, stored.OwnerDiscordId);
                 return;
             }
 

@@ -1,5 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using HambotV2.Backups;
+using HambotV2.Commands.ReminderCommands;
 using HambotV2.Connections;
 using HambotV2.Maintenance;
 using HambotV2.Scheduling;
@@ -24,6 +25,12 @@ namespace HambotV2.Commands
         private readonly IImageContentDownloader? _imageContentDownloader;
 
         /// <summary>
+        /// The recurring-reminder limits (§3.14), parsed from the optional <c>Reminders</c>
+        /// configuration section; defaults apply when no configuration is supplied (tests).
+        /// </summary>
+        private readonly ReminderSettings _reminderSettings;
+
+        /// <summary>
         /// The signal defaults to an isolated instance, and the backup & stability and presence dependencies to null, which
         /// keeps the registry usable in tests that do not exercise those features (the affected
         /// commands then report "not configured" if actually executed).
@@ -36,7 +43,8 @@ namespace HambotV2.Commands
             INotificationChannelStore? notificationChannelStore = null,
             IHealthSnapshotProvider? healthSnapshotProvider = null,
             IPresenceService? presenceService = null,
-            IImageContentDownloader? imageContentDownloader = null)
+            IImageContentDownloader? imageContentDownloader = null,
+            IConfiguration? configuration = null)
         {
             _deliverySignal = deliverySignal ?? new ScheduledDeliverySignal();
             _backupManager = backupManager;
@@ -46,6 +54,7 @@ namespace HambotV2.Commands
             _healthSnapshotProvider = healthSnapshotProvider;
             _presenceService = presenceService;
             _imageContentDownloader = imageContentDownloader;
+            _reminderSettings = ReminderSettings.FromConfiguration(configuration);
         }
 
         public Dictionary<string, ICommand> Commands { get; } = new();
@@ -55,7 +64,7 @@ namespace HambotV2.Commands
 
         public void RegisterCommands()
         {
-            RegisterAllCommands.RegisterCommands(this, _deliverySignal, _backupManager, _maintenanceMode, _notificationPublisher, _notificationChannelStore, _healthSnapshotProvider, _presenceService, _imageContentDownloader);
+            RegisterAllCommands.RegisterCommands(this, _deliverySignal, _backupManager, _maintenanceMode, _notificationPublisher, _notificationChannelStore, _healthSnapshotProvider, _presenceService, _imageContentDownloader, _reminderSettings);
             CommandsRegistered = true;
         }
 

@@ -136,6 +136,9 @@ namespace HambotV2.Connections
             /// <summary>Due time, always UTC (FR-61).</summary>
             public DateTimeOffset DueAtUtc { get; set; }
 
+            /// <summary>Recurrence interval for recurring reminders (FR-107); null = one-shot (the pre-existing rows' value).</summary>
+            public TimeSpan? RecurrenceInterval { get; set; }
+
             /// <summary>Guild the reminder was created in; null when created in a direct message (FR-61).</summary>
             public ulong? GuildId { get; set; }
 

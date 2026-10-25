@@ -23,6 +23,7 @@ Everything specified so far is implemented and in production:
 - **Version reporting** (FR-76–FR-77 / NFR-17 / C-5; design §3.9) — the running bot reports a real release version.
 - **Backup & stability improvements** — database backups (FR-81–FR-85, FR-96–FR-98, FR-100–FR-101 / NFR-19, NFR-22; design §5.2) and watchdog, health reporting & operator notifications (FR-105–FR-106, FR-117–FR-118 / NFR-23; design §3.13), shipped in `v1.1.2`; the as-built behavior is folded into the design and requirements documents. One operator action remains open: the restore drill (NFR-19) — run [`docs/manual-test-plan.md`](manual-test-plan.md) §3 and §8 against a test deployment once and record the outcome.
 - **Discord presence & profile identity** (FR-78–FR-80, FR-113, FR-115–FR-116 / NFR-18; design §3.10) — the `IPresenceService` singleton behind a gateway seam applies activity, bio, avatar, and banner (startup configuration plus the tier-4, DM-usable `!presence`, `!bio`, `!avatar`, and `!banner` commands). The roadmap spike confirmed Discord.Net 3.20.2 natively supports the September 2025 per-guild member route (bio/avatar/banner via `ModifyCurrentUserAsync`) and the global avatar route (`ISelfUser.ModifyAsync`), so no raw REST fallback was needed.
+- **Recurring reminders** (FR-107–FR-109 / NFR-24; design §3.14) — `!remindme every <duration> <message...>`: the same entity, commands, and delivery engine as one-shot reminders, re-scheduled from the actual delivery time (downtime shifts the schedule, never bursts), with the configurable interval floor (`Reminders:MinRecurrenceMinutes`, default 10) and the separate per-user cap (`Reminders:MaxRecurring`, default 5) that never consumes one-shot slots.
 
 The remaining backlog is specified ahead of implementation and organised into phases:
 
@@ -48,7 +49,7 @@ The remaining backlog is specified ahead of implementation and organised into ph
 
     **Acceptance criteria**: FR-78–FR-80, FR-113, and FR-115–FR-116 hold; the build stays warning-free and tests green; design §3.10 loses its **(planned)** marker and reflects the as-built behavior (including the spike's outcome on the member route).
 
-- [ ] **Recurring reminders — `!remindme every <duration> <message...>` (FR-107–FR-109 / NFR-24; design §3.14)**
+- [x] **Recurring reminders — `!remindme every <duration> <message...>` (FR-107–FR-109 / NFR-24; design §3.14)** — *shipped; see the Status section above.*
 
     **Problem**: reminders are one-shot only — `!remindme 1d water the plants` fires once and is gone, so anything habitual (medication, birthdays, weekly cleanups) must be re-created after every delivery.
 

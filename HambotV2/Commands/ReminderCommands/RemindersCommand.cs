@@ -36,7 +36,15 @@ namespace HambotV2.Commands.ReminderCommands
             }
 
             IEnumerable<string> lines = pending.Select(reminder =>
-                $"#{reminder.Number} — due {reminder.DueAtUtc:yyyy-MM-dd HH:mm} UTC — {reminder.Message}");
+            {
+                // Recurring entries are marked with their interval (FR-108), right after the
+                // due time of the current occurrence.
+                string recurrence = reminder.RecurrenceInterval is TimeSpan interval
+                    ? $" — repeats every {ReminderIntervalFormat.Format(interval)}"
+                    : string.Empty;
+
+                return $"#{reminder.Number} — due {reminder.DueAtUtc:yyyy-MM-dd HH:mm} UTC{recurrence} — {reminder.Message}";
+            });
 
             await message.Channel.SendMessageAsync("Your pending reminders:\n" + string.Join('\n', lines));
         }

@@ -147,7 +147,8 @@ Quick sweep to catch anything the new pipeline changes (maintenance gate, notifi
 | Cooldowns | Spam `!hello` as tier-0 user after `!settings cooldown 0 5` | Throttle reply with wait seconds; no throttle for the bot owner (tier 4). |
 | Quotes | `!quote add/list/remove/get random/search` + `!importquotes` with a small JSON attachment | Full lifecycle; import continues numbering; per-guild isolation (a quote made in test server A is invisible in server B). |
 | Custom responses | `!response add test ping`, then `!test` | Custom response fires through the permission/cooldown path; unknown-name fallback reply otherwise. |
-| Reminders | `!remind in 1m test`, then wait | DM delivery of the reminder; retry/defer behavior unchanged. |
+| Reminders | `!remindme 1m test`, then wait | DM delivery of the reminder; retry/defer behavior unchanged. |
+| Recurring reminders | `!remindme every 10m test`, `!reminders`, wait two intervals, `!cancelreminder <n>` | Recurring confirmation; list entry marked `repeats every 10m`; a DM per interval (each re-scheduled from its delivery); cancellation stops it. |
 
 ## 10. Rollout checklist
 

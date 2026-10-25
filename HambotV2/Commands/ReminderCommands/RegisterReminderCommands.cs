@@ -4,9 +4,9 @@ namespace HambotV2.Commands.ReminderCommands
 {
     internal static class RegisterReminderCommands
     {
-        public static void RegisterCommands(ICommandService commandService, IScheduledDeliverySignal deliverySignal)
+        public static void RegisterCommands(ICommandService commandService, IScheduledDeliverySignal deliverySignal, ReminderSettings? reminderSettings = null)
         {
-            commandService.RegisterCommand("remindme", new RemindMeCommand(deliverySignal));
+            commandService.RegisterCommand("remindme", new RemindMeCommand(deliverySignal, reminderSettings));
             commandService.RegisterCommand("reminders", new RemindersCommand());
             commandService.RegisterCommand("cancelreminder", new CancelReminderCommand(deliverySignal));
         }

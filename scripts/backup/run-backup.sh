@@ -178,9 +178,11 @@ run_restore_test() {
 
     log "Running automated restore test against $(basename "$dump")"
     local ok=false detail=""
+    local restore_log
+    restore_log=$(mktemp)
 
     dropdb --if-exists "$SCRATCH_DB" 2>/dev/null || true
-    if createdb "$SCRATCH_DB" && pg_restore --dbname="$SCRATCH_DB" --no-owner "$dump" 2>/dev/null; then
+    if { createdb "$SCRATCH_DB" && pg_restore --dbname="$SCRATCH_DB" --no-owner "$dump"; } 2>"$restore_log"; then
         # The dump's TOC lists each table as "<dumpid>; <oid> <oid> TABLE <schema> <name> <owner>"
         # (TABLE DATA lines carry one more field and are excluded by the field count). Mixed-case
         # names appear quoted in the TOC; the quotes are stripped, matching how
@@ -213,9 +215,12 @@ run_restore_test() {
             fi
         fi
     else
-        detail="pg_restore into the scratch database failed"
+        # The recorded detail must carry the actual error — without it a failed test
+        # cannot be diagnosed after the status is overwritten by a later pass.
+        detail="restore into the scratch database failed: $(tail -n 5 "$restore_log" | tr '\n' ' ')"
     fi
     dropdb --if-exists "$SCRATCH_DB" 2>/dev/null || true
+    rm -f "$restore_log"
 
     status_last_test_ts="$ts"
     status_last_test_ok="$ok"

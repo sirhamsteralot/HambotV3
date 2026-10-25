@@ -29,12 +29,13 @@ namespace HambotV2.Commands
             INotificationChannelStore? notificationChannelStore = null,
             IHealthSnapshotProvider? healthSnapshotProvider = null,
             IPresenceService? presenceService = null,
-            IImageContentDownloader? imageContentDownloader = null)
+            IImageContentDownloader? imageContentDownloader = null,
+            ReminderSettings? reminderSettings = null)
         {
             RegisterSystemCommands.RegisterCommands(commandService, notificationChannelStore, healthSnapshotProvider, presenceService, imageContentDownloader);
             RegisterQuoteCommands.RegisterCommands(commandService);
             RegisterResponseCommands.RegisterCommands(commandService);
-            RegisterReminderCommands.RegisterCommands(commandService, deliverySignal);
+            RegisterReminderCommands.RegisterCommands(commandService, deliverySignal, reminderSettings);
             RegisterBackupCommands.RegisterCommands(commandService, backupManager, maintenanceMode, notificationPublisher);
         }
     }
