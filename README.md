@@ -120,6 +120,10 @@ docker run -d --name hambot --restart unless-stopped \
 
 The image is secret-free: `appsecrets.json` is excluded from the build context (`.dockerignore`), so it can be pushed to a registry — secrets always come in via environment variables.
 
+## Continuous integration & deployment
+
+The repository ships a Jenkins pipeline ([`Jenkinsfile`](Jenkinsfile)): every build compiles the solution with warnings-as-errors, runs the unit tests, and — for `master` only — deploys the exact tested commit to the production server over SSH (build image, verify startup, auto-rollback on failure). See **[docs/jenkins-cicd.md](docs/jenkins-cicd.md)** for the full setup guide.
+
 ## Smoke test
 
 Expected startup log sequence (from source, Compose, or plain Docker):

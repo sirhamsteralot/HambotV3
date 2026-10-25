@@ -365,3 +365,6 @@ FodyWeavers.xsd
 
 # Docker Compose environment file (contains secrets)
 /.env
+
+# Written on the server by the deploy script (commit/build traceability)
+/.deploy-info

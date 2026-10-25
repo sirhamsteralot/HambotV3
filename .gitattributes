@@ -2,6 +2,8 @@
 # Set default behavior to automatically normalize line endings.
 ###############################################################################
 * text=auto
+# Shell scripts must keep LF endings: the deploy script runs on the Linux server.
+*.sh text eol=lf
 
 ###############################################################################
 # Set default behavior for command prompt diff.

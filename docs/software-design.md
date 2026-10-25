@@ -311,6 +311,41 @@ docker run -d --name hambot-smoke -e Secrets__BotToken=... -e "ConnectionStrings
 - Startup order: configuration validation → database migration → Discord gateway login. A missing required key or an unreachable database fails fast with a critical log line and a non-zero exit code.
 - `docker-compose.yml` defaults the connection string to the compose `db` service (`host.docker.internal` is the equivalent for a plain container against Postgres on the Docker host).
 
+### 5.1 CI/CD pipeline — Jenkins auto-deploy
+
+The `Jenkinsfile` is a declarative pipeline with three stages; a push to `master` that builds warning-free and passes all tests is deployed to the server automatically, with no manual steps (NFR-6):
+
+1. **Build** — `dotnet build` in Release with nullable warnings as errors.
+2. **Test** — `dotnet test` (TRX results archived).
+3. **Deploy** — gated on `master` only (feature branches and PR builds stop after Test; a failed build or test run never reaches this stage). The Jenkins agent SSHes into the host — Jenkins itself runs in a container on the same server — where the deploy directory is a git clone of the same origin. The stage checks that clone out at exactly the commit CI built (`git fetch origin && git checkout --force $GIT_COMMIT`), then runs the repository's own `scripts/deploy.sh` with the commit SHA, build number, and build URL.
+
+`scripts/deploy.sh` (runs on the server, in the deploy directory) provides the deploy hygiene:
+
+- It snapshots the currently running bot image as a rollback point, then builds the new image **before** touching any container — a failed build leaves the previously running stack untouched.
+- `docker compose up -d --no-build` then replaces only changed containers. Secrets come exclusively from the server's gitignored `.env` next to `docker-compose.yml`; nothing sensitive appears in the `Jenkinsfile`, the job configuration, or the build log (NFR-3/NFR-4).
+- Post-deploy verification: the script waits for the `db` healthcheck and polls the bot container logs for the known startup lines ("Database migrations applied successfully" and "Discord gateway connection established."). If they do not appear in time, it restores the previously running image and exits non-zero, so a failed deploy leaves the old version serving and the Jenkins job goes red instead of shipping a broken bot.
+- On success it prunes dangling images from the rebuild and writes a gitignored `.deploy-info` file (commit, Jenkins build number and URL, timestamp) next to the checkout so the running version is traceable from the Jenkins UI and from the server.
+
+One-time server preparation (not part of the pipeline):
+
+```bash
+# deploy user with Docker access (docker group membership is effectively root-equivalent
+# on the host — acceptable for this single-server deployment; harden with rootless
+# Docker if that ever changes)
+sudo useradd -m hambot-deploy && sudo usermod -aG docker hambot-deploy
+sudo mkdir -p /opt/hambotv2 && sudo chown hambot-deploy /opt/hambotv2
+sudo -u hambot-deploy git clone <origin-url> /opt/hambotv2   # deploy key if the repo is private
+cd /opt/hambotv2 && sudo -u hambot-deploy cp .env.example .env  # fill in; the pipeline never touches this file
+
+# Jenkins side: generate an SSH key pair for the deploy user (no passphrase), add the
+# public key to ~hambot-deploy/.ssh/authorized_keys, and store the private key in
+# Jenkins as an "SSH Username with private key" credential (username hambot-deploy).
+# The Jenkins container must reach the host's sshd: use the host's IP, the docker
+# bridge gateway (172.17.0.1), or add extra_hosts ["host.docker.internal:host-gateway"].
+# Jenkins needs the "SSH Agent" plugin; set DEPLOY_HOST/DEPLOY_USER/DEPLOY_DIR/
+# DEPLOY_SSH_CREDENTIAL in the Jenkinsfile environment block accordingly.
+```
+
 ## 6. Testing
 
 - `BotTests/` contains MSTest + Moq tests: `TestCommandInfrastructure.cs`, `TestCommands.cs`, `TestPermissions.cs`, `TestCommandHandler.cs`, `TestConfigurationValidator.cs`, `TestPermissionCommands.cs`, `TestHelp.cs`, `TestCommandArguments.cs`, `TestGuildSettings.cs`, `TestCooldowns.cs`, `TestQuotes.cs`, `TestCustomResponses.cs`, `TestReminders.cs`, plus the shared `DiscordTestDoubles.cs`.
@@ -338,6 +373,5 @@ docker run -d --name hambot-smoke -e Secrets__BotToken=... -e "ConnectionStrings
 
 These are observations of the current implementation:
 
-- **CI**: a declarative `Jenkinsfile` at the repository root builds the solution and runs the tests (with nullable warnings treated as errors); the Jenkins job must be configured as "Pipeline script from SCM" pointing at it.
-- **Planned infrastructure**: the Jenkins auto-deploy stage (roadmap task 4) is not yet implemented; the [roadmap](roadmap.md) sequences the work.
+- **CI/CD**: a declarative `Jenkinsfile` at the repository root builds the solution, runs the tests (with nullable warnings treated as errors), and — for `master` only — deploys the exact tested commit to the server via SSH and `scripts/deploy.sh` (§5.1); the Jenkins job must be configured as "Pipeline script from SCM" pointing at it.
 

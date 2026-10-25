@@ -1,9 +1,11 @@
-// Jenkins CI pipeline for HambotV2.
+// Jenkins CI/CD pipeline for HambotV2.
 //
 // Point the Jenkins job at this file ("Pipeline script from SCM") so the pipeline
 // stays in sync with the solution structure instead of a job-local script.
 //
-// Requirement: the Jenkins agent needs the .NET 10 SDK (10.0.x) on its PATH.
+// Requirements:
+//   - the Jenkins agent needs the .NET 10 SDK (10.0.x) on its PATH,
+//   - the "SSH Agent" plugin must be installed for the Deploy stage.
 
 pipeline {
     agent any
@@ -13,6 +15,15 @@ pipeline {
         PATH = "/opt/dotnet10:${env.PATH}"
         DOTNET_CLI_TELEMETRY_OPTOUT = '1'
         DOTNET_NOLOGO = '1'
+
+        // Auto-deploy target (roadmap task 4, design §5). Jenkins reaches the
+        // host over SSH; fill these in once per Jenkins install. The deploy
+        // directory is a git clone of the same origin, so the pipeline only
+        // needs to name the commit — it never transfers files or secrets.
+        DEPLOY_HOST = '172.17.0.1'          // host reachable from the Jenkins container: host IP, the docker bridge gateway (172.17.0.1), or host.docker.internal (requires extra_hosts host-gateway)
+        DEPLOY_USER = 'hambot-deploy'
+        DEPLOY_DIR = '/opt/hambotv2'
+        DEPLOY_SSH_CREDENTIAL = 'hambot-deploy-ssh-key'  // Jenkins "SSH Username with private key" credential ID
     }
 
     options {
@@ -34,6 +45,34 @@ pipeline {
         stage('Test') {
             steps {
                 sh 'dotnet test HambotV2.sln --configuration Release --no-build --logger "trx;LogFileName=test-results.trx" --results-directory TestResults'
+            }
+        }
+
+        stage('Deploy') {
+            // Only master is ever deployed; feature branches and PR builds
+            // stop after Test. A stage also only runs when the previous ones
+            // succeeded, so a failed build or test run never deploys anything.
+            when {
+                anyOf {
+                    branch 'master'                                   // multibranch jobs
+                    expression { env.GIT_BRANCH == 'origin/master' } // plain "Pipeline script from SCM" jobs
+                }
+            }
+            steps {
+                sshagent(credentials: [env.DEPLOY_SSH_CREDENTIAL]) {
+                    // Check the server's clone out at exactly the commit CI
+                    // built and tested, then run the repo's own deploy script
+                    // (build image, replace containers, verify startup,
+                    // rollback on a failed health check, prune, record build).
+                    // Secrets stay in the server's gitignored .env.
+                    sh '''
+                        ssh -o StrictHostKeyChecking=accept-new "$DEPLOY_USER@$DEPLOY_HOST" \
+                            "cd $DEPLOY_DIR && \
+                             git fetch origin && \
+                             git checkout --force $GIT_COMMIT && \
+                             bash scripts/deploy.sh $GIT_COMMIT $BUILD_NUMBER '$BUILD_URL'"
+                    '''
+                }
             }
         }
     }
