@@ -1,6 +1,6 @@
 # Roadmap
 
-Planned work for HambotV2. The three feature tasks are fully specified in [`software-requirements.md`](software-requirements.md) (quotes FR-42–FR-50, custom command responses FR-51–FR-60, reminders FR-61–FR-71) and designed in [`software-design.md`](software-design.md) §3.6–§3.8; task 4 is a CI/CD infrastructure task (Jenkins auto-deploy). This file sequences the work so the tasks can be taken one by one.
+Planned work for HambotV2. The three feature tasks are fully specified in [`software-requirements.md`](software-requirements.md) (quotes FR-42–FR-50 plus the later-added legacy import FR-72–FR-75, custom command responses FR-51–FR-60, reminders FR-61–FR-71) and designed in [`software-design.md`](software-design.md) §3.6–§3.8; task 4 is a CI/CD infrastructure task (Jenkins auto-deploy). This file sequences the work so the tasks can be taken one by one.
 
 ## How to use this file
 
@@ -14,7 +14,7 @@ Tick a task off (`- [x]`) when complete and fold the resulting behavior into the
 
 ## Implementation order
 
-1. **Quotes** *(priority)* — self-contained: one entity + migration and three commands; no pipeline changes.
+1. **Quotes** *(priority)* — self-contained: one entity + migration, three commands (plus the later-added legacy import command `!importquotes`, FR-72–FR-75, which arrived after task 1 was complete); no pipeline changes.
 2. **Custom command responses** *(priority)* — the only task that touches `CommandHandler` (the dispatch fallback, FR-54); it goes second so the fallback lands on a stable pipeline.
 3. **Reminders** — adds the first additional hosted service; independent of the other two, but goes last so the hosted-service change stays isolated.
 4. **Jenkins auto-deploy** — pure infrastructure, independent of all feature tasks; do it whenever the server setup is ready. Deploying each feature task as it lands (instead of one big deploy after all three) exercises the pipeline early and keeps releases small.
@@ -49,7 +49,9 @@ Shared conventions for all three tasks (from the design doc):
   7. `!removequote <number>` removes the quote and confirms in-channel; an unknown number produces an in-channel error. Its default required tier is **moderator**; `quote` (both fetching and adding) and `searchquotes` default to tier 0 (everyone).
   8. All quote commands are subject to the standard pipeline behavior: runtime permission adjustment via `!commandpermission`, per-tier cooldown throttling, help text via `!help`, and names enforced lowercase.
   9. Quote commands manage per-guild state and therefore decline in direct messages with the established "only available in servers" message (consistent with FR-25).
-  10. Unit tests (MSTest + Moq, EF InMemory) cover: add/get/remove lifecycle with sequential numbering (including that removing the highest-numbered quote lets the next added quote reuse that top number), per-guild isolation, random fetch on a populated guild and the empty-guild message, fetch-by-number, add-by-text (including a numeric-looking argument that is out of range), search behavior and cap, text validation, permission gating, and DM declines.
+  10. Unit tests (MSTest + Moq, EF InMemory) cover: add/get/remove lifecycle with sequential numbering (including that removing the highest-numbered quote lets the next added quote reuse that top number), per-guild isolation, random fetch on a populated guild and the empty-guild message, fetch-by-number, add-by-text (including a numeric-looking argument that is out of range), text validation at the 2000-character boundary and the reply trimming of over-limit fetches and search results, search behavior and cap, permission gating, and DM declines.
+
+- **Later addition** (not part of the original task): **`!importquotes`** (FR-72–FR-75, §2.9 / design §3.6 "Legacy import") — imports the old bot's `quoteSettings.json` attached to the invocation message into the invoking guild: bot-owner-only (default tier 4, effectively immutable at runtime), all-or-nothing validation (empty or over-2000-char entries abort with nothing stored), file-order append continuing the 0-based per-guild numbering, legacy dates preserved. Covered by `TestQuotes.cs` (import lifecycle, all failure paths, the tier-4 gate, DM decline; a fake `IAttachmentContentDownloader` stands in for the HTTP download).
 
 ### [ ] 2. Custom command responses — user-defined text commands, per guild *(priority; FR-51–FR-60, NFR-15; design: §3.7)*
 

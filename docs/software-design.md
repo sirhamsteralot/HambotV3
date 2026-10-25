@@ -2,7 +2,7 @@
 
 This document describes the design of HambotV2. It is the overview for contributors and the baseline for changes. Unless a section is marked **(planned)**, it describes the system as implemented today.
 
-Three features from [`software-requirements.md`](software-requirements.md) were specified ahead of implementation: **quotes** (FR-42–FR-50, NFR-14), **custom command responses** (FR-51–FR-60, NFR-15), and **reminders** (FR-61–FR-71, NFR-16), designed as §3.6, §3.7, and §3.8. Quotes are implemented (§3.6 describes the system as it is); custom command responses and reminders are still **(planned)** — that is the design the implementation must follow. The [roadmap](roadmap.md) sequences the work; when a feature lands, remove its *planned* markers and fold any deviations back here so this document keeps describing the system as it actually is.
+Three features from [`software-requirements.md`](software-requirements.md) were specified ahead of implementation: **quotes** (FR-42–FR-50, plus the legacy import FR-72–FR-75, NFR-14), **custom command responses** (FR-51–FR-60, NFR-15), and **reminders** (FR-61–FR-71, NFR-16), designed as §3.6, §3.7, and §3.8. Quotes are implemented (§3.6 describes the system as it is); custom command responses and reminders are still **(planned)** — that is the design the implementation must follow. The [roadmap](roadmap.md) sequences the work; when a feature lands, remove its *planned* markers and fold any deviations back here so this document keeps describing the system as it actually is.
 
 ## 1. System Overview
 
@@ -194,13 +194,13 @@ All in `Commands/SystemCommands/`, registered by `RegisterSystemCommands`:
 
 `PermissionPersistence` holds the shared "upsert tier" logic of the two permission commands.
 
-### 3.6 Quotes — per-guild quote storage and recall *(FR-42–FR-50 / NFR-14)*
+### 3.6 Quotes — per-guild quote storage and recall *(FR-42–FR-50, FR-72–FR-75 / NFR-14)*
 
 **Entity & persistence.** `DatabaseContext.Quote` (§3.4 table) with composite key `(GuildId, Number)`: `Text` (1–2000 chars), `AddedByDiscordId`, `CreatedAt`. Per-guild scoping is the key itself — every read and write filters by `GuildId`, so a quote in one guild is never visible, searchable, or removable in another (FR-24/FR-42). The `AddQuotes` migration is applied automatically at startup (FR-30).
 
 **Sequential numbering (FR-43).** The per-guild number is a simple increasing index, **0-based like the old bot's index-based quote list** (the first quote is number 0, so the old numbering feels familiar): each new quote is assigned one greater than the guild's current maximum (`MAX(Number) + 1`; `0` for the first quote), so numbers go 0, 1, 2, … as quotes are added. Removal never renumbers the remaining quotes; if the highest-numbered quote is removed, the next quote added takes that top number (the assignment always follows the current maximum), so no extra counter state is needed.
 
-**Commands** — `Commands/QuoteCommands/` (`QuoteCommand`, `SearchQuotesCommand`, `RemoveQuoteCommand`, `ImportQuotesCommand`), registered by `RegisterQuoteCommands` in the registration chain (§3.2). Lowercase names, `CommandArguments`-based parsing, `Description`/`Usage` help text, and pipeline behavior identical to existing commands (FR-49): runtime tier adjustment via `!commandpermission`, per-tier cooldown throttling, the audit event. All three quote commands decline in direct messages with the established "only available in servers" message (FR-50). Free-form text (quote text, search terms) comes from `CommandArguments.GetJoined`, which joins the remaining tokens with single spaces.
+**Commands** — `Commands/QuoteCommands/` (`QuoteCommand`, `SearchQuotesCommand`, `RemoveQuoteCommand`, `ImportQuotesCommand`), registered by `RegisterQuoteCommands` in the registration chain (§3.2). Lowercase names, `CommandArguments`-based parsing, `Description`/`Usage` help text, and pipeline behavior identical to existing commands (FR-49): runtime tier adjustment via `!commandpermission`, per-tier cooldown throttling, the audit event. All quote commands decline in direct messages with the established "only available in servers" message (FR-50). Free-form text (quote text, search terms) comes from `CommandArguments.GetJoined`, which joins the remaining tokens with single spaces.
 
 | Command | Default tier | Behavior |
 |---|---|---|
