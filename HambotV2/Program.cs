@@ -72,7 +72,7 @@ namespace HambotV2
             builder.Services.AddSingleton(TimeProvider.System);
             builder.Services.AddSingleton<ICooldownService, CooldownService>();
 
-            // Phase 1 — backups & stability (roadmap Phase #1, design §5.2/§3.13):
+            // Backups & stability (design §5.2/§3.13):
             // maintenance mode gates the pipeline and the delivery engine during a restore;
             // the backup manager runs pg_dump/pg_restore over the shared backups volume;
             // the notification channel, publisher, health snapshot, and watchdog make

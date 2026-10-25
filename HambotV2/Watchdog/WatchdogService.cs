@@ -11,7 +11,7 @@ namespace HambotV2.Watchdog
     /// posting to the configured notification channel. Each condition alerts once on its rising
     /// edge, re-alerts at most once per re-alert interval while it persists, and announces recovery
     /// once. Without a configured bot owner the alerts degrade to logs. The LLM conditions
-    /// (§3.12/§3.14) are dormant until that phase lands. A failing check is logged, never propagated.
+    /// (§3.12) are dormant until that phase lands. A failing check is logged, never propagated.
     /// </summary>
     internal sealed class WatchdogService : BackgroundService
     {

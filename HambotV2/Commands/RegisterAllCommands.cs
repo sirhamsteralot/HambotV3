@@ -12,7 +12,7 @@ namespace HambotV2.Commands
 {
     /// <summary>
     /// The head of the command registration chain; new command groups plug in here. The
-    /// Phase-1 dependencies (backup manager, maintenance mode, notification channel store,
+    /// backup & stability dependencies (backup manager, maintenance mode, notification channel store,
     /// notification publisher, health snapshot provider) flow through from DI; they stay optional
     /// so the registry — and with it the registration contract tests — can be built without them
     /// (the affected commands then report "not configured" at execution time, which never happens

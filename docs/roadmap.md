@@ -14,69 +14,22 @@ Tick a task off (`- [x]`) when complete and fold the resulting behavior into the
 
 ## Status
 
-The 1.0.0 release is out. All previously planned work is implemented and in production:
+Everything specified so far is implemented and in production:
 
 - **Quotes** — quote storage, recall, search, and legacy import (FR-42–FR-50, FR-72–FR-75; design §3.6).
 - **Custom command responses** (FR-51–FR-60; design §3.7).
 - **Reminders** (FR-61–FR-71; design §3.8).
 - **Jenkins auto-deploy** (NFR-6/NFR-8; design §5.1) — version tags (`v<major.minor.patch>`) that build and test cleanly deploy automatically; ordinary pushes (including `master`) are built and tested only.
-- **Version reporting** (FR-76–FR-77 / NFR-17 / C-5; design §3.9) — including the final operator action: the `v1.0.0` release tag has been created and deployed, so the running bot reports a real release version.
+- **Version reporting** (FR-76–FR-77 / NFR-17 / C-5; design §3.9) — the running bot reports a real release version.
+- **Backup & stability improvements** — database backups (FR-81–FR-85, FR-96–FR-98, FR-100–FR-101 / NFR-19, NFR-22; design §5.2) and watchdog, health reporting & operator notifications (FR-105–FR-106, FR-117–FR-118 / NFR-23; design §3.13), shipped in `v1.1.2`; the as-built behavior is folded into the design and requirements documents. One operator action remains open: the restore drill (NFR-19) — run [`docs/manual-test-plan.md`](manual-test-plan.md) §3 and §8 against a test deployment once and record the outcome.
 
-**Phase #1 (Backup & Stability improvements) shipped in `v1.1.2`** — deployed to production and verified live:
+The remaining backlog is specified ahead of implementation and organised into phases:
 
-- **Database backups** (FR-81–FR-85, FR-96–FR-98, FR-100–FR-101 / NFR-19, NFR-22; design §5.2) — the backup sidecar runs in production (validated dumps on schedule, retention, monthly restore test, status file), and the bot owner can create, list, and restore backups entirely from Discord. One operator action remains open: the restore drill (NFR-19, below).
-- **Watchdog, health reporting & operator notifications** (FR-105–FR-106, FR-117–FR-118 / NFR-23; design §3.13) — `!health`, `!notifychannel`, the rate-limited notification publisher, and the watchdog loop are all live; the LLM-related watchdog conditions stay dormant until Phase #4.
+- **Phase #1: Rich Presence, Recurring reminders, Slash Commands** — Discord presence & profile identity (FR-78–FR-80, FR-113, FR-115–FR-116 / NFR-18; design §3.10), recurring reminders (FR-107–FR-109 / NFR-24; design §3.14), and slash commands (FR-110–FR-112 / NFR-26; design §3.15). The slash-command handler's virtual invocation builds the shared run-through-`CommandHandler` mechanism specified in design §3.11 — extract it as a reusable component here, so Phase #2's `run_command` tool consumes it rather than re-inventing it.
+- **Phase #2: MCP** — the MCP server for Odysseus (FR-86–FR-91 / NFR-20; design §3.11).
+- **Phase #3: LLM Integration** — LLM-driven presence and bio updates (FR-92–FR-95, FR-99, FR-102–FR-104, FR-114 / NFR-21, NFR-25; design §3.12), then LLM conversation participation & memory (a deliberately unspecced placeholder; design it after everything above is in production). The LLM-related watchdog conditions (design §3.13) activate when this phase lands.
 
-The remaining post-1.0.0 backlog (FR-78–FR-118 / NFR-18–NFR-26) is specified ahead of implementation and organised into phases:
-
-- **Phase #1: Backup & Stability improvements** ✅ *shipped in `v1.1.2`* — Database backups (FR-81–FR-85, FR-96–FR-98, FR-100–FR-101 / NFR-19, NFR-22; design §5.2) and watchdog, health reporting & operator notifications (FR-105–FR-106, FR-117–FR-118 / NFR-23; design §3.13). Protects the data everything else builds on and makes degradation loud. The health snapshot's LLM (§3.12) and MCP (§3.11) fields join the report when those phases land.
-- **Phase #2: Rich Presence, Recurring reminders, Slash Commands** — Discord presence & profile identity (FR-78–FR-80, FR-113, FR-115–FR-116 / NFR-18; design §3.10), recurring reminders (FR-107–FR-109 / NFR-24; design §3.14), and slash commands (FR-110–FR-112 / NFR-26; design §3.15). The slash-command handler's virtual invocation builds the shared run-through-`CommandHandler` mechanism specified in design §3.11 — extract it as a reusable component here, so Phase #3's `run_command` tool consumes it rather than re-inventing it.
-- **Phase #3: MCP** — the MCP server for Odysseus (FR-86–FR-91 / NFR-20; design §3.11).
-- **Phase #4: LLM Integration** — LLM-driven presence and bio updates (FR-92–FR-95, FR-99, FR-102–FR-104, FR-114 / NFR-21, NFR-25; design §3.12), then LLM conversation participation & memory (a deliberately unspecced placeholder; design it after everything above is in production).
-
-## Phase #1: Backup & Stability improvements
-
-- [x] **Database backups — scheduled `pg_dump` with local retention, offsite push, in-bot recovery, and verified restorability (FR-81–FR-85, FR-96–FR-98, FR-100–FR-101 / NFR-19, NFR-22; design §5.2)**
-
-    **Problem**: the PostgreSQL database holds all bot state — permission tiers, quotes, custom responses, reminders — with no backup strategy at all. A host failure or a bad migration loses everything. And recovery must not require host access: the bot owner should be able to list, create, and restore backups from Discord.
-
-    **Steps**:
-
-    1. Add `scripts/backup/Dockerfile` (`postgres:17-alpine` + `rclone`) and `scripts/backup/run-backup.sh` — an endless loop: interval sleep → timestamped `pg_dump -Fc` → validate the dump (FR-100: `pg_restore --list` + a size floor, before it counts for retention or offsite) → prune to retention (only after a good dump) → offsite `rclone` push when configured → write the `backups/.backup-status` file. All configuration via environment.
-    2. Add the `backup` service to `docker-compose.yml` (same network as `db`, persistent `backups` volume) and the new keys (`BACKUP_INTERVAL`, `BACKUP_RETENTION`, `BACKUP_TEST_INTERVAL`, `BACKUP_RCLONE_REMOTE` + credentials) to `.env.example`.
-    3. Mount the shared `backups` volume into the `bot` service and install `postgresql-client` in the bot's runtime image (design §5.2) — the in-bot commands run pg_dump/pg_restore in-process against the same directory.
-    4. Add `Backups/IBackupManager` (create/list/restore over the shared volume) and the bot-owner commands `!backup`, `!backups`, `!restorebackup` — tier 4 by default, DM-usable; the restore is two-step (`!restorebackup <name>` → `!restorebackup <name> confirm`) and runs in maintenance mode (other commands decline, DB-touching MCP tools defer, reminder deliveries defer so nothing gets marked failed).
-    5. Add `scripts/restore-backup.sh <dump-file>`: stop the bot → drop and recreate the database → `pg_restore` → restart → verify the known startup lines (the same verification `deploy.sh` performs). This stays the authoritative recovery path for a broken bot or database; the commands are the convenient revert for a healthy one.
-    6. Add the automated restore test to the backup loop (FR-101): on `BACKUP_TEST_INTERVAL` (default monthly), restore the newest valid dump into a scratch database, verify the expected tables, drop the scratch database, and record the outcome in the status file.
-    7. Document schedule, retention, and both restore paths in `README.md`; fold the as-built behavior into design §5.2.
-    8. Unit tests per NFR-22 (a fake `IBackupManager`): backup trigger and reply, list behavior and cap, the two-step confirmation, maintenance-mode gating, tier-4 gate, DM availability, failure replies.
-    9. Operator restore drill: prove both recovery paths once against a scratch database and record the outcome (NFR-19).
-
-    **Acceptance criteria**: FR-81–FR-85, FR-96–FR-98, and FR-100–FR-101 hold — dumps appear on schedule in the volume (and in the offsite bucket when configured), each validated before it counts; retention prunes only after a successful dump; a failed offsite push is logged and harmless; the bot owner can create, list, and restore backups entirely from Discord, with an explicit confirm step before the destructive one; the monthly restore test runs and its outcome is recorded; the bot is unaffected throughout; the restore drill (both paths) is done and documented.
-
-    **As-built (`v1.1.2`)**: shipped and verified in production. Deviations folded back into design §5.2: the bot image installs `postgresql-client-17` from the official PostgreSQL apt repository (PGDG — Ubuntu 24.04 ships only major 16, too old for a PostgreSQL 17 server); the pg tools receive the connection as a `postgresql://` URI converted from the Npgsql connection string (libpq does not understand Npgsql keyword syntax); the sidecar opens the shared volume root as `1777` so the non-root bot container can write dumps; the restore test derives its expected tables from the dump's own catalog (no hardcoded list, no race with startup migrations); the sidecar seeds its status file across restarts. Also fixed along the way: the `.gitignore` `Backup*/` rule was silently excluding the `HambotV2/Backups/`, `HambotV2/Commands/BackupCommands/`, and `scripts/backup/` source folders (anchored to the repo root now), and `deploy.sh` builds every compose image (the sidecar's first deploy failed with "No such image").
-
-    **Still open**: the operator restore drill (step 9 / NFR-19) — run [`docs/manual-test-plan.md`](manual-test-plan.md) §3 and §8 against a test deployment once and record the outcome.
-
-- [x] **Watchdog, health reporting & operator notifications — `!health`, proactive alerts, and a configured error channel (FR-105–FR-106, FR-117–FR-118 / NFR-23; design §3.13)**
-
-    **Problem**: degradation is silent. If the gateway gets stuck reconnecting, backups quietly stop validating, the LLM budget runs dry, or the bot sits in maintenance mode, nobody notices until something is lost or broken. The operator has no single place to see the bot's state, and errors/failures/criticals are buried in server-side logs instead of surfacing somewhere the bot owner actually looks — a dedicated Discord channel.
-
-    **Steps**:
-
-    1. Add the health snapshot provider (`Watchdog/HealthReport.cs`) aggregating from existing components: version, uptime, gateway state, DB reachability probe, LLM state and usage (§3.12), MCP state (§3.11), pending reminder count, presence/bio, notification channel, and the backup status file.
-    2. Add the `!health` command (tier 4, DM-usable, help text) formatting the snapshot into one report.
-    3. Add the global `BotSetting` key-value entity (migration; §3.4) and the `!notifychannel` command (show / `<channel mention or id>` / `clear`, tier 4, DM-usable, persisted across restarts; `Notifications:ChannelId` is the config default).
-    4. Add `Watchdog/NotificationPublisher.cs` — the single component posting operator notifications to the configured channel: watchdog alerts/recoveries, command execution failures (the FR-15 path), retry-exhausted reminder deliveries, maintenance-mode entry/exit and restore outcomes, and its own delivery failures (additionally DM'd); rate-limited (`Notifications:MaxPostsPerMinute`, default 5) with identical-message collapse so an error storm cannot flood the channel; startup criticals stay log-only.
-    5. Add `Watchdog/WatchdogService.cs` — a hosted loop on `TimeProvider`: check every `Watchdog:CheckIntervalMinutes` for gateway-down-past-threshold, backup validation failure/overdue, failed/overdue restore test, LLM budget exhausted or 3 consecutive failures, maintenance mode, and notification channel unreachable; alert the bot owner by DM and post to the notification channel on the rising edge, re-alert hourly while persisting, announce recovery once; log-only when no bot owner is configured.
-    6. Have the backup sidecar write `backups/.backup-status` (already specified in task 1, design §5.2) and consume it here — one status file, two consumers (`!health` + watchdog).
-    7. Unit tests per NFR-23 (fakes + `FakeTimeProvider`): each condition's detection, the alert/re-alert/recovery cadence, delivery via a mocked sender to both the DM and the channel, the no-owner fallback, `!health` fields and tier gate, notification posting with rate limiting and collapse, `!notifychannel` show/set/clear with persistence.
-
-    **Acceptance criteria**: FR-105–FR-106 and FR-117–FR-118 hold; `!health` gives the bot owner the full picture from Discord (including DMs); the bot owner can point a channel at the bot with `!notifychannel` and see errors, failures, and criticals land there — throttled so storms collapse instead of flooding, and with notification failures themselves reaching the owner DM; the DM alerts remain as the out-of-band path; nothing in the watchdog or publisher can crash the bot; tests green and warning-free; design §3.13 loses its **(planned)** marker.
-
-    **As-built (`v1.1.2`)**: shipped and verified in production. Deviations folded back into design §3.13: the not-yet-landed LLM/MCP/presence fields are *omitted* from the `!health` report rather than shown as inactive (the report shows only what actually runs); the notification channel override persists under the `BotSetting` key `NotificationChannelId`; a never-recorded restore test gets the same interval-plus-grace window (measured from the status file's last update) before the watchdog calls it overdue, so a sidecar restart or fresh deployment cannot trip a false alert. The LLM watchdog conditions are dormant by design until Phase #4 lands.
-
-## Phase #2: Rich Presence, Recurring reminders, Slash Commands
+## Phase #1: Rich Presence, Recurring reminders, Slash Commands
 
 - [ ] **Discord presence & profile identity — activity, bio, avatar, banner (FR-78–FR-80, FR-113, FR-115–FR-116 / NFR-18; design §3.10)**
 
@@ -124,7 +77,7 @@ The remaining post-1.0.0 backlog (FR-78–FR-118 / NFR-18–NFR-26) is specified
 
     **Acceptance criteria**: FR-110–FR-112 hold; with the flag on, every registered command appears in Discord's `/` picker with sensible options and executes exactly as its text twin (same tiers, throttles, audit, errors); denials are ephemeral, output is public and identical to the text surface; the text surface is unchanged; tests green and warning-free; design §3.15 loses its **(planned)** marker.
 
-## Phase #3: MCP
+## Phase #2: MCP
 
 - [ ] **MCP server — Odysseus hook-in (FR-86–FR-91 / NFR-20; design §3.11)**
 
@@ -141,7 +94,7 @@ The remaining post-1.0.0 backlog (FR-78–FR-118 / NFR-18–NFR-26) is specified
 
     **Acceptance criteria**: FR-86–FR-91 hold; Odysseus connects with the API key and completes a status → read → `run_command` round trip (and is rejected without the key); tests green and warning-free; design §3.11 loses its **(planned)** marker.
 
-## Phase #4: LLM Integration
+## Phase #3: LLM Integration
 
 - [ ] **LLM integration, phase 1 — automatic presence and bio updates, including the bot's persona (FR-92–FR-95, FR-99, FR-102–FR-104, FR-114 / NFR-21, NFR-25; design §3.12)**
 
