@@ -25,7 +25,7 @@ dotnet test HambotV2.sln
 
 - Building requires the .NET 10 SDK (`10.0.x`).
 
-- Tests run without a database or Discord token; they use Moq and in-memory configuration. All tests are in `BotTests/` (`TestCommandInfrastructure.cs`, `TestCommands.cs`, `TestPermissions.cs`, `TestCommandHandler.cs`, `TestConfigurationValidator.cs`, `TestPermissionCommands.cs`, `TestHelp.cs`, `TestCommandArguments.cs`, `TestGuildSettings.cs`, `TestCooldowns.cs`, plus the shared `DiscordTestDoubles.cs`).
+- Tests run without a database or Discord token; they use Moq and in-memory configuration. All tests are in `BotTests/` (`TestCommandInfrastructure.cs`, `TestCommands.cs`, `TestPermissions.cs`, `TestCommandHandler.cs`, `TestConfigurationValidator.cs`, `TestPermissionCommands.cs`, `TestHelp.cs`, `TestCommandArguments.cs`, `TestGuildSettings.cs`, `TestCooldowns.cs`, `TestQuotes.cs`, plus the shared `DiscordTestDoubles.cs`).
 - The build is warning-free; keep it that way and avoid introducing new warnings.
 
 ## Docker
@@ -79,11 +79,12 @@ Tiered integer permission system (`Commands/PermissionsService.cs`): a user may 
 
 ### Data model
 
-`Connections/DatabaseContext.cs` defines three DbSets with nested entity classes, all scoped per guild:
+`Connections/DatabaseContext.cs` defines four DbSets with nested entity classes, all scoped per guild:
 
 - `User` (composite key `GuildId` + `DiscordId`, `PermissionTier`)
 - `CommandMetaData` (composite key `GuildId` + `CommandName`, `PermissionTier`)
 - `GuildSetting` (key `GuildId`; `CommandIdentifier` override, per-tier cooldown overrides used by the cooldown service)
+- `Quote` (composite key `GuildId` + `Number`; `Text`, `AddedByDiscordId`, `CreatedAt` — per-guild sequential numbering, managed by the `Commands/QuoteCommands/` commands)
 
 EF Core migrations live in `HambotV2/Migrations/`. Regenerate with `dotnet ef migrations add <Name>` from the `HambotV2/` project directory (a `DesignTimeDatabaseContextFactory` lets the tools scaffold without running startup; connection string comes from `appsecrets.json`, see below).
 

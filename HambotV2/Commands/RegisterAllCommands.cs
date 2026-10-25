@@ -1,3 +1,4 @@
+using HambotV2.Commands.QuoteCommands;
 using HambotV2.Commands.SystemCommands;
 
 namespace HambotV2.Commands
@@ -10,6 +11,7 @@ namespace HambotV2.Commands
         public static void RegisterCommands(ICommandService commandService)
         {
             RegisterSystemCommands.RegisterCommands(commandService);
+            RegisterQuoteCommands.RegisterCommands(commandService);
         }
     }
 }

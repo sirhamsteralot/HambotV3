@@ -31,7 +31,7 @@ Shared conventions for all three tasks (from the design doc):
 
 ## Tasks
 
-### [ ] 1. Quotes — quote storage and recall, per guild *(priority; FR-42–FR-50, NFR-14; design: §3.6)*
+### [x] 1. Quotes — quote storage and recall, per guild *(priority; FR-42–FR-50, NFR-14; design: §3.6)*
 
 - **Problem**: HambotV2 cannot store or recall memorable quotes. The old bot's quote feature was global (shared across all guilds) with an index-based list, so removal shifted every later quote's number and text-based removal silently deleted all exact matches.
 - **Steps**:

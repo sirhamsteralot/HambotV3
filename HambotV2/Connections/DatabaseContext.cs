@@ -12,6 +12,8 @@ namespace HambotV2.Connections
 
         public DbSet<GuildSetting> GuildSettings { get; set; }
 
+        public DbSet<Quote> Quotes { get; set; }
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             // Per-guild scoping (FR-20/FR-24): tiers and settings are keyed per guild.
@@ -20,6 +22,7 @@ namespace HambotV2.Connections
             modelBuilder.Entity<User>().HasKey(user => new { user.GuildId, user.DiscordId });
             modelBuilder.Entity<CommandMetaData>().HasKey(command => new { command.GuildId, command.CommandName });
             modelBuilder.Entity<GuildSetting>().HasKey(setting => setting.GuildId);
+            modelBuilder.Entity<Quote>().HasKey(quote => new { quote.GuildId, quote.Number });
         }
 
         public class User
@@ -70,6 +73,23 @@ namespace HambotV2.Connections
                     case 3: CooldownSecondsTier3 = seconds; break;
                 }
             }
+        }
+
+        /// <summary>A stored quote, scoped per guild (FR-42); <see cref="Quote.Number"/> is the per-guild sequential index (FR-43).</summary>
+        public class Quote
+        {
+            public ulong GuildId { get; set; }
+
+            /// <summary>Per-guild sequential number: MAX(Number) + 1 at creation (FR-43); never renumbered on removal.</summary>
+            public int Number { get; set; }
+
+            public string Text { get; set; } = string.Empty;
+
+            /// <summary>Discord ID of the user who added the quote (FR-42).</summary>
+            public ulong AddedByDiscordId { get; set; }
+
+            /// <summary>Timestamp of the adding message (FR-42).</summary>
+            public DateTime CreatedAt { get; set; }
         }
     }
 }

@@ -37,6 +37,15 @@ namespace HambotV2.Commands
             return (uint)index < (uint)_tokens.Length ? _tokens[index] : null;
         }
 
+        /// <summary>
+        /// The arguments from <paramref name="index"/> to the end joined with single spaces, or null when
+        /// the index is absent — the free-form text of commands like <c>quote &lt;text...&gt;</c>.
+        /// </summary>
+        public string? GetJoined(int index)
+        {
+            return (uint)index < (uint)_tokens.Length ? string.Join(' ', _tokens[index..]) : null;
+        }
+
         /// <summary>Gets the required string argument at <paramref name="index"/>.</summary>
         public bool TryGetString(int index, out string value)
         {

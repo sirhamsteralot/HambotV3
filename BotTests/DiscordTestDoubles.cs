@@ -64,7 +64,7 @@ namespace BotTests
         }
 
         /// <summary>A guild message mock whose channel belongs to a guild owned by <paramref name="guildOwnerId"/>.</summary>
-        public static Mock<IMessage> CreateGuildMessage(string content, ulong authorId, ulong guildOwnerId, List<string> sentMessages, ulong guildId = DefaultGuildId)
+        public static Mock<IMessage> CreateGuildMessage(string content, ulong authorId, ulong guildOwnerId, List<string> sentMessages, ulong guildId = DefaultGuildId, DateTimeOffset? timestamp = null)
         {
             var guild = new Mock<IGuild>();
             guild.SetupGet(g => g.OwnerId).Returns(guildOwnerId);
@@ -76,15 +76,16 @@ namespace BotTests
             channel.SetupGet(c => c.Guild).Returns(guild.Object);
             RecordSends(channel, sentMessages);
 
-            return CreateMessage(channel, content, authorId);
+            return CreateMessage(channel, content, authorId, timestamp);
         }
 
-        private static Mock<IMessage> CreateMessage<TChannel>(Mock<TChannel> channel, string content, ulong authorId) where TChannel : class, IMessageChannel
+        private static Mock<IMessage> CreateMessage<TChannel>(Mock<TChannel> channel, string content, ulong authorId, DateTimeOffset? timestamp = null) where TChannel : class, IMessageChannel
         {
             var message = new Mock<IMessage>();
             message.SetupGet(m => m.Content).Returns(content);
             message.SetupGet(m => m.Author).Returns(CreateUser(authorId).Object);
             message.SetupGet(m => m.Channel).Returns(channel.Object);
+            message.SetupGet(m => m.Timestamp).Returns(timestamp ?? DateTimeOffset.UnixEpoch);
             return message;
         }
 
