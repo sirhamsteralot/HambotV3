@@ -36,6 +36,10 @@ namespace HambotV2
             // Guild-scoped settings resolution (roadmap T14): singleton so the per-guild command
             // identifiers stay cached in memory for the gateway pre-filter and command parsing.
             builder.Services.AddSingleton<IGuildSettingsService>(serviceProvider => new GuildSettingsService(serviceProvider, builder.Configuration));
+            // Command cooldowns (roadmap T13): the throttle state is shared across messages, so the
+            // service is a singleton; time is injected via TimeProvider for deterministic tests.
+            builder.Services.AddSingleton(TimeProvider.System);
+            builder.Services.AddSingleton<ICooldownService, CooldownService>();
 
             var host = builder.Build();
 

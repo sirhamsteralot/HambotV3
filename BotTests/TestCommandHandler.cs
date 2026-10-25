@@ -48,6 +48,7 @@ namespace BotTests
             public Mock<ILogger<CommandHandler>> Logger { get; } = new();
             public Mock<IPermissionsService> Permissions { get; } = new();
             public Mock<IGuildSettingsService> GuildSettings { get; } = new();
+            public Mock<ICooldownService> Cooldown { get; } = new();
             public Mock<IUser> Author { get; } = new();
             public Mock<IMessage> Message { get; } = new();
             public List<string> SentMessages { get; } = new();
@@ -73,6 +74,9 @@ namespace BotTests
                 RecordSends(channel);
                 GuildSettings.Setup(service => service.GetCommandIdentifier(It.IsAny<ulong>())).Returns("!");
                 GuildSettings.SetupGet(service => service.GlobalCommandIdentifier).Returns("!");
+                Cooldown
+                    .Setup(cooldown => cooldown.TryBeginInvocation(It.IsAny<ulong?>(), It.IsAny<ulong>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<IDatabaseContext>()))
+                    .Returns(CooldownCheck.Allowed);
 
                 Author.SetupGet(a => a.Id).Returns(123456789UL);
 
@@ -83,14 +87,14 @@ namespace BotTests
 
             public CommandHandler CreateHandler()
             {
-                return new CommandHandler(CommandService, Logger.Object, Mock.Of<IConfiguration>(), Database, Permissions.Object, GuildSettings.Object);
+                return new CommandHandler(CommandService, Logger.Object, Mock.Of<IConfiguration>(), Database, Permissions.Object, GuildSettings.Object, Cooldown.Object);
             }
 
             public void AllowPermissions()
             {
                 Permissions
                     .Setup(p => p.CheckUserPermissions(It.IsAny<ulong>(), It.IsAny<ulong?>(), It.IsAny<TierOverrides>(), It.IsAny<ICommand>(), It.IsAny<IDatabaseContext>()))
-                    .ReturnsAsync(true);
+                    .ReturnsAsync(new PermissionCheckResult(IsAllowed: true, UserEffectiveTier: PermissionTier.Everyone));
             }
 
             private void RecordSends(Mock<IMessageChannel> channel)
@@ -178,7 +182,7 @@ namespace BotTests
             pipeline.CommandService.RegisterCommand("greet", command.Object);
             pipeline.Permissions
                 .Setup(p => p.CheckUserPermissions(It.IsAny<ulong>(), It.IsAny<ulong?>(), It.IsAny<TierOverrides>(), command.Object, It.IsAny<IDatabaseContext>()))
-                .ReturnsAsync(false);
+                .ReturnsAsync(new PermissionCheckResult(IsAllowed: false, UserEffectiveTier: PermissionTier.Everyone));
 
             await pipeline.CreateHandler().HandleCommand(pipeline.Message.Object);
 
@@ -315,7 +319,7 @@ namespace BotTests
             pipeline.CommandService.RegisterCommand("greet", command.Object);
             pipeline.Permissions
                 .Setup(p => p.CheckUserPermissions(It.IsAny<ulong>(), It.IsAny<ulong?>(), It.IsAny<TierOverrides>(), command.Object, It.IsAny<IDatabaseContext>()))
-                .ReturnsAsync(false);
+                .ReturnsAsync(new PermissionCheckResult(IsAllowed: false, UserEffectiveTier: PermissionTier.Everyone));
 
             await pipeline.CreateHandler().HandleCommand(pipeline.Message.Object);
 

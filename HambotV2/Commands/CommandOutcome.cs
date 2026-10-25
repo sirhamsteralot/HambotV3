@@ -3,7 +3,7 @@ namespace HambotV2.Commands
     /// <summary>
     /// Result of handling one command message, recorded in the structured audit log (roadmap T12,
     /// NFR-11). Exactly one <see cref="CommandOutcome"/> is logged per message that reaches the
-    /// command pipeline; the outcomes reserved for later Phase 3 tasks are marked accordingly.
+    /// command pipeline.
     /// </summary>
     internal enum CommandOutcome
     {

@@ -88,7 +88,7 @@ namespace BotTests
             var permissionsService = new PermissionsService();
             var userPermission = DiscordTestDoubles.CreateMockCommand("userpermission", defaultPermissionTier: PermissionTier.Admin);
 
-            Assert.IsFalse(await permissionsService.CheckUserPermissions(RandomUser, GuildId, TierOverrides.None, userPermission.Object, database));
+            Assert.IsFalse((await permissionsService.CheckUserPermissions(RandomUser, GuildId, TierOverrides.None, userPermission.Object, database)).IsAllowed);
         }
 
         [TestMethod]
@@ -98,7 +98,7 @@ namespace BotTests
             var permissionsService = new PermissionsService();
             var userPermission = DiscordTestDoubles.CreateMockCommand("userpermission", defaultPermissionTier: PermissionTier.Admin);
 
-            Assert.IsTrue(await permissionsService.CheckUserPermissions(GuildOwner, GuildId, new TierOverrides { GuildOwnerId = GuildOwner }, userPermission.Object, database));
+            Assert.IsTrue((await permissionsService.CheckUserPermissions(GuildOwner, GuildId, new TierOverrides { GuildOwnerId = GuildOwner }, userPermission.Object, database)).IsAllowed);
         }
 
         [TestMethod]
@@ -108,7 +108,7 @@ namespace BotTests
             var permissionsService = new PermissionsService();
             var userPermission = DiscordTestDoubles.CreateMockCommand("userpermission", defaultPermissionTier: PermissionTier.Admin);
 
-            Assert.IsTrue(await permissionsService.CheckUserPermissions(BotOwner, GuildId, new TierOverrides { BotOwnerId = BotOwner }, userPermission.Object, database));
+            Assert.IsTrue((await permissionsService.CheckUserPermissions(BotOwner, GuildId, new TierOverrides { BotOwnerId = BotOwner }, userPermission.Object, database)).IsAllowed);
         }
 
         [TestMethod]
@@ -132,7 +132,7 @@ namespace BotTests
             var command = DiscordTestDoubles.CreateMockCommand("hello", defaultPermissionTier: 0);
 
             Assert.AreEqual(PermissionTier.Owner, await permissionsService.GetCommandRequiredTier(GuildId, command.Object, database));
-            Assert.IsFalse(await permissionsService.CheckUserPermissions(RandomUser, GuildId, TierOverrides.None, command.Object, database));
+            Assert.IsFalse((await permissionsService.CheckUserPermissions(RandomUser, GuildId, TierOverrides.None, command.Object, database)).IsAllowed);
         }
 
         [TestMethod]
@@ -224,7 +224,7 @@ namespace BotTests
             var permissionsService = new PermissionsService();
             var command = DiscordTestDoubles.CreateMockCommand("hello", defaultPermissionTier: PermissionTier.Admin);
 
-            Assert.IsTrue(await permissionsService.CheckUserPermissions(RandomUser, null, TierOverrides.None, command.Object, database));
+            Assert.IsTrue((await permissionsService.CheckUserPermissions(RandomUser, null, TierOverrides.None, command.Object, database)).IsAllowed);
         }
 
         [TestMethod]
@@ -234,8 +234,8 @@ namespace BotTests
             var permissionsService = new PermissionsService();
             var command = DiscordTestDoubles.CreateMockCommand("secret", defaultPermissionTier: PermissionTier.BotOwner);
 
-            Assert.IsFalse(await permissionsService.CheckUserPermissions(RandomUser, null, TierOverrides.None, command.Object, database));
-            Assert.IsTrue(await permissionsService.CheckUserPermissions(BotOwner, null, new TierOverrides { BotOwnerId = BotOwner }, command.Object, database));
+            Assert.IsFalse((await permissionsService.CheckUserPermissions(RandomUser, null, TierOverrides.None, command.Object, database)).IsAllowed);
+            Assert.IsTrue((await permissionsService.CheckUserPermissions(BotOwner, null, new TierOverrides { BotOwnerId = BotOwner }, command.Object, database)).IsAllowed);
         }
     }
 }

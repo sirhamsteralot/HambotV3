@@ -10,12 +10,12 @@ namespace HambotV2.Commands
 {
     internal class PermissionsService : IPermissionsService
     {
-        public async Task<bool> CheckUserPermissions(ulong userDiscordId, ulong? guildId, TierOverrides overrides, ICommand command, IDatabaseContext database)
+        public async Task<PermissionCheckResult> CheckUserPermissions(ulong userDiscordId, ulong? guildId, TierOverrides overrides, ICommand command, IDatabaseContext database)
         {
             int commandTier = await GetCommandRequiredTier(guildId, command, database);
             int userTier = await GetUserEffectiveTier(userDiscordId, guildId, overrides, database);
 
-            return CheckPermissions(userTier, commandTier);
+            return new PermissionCheckResult(CheckPermissions(userTier, commandTier), userTier);
         }
 
         public Task<int> GetUserEffectiveTier(ulong userDiscordId, ulong? guildId, TierOverrides overrides, IDatabaseContext database)

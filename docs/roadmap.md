@@ -211,9 +211,9 @@ The first two phases address the limitations recorded in [`software-design.md`](
 
 **Note**: schedule early in this phase, before adding more commands — the next new commands (T14's `!settings` with its subcommands, T13 stage 2's `!settings cooldown`) should be written on the framework instead of more hand-parsing.
 
-### T13. Command cooldowns / rate limiting
+### T13. [x] Command cooldowns / rate limiting
 
-**Work**: Per-user/per-command cooldown to prevent spam (e.g. a simple in-memory cache in the command pipeline). The cooldown window is resolved per permission tier: global per-tier defaults in `appsettings.json`, plus per-guild overrides configurable at runtime via `!settings cooldown` (persisted in T14's `GuildSetting` entity; staged — see the design in `software-design.md` §9.1).
+**Work**: Per-user/per-command cooldown to prevent spam (e.g. a simple in-memory cache in the command pipeline). The cooldown window is resolved per permission tier: global per-tier defaults in `appsettings.json`, plus per-guild overrides configurable at runtime via `!settings cooldown` (persisted in T14's `GuildSetting` entity; staged — see the design in `software-design.md` §3.2).
 
 **Acceptance criteria**: repeated `!hello` spam is throttled with a user-friendly response; behavior is unit-tested.
 
@@ -242,5 +242,7 @@ Remaining work, in dependency and risk order:
 
 1. **T13, stage 1** (in-memory throttle + global per-tier defaults from `appsettings.json`) — independent of anything else; the cooldown key is already guild-aware in its design (§9.1). Delivers the anti-spam acceptance criterion.
 2. **T13, stage 2** — the per-guild runtime override: the `!settings cooldown` subcommand (written on the T15 framework), plugged into the same window-resolution chain; the `GuildSetting` cooldown columns already exist from T14's migration.
+
+Both stages are implemented: **T13** adds the singleton `CooldownService` (per-(guild, user, command) in-memory throttle keyed on an injected `TimeProvider`, window resolved from the guild's `GuildSetting` per-tier override → the global `BotConfiguration:CooldownSecondsByTier` map → a 3-second default) checked in `CommandHandler` after the permission check, plus the `!settings cooldown <tier> <seconds|reset>` subcommand with the FR-36-style escalation guard. The design has been folded from §9.1 into the component/configuration sections of [`software-design.md`](software-design.md); all roadmap tasks are now complete.
 
 When a task is completed, tick it off here (e.g. `- [x]`) and update `software-design.md` / `software-requirements.md` so the docs keep describing the system as it actually is.

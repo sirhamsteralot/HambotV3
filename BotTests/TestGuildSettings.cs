@@ -52,11 +52,18 @@ namespace BotTests
             }
         }
 
-        private static async Task<List<string>> ExecuteSettings(SettingsHarness harness, string content, ulong? guildId = GuildId)
+        private static async Task<List<string>> ExecuteSettings(SettingsHarness harness, string content, ulong? guildId = GuildId, int? invokerTier = null, ulong? botOwnerId = null)
         {
+            if (invokerTier is int tier)
+            {
+                // Seed the invoking user's stored tier (author id 200) when a test needs an elevated invoker.
+                harness.Database.Users.Add(new DatabaseContext.User { GuildId = guildId ?? GuildId, DiscordId = 200, PermissionTier = tier });
+                harness.Database.SaveChanges();
+            }
+
             var sentMessages = new List<string>();
             var message = DiscordTestDoubles.CreateGuildMessage(content, 200, 999, sentMessages);
-            var context = DiscordTestDoubles.CreateContext(harness.Database, guildOwnerId: null, botOwnerId: null, guildId, harness.Service);
+            var context = DiscordTestDoubles.CreateContext(harness.Database, guildOwnerId: null, botOwnerId: botOwnerId, guildId, harness.Service);
 
             await new SettingsCommand().ExecuteCommand(message.Object, context);
             return sentMessages;
@@ -229,6 +236,113 @@ namespace BotTests
 
             StringAssert.Contains(replies[0], "only available in servers");
             Assert.AreEqual(0, harness.Database.GuildSettings.Count(), "No state may be written from a direct message");
+        }
+
+        [TestMethod]
+        public async Task Settings_SetCooldown_PersistsOverride()
+        {
+            var harness = new SettingsHarness();
+
+            var replies = await ExecuteSettings(harness, "!settings cooldown 0 5", invokerTier: PermissionTier.Admin);
+
+            StringAssert.Contains(replies[0], "Cooldown for tier 0 in this server set to 5 seconds");
+            Assert.AreEqual(5, harness.Database.GuildSettings.Single(setting => setting.GuildId == GuildId).CooldownSecondsTier0);
+        }
+
+        [TestMethod]
+        public async Task Settings_SetCooldownZeroSeconds_IsAllowed()
+        {
+            // A window of 0 disables throttling for that tier (roadmap T13).
+            var harness = new SettingsHarness();
+
+            var replies = await ExecuteSettings(harness, "!settings cooldown 1 0", invokerTier: PermissionTier.Admin);
+
+            StringAssert.Contains(replies[0], "set to 0 seconds");
+            Assert.AreEqual(0, harness.Database.GuildSettings.Single(setting => setting.GuildId == GuildId).CooldownSecondsTier1);
+        }
+
+        [TestMethod]
+        public async Task Settings_CooldownReset_ClearsOverride()
+        {
+            var harness = new SettingsHarness();
+            harness.Database.GuildSettings.Add(new DatabaseContext.GuildSetting { GuildId = GuildId, CooldownSecondsTier1 = 5 });
+            harness.Database.SaveChanges();
+
+            var replies = await ExecuteSettings(harness, "!settings cooldown 1 reset", invokerTier: PermissionTier.Admin);
+
+            StringAssert.Contains(replies[0], "Cooldown for tier 1 in this server reset to the global default");
+            Assert.IsNull(harness.Database.GuildSettings.Single(setting => setting.GuildId == GuildId).CooldownSecondsTier1);
+        }
+
+        [TestMethod]
+        public async Task Settings_CooldownTierOutsideScale_IsRejected()
+        {
+            // Configurable tiers are 0–3; tier 4 is global and configuration-only (FR-41).
+            var harness = new SettingsHarness();
+
+            var replies = await ExecuteSettings(harness, "!settings cooldown 4 5", invokerTier: PermissionTier.BotOwner);
+
+            StringAssert.Contains(replies[0], "tiers 0 to 3");
+            Assert.AreEqual(0, harness.Database.GuildSettings.Count(), "An out-of-scale tier must not write anything");
+        }
+
+        [TestMethod]
+        public async Task Settings_CooldownNegativeSeconds_IsRejected()
+        {
+            var harness = new SettingsHarness();
+
+            var replies = await ExecuteSettings(harness, "!settings cooldown 0 -5", invokerTier: PermissionTier.Admin);
+
+            StringAssert.Contains(replies[0], "0 or more");
+            Assert.AreEqual(0, harness.Database.GuildSettings.Count(), "A negative window must not write anything");
+        }
+
+        [TestMethod]
+        public async Task Settings_CooldownEscalationGuard_RejectsOwnAndHigherTiers()
+        {
+            // Mirrors FR-36: an invoker may only configure tiers strictly below their own —
+            // nobody can loosen the throttle that governs their own level.
+            var harness = new SettingsHarness();
+
+            var replies = await ExecuteSettings(harness, "!settings cooldown 2 5", invokerTier: PermissionTier.Admin);
+
+            StringAssert.Contains(replies[0], "below your own");
+            Assert.AreEqual(0, harness.Database.GuildSettings.Count(), "A guard rejection must not write anything");
+        }
+
+        [TestMethod]
+        public async Task Settings_CooldownBotOwner_CanConfigureAnyTier()
+        {
+            // The bot owner (tier 4) is never bound by a guild's settings, so they may configure
+            // every tier — including the owner tier that no guild-level admin can reach.
+            var harness = new SettingsHarness();
+
+            var replies = await ExecuteSettings(harness, "!settings cooldown 3 5", botOwnerId: 200);
+
+            StringAssert.Contains(replies[0], "Cooldown for tier 3 in this server set to 5 seconds");
+            Assert.AreEqual(5, harness.Database.GuildSettings.Single(setting => setting.GuildId == GuildId).CooldownSecondsTier3);
+        }
+
+        [TestMethod]
+        public async Task Settings_Overview_Shows_CooldownOverrides()
+        {
+            var harness = new SettingsHarness();
+            harness.Database.GuildSettings.Add(new DatabaseContext.GuildSetting { GuildId = GuildId, CooldownSecondsTier0 = 5 });
+            harness.Database.SaveChanges();
+
+            var replies = await ExecuteSettings(harness, "!settings");
+
+            StringAssert.Contains(replies[1], "tier 0: 5 seconds");
+        }
+
+        [TestMethod]
+        public async Task Settings_Overview_Shows_NoCooldownOverrides_When_None_Set()
+        {
+            var harness = new SettingsHarness();
+
+            var replies = await ExecuteSettings(harness, "!settings");
+
+            StringAssert.Contains(replies[1], "Cooldown overrides: none set");
         }
     }
 }

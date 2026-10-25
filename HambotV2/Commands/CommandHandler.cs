@@ -17,8 +17,9 @@ namespace HambotV2.Commands
         private IDatabaseContext _databaseContext;
         private IPermissionsService _permissionsService;
         private IGuildSettingsService _guildSettingsService;
+        private ICooldownService _cooldownService;
 
-        public CommandHandler(ICommandService commandService, ILogger<CommandHandler> logger, IConfiguration configuration, IDatabaseContext databaseContext, IPermissionsService permissionsService, IGuildSettingsService guildSettingsService)
+        public CommandHandler(ICommandService commandService, ILogger<CommandHandler> logger, IConfiguration configuration, IDatabaseContext databaseContext, IPermissionsService permissionsService, IGuildSettingsService guildSettingsService, ICooldownService cooldownService)
         {
             _logger = logger;
             _configuration = configuration;
@@ -26,6 +27,7 @@ namespace HambotV2.Commands
             _databaseContext = databaseContext;
             _permissionsService = permissionsService;
             _guildSettingsService = guildSettingsService;
+            _cooldownService = cooldownService;
         }
 
         public async Task HandleCommand(IMessage socketMessageCommand)
@@ -67,10 +69,24 @@ namespace HambotV2.Commands
                     BotOwnerId = ParseConfiguredDiscordId(_configuration["Permissions:BotOwnerDiscordId"])
                 };
 
-                if (!await _permissionsService.CheckUserPermissions(socketMessageCommand.Author.Id, guildId, overrides, command, _databaseContext))
+                var permissionCheck = await _permissionsService.CheckUserPermissions(socketMessageCommand.Author.Id, guildId, overrides, command, _databaseContext);
+                if (!permissionCheck.IsAllowed)
                 {
                     await socketMessageCommand.Channel.SendMessageAsync("You are not permitted to use that command");
                     outcome = CommandOutcome.DeniedPermission;
+                    return;
+                }
+
+                // Cooldown check (roadmap T13, NFR-12): after the permission check, before execution,
+                // keyed per (guild, user, command) so a throttled !hello does not block !help. The
+                // window is resolved from the effective tier the permission check already computed.
+                var cooldownCheck = _cooldownService.TryBeginInvocation(guildId, socketMessageCommand.Author.Id, command.Name, permissionCheck.UserEffectiveTier, _databaseContext);
+                if (!cooldownCheck.IsAllowed)
+                {
+                    int remainingSeconds = Math.Max(1, (int)Math.Ceiling(cooldownCheck.RemainingWait.TotalSeconds));
+                    string unit = remainingSeconds == 1 ? "second" : "seconds";
+                    await socketMessageCommand.Channel.SendMessageAsync($"You're using commands too quickly — please wait {remainingSeconds} more {unit}.");
+                    outcome = CommandOutcome.Throttled;
                     return;
                 }
 
@@ -121,6 +137,7 @@ namespace HambotV2.Commands
             _databaseContext = null!;
             _commandService = null!;
             _guildSettingsService = null!;
+            _cooldownService = null!;
         }
     }
 }
