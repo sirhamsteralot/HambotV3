@@ -42,7 +42,7 @@ namespace HambotV2.Connections
                 while (!stoppingToken.IsCancellationRequested)
                 {
                     if (_logger.IsEnabled(LogLevel.Information))
-                        _logger.LogInformation("Worker running at: {time}, discord status: {1}", DateTimeOffset.Now, _client.ConnectionState.ToString());
+                        _logger.LogInformation("Worker running at: {Time}, discord status: {Status}", DateTimeOffset.Now, _client.ConnectionState);
 
                     await Task.Delay(TimeSpan.FromMinutes(5), stoppingToken);
                 }
@@ -68,6 +68,7 @@ namespace HambotV2.Connections
             _client.MessageReceived -= OnMessageReceived;
             _client.Disconnected -= OnDisconnected;
             _client.Connected -= OnConnected;
+            _client.Log -= OnClientLog;
 
             try
             {

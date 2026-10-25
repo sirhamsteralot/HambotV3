@@ -35,13 +35,7 @@ namespace HambotV2.Commands.SystemCommands
                 return;
             }
 
-            if (!arguments.TryGetString(0, out string settingName))
-            {
-                await message.Channel.SendMessageAsync($"Unknown setting '{arguments.Get(0)}'. Usage: !{Usage}");
-                return;
-            }
-
-            switch (settingName)
+            switch (arguments.Get(0))
             {
                 case "commandidentifier":
                     await HandleCommandIdentifier(message, context, guildId, arguments);
@@ -50,7 +44,7 @@ namespace HambotV2.Commands.SystemCommands
                     await HandleCooldown(message, context, guildId, arguments);
                     break;
                 default:
-                    await message.Channel.SendMessageAsync($"Unknown setting '{settingName}'. Usage: !{Usage}");
+                    await message.Channel.SendMessageAsync($"Unknown setting '{arguments.Get(0)}'. Usage: !{Usage}");
                     break;
             }
         }

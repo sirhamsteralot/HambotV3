@@ -49,12 +49,8 @@ namespace HambotV2.Commands.SystemCommands
                 return;
             }
 
-            string? text = arguments.GetRaw();
-            if (string.IsNullOrWhiteSpace(text))
-            {
-                await message.Channel.SendMessageAsync($"The bio text is missing — usage: {context.CommandIdentifier}bio <text...>");
-                return;
-            }
+            // The first argument is known non-empty here, so the raw remainder carries it.
+            string text = arguments.GetRaw()!;
 
             if (text.Length > ProfileLimits.MaxBioLength)
             {

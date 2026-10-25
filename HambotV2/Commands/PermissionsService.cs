@@ -56,11 +56,5 @@ namespace HambotV2.Commands
             var commandMetaData = await database.Commands.FirstOrDefaultAsync(x => x.GuildId == guildId && x.CommandName == commandName);
             return commandMetaData?.PermissionTier ?? defaultPermissionTier;
         }
-
-        /// <summary>A user may run a command when their effective tier is at least the command's required tier.</summary>
-        internal bool CheckPermissions(int userTier, int requiredTier)
-        {
-            return userTier >= requiredTier;
-        }
     }
 }

@@ -15,30 +15,6 @@ namespace BotTests
         private const ulong OtherGuildId = 2;
 
         [TestMethod]
-        public void Check_Allowed_Permission_Equal()
-        {
-            var permissionsService = new PermissionsService();
-
-            Assert.IsTrue(permissionsService.CheckPermissions(0, 0));
-        }
-
-        [TestMethod]
-        public void Check_Allowed_Permission_Higher()
-        {
-            var permissionsService = new PermissionsService();
-
-            Assert.IsTrue(permissionsService.CheckPermissions(1, 0));
-        }
-
-        [TestMethod]
-        public void Check_Disallowed_Permission_Lower()
-        {
-            var permissionsService = new PermissionsService();
-
-            Assert.IsFalse(permissionsService.CheckPermissions(0, 1));
-        }
-
-        [TestMethod]
         public void PermissionTier_Scale_Is_Validated()
         {
             Assert.IsTrue(PermissionTier.IsValid(0));

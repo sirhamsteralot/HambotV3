@@ -11,12 +11,7 @@ namespace HambotV2.Commands.SystemCommands
 
         public async Task ExecuteCommand(IMessage message, ICommandContext context)
         {
-            await message.Channel.SendMessageAsync(GetResponse());
-        }
-
-        internal string GetResponse()
-        {
-            return "Hello World";
+            await message.Channel.SendMessageAsync("Hello World");
         }
     }
 }

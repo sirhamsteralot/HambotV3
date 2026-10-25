@@ -57,6 +57,13 @@ status_last_test_detail=""
 log() { echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] $*"; }
 now_iso() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
+# Records a backup failure in the status file, next to the caller's log line.
+record_status_error() {
+    status_last_error_ts="$(now_iso)"
+    status_last_error_msg="$1"
+    write_status
+}
+
 write_status() {
     jq -n \
         --arg lsn "$status_last_success_name" --arg lst "$status_last_success_ts" --argjson lss "$status_last_success_size" \
@@ -125,9 +132,7 @@ backup_once() {
     if ! dump_error=$(pg_dump --format=custom --file="$path" 2>&1); then
         log "ERROR: pg_dump failed: $dump_error"
         rm -f "$path"
-        status_last_error_ts="$(now_iso)"
-        status_last_error_msg="pg_dump failed: $dump_error"
-        write_status
+        record_status_error "pg_dump failed: $dump_error"
         return 1
     fi
 
@@ -138,9 +143,7 @@ backup_once() {
     if ! validation_error=$(validate_dump "$path"); then
         log "ERROR: backup validation failed for $name: $validation_error"
         rm -f "$path"
-        status_last_error_ts="$(now_iso)"
-        status_last_error_msg="validation failed for $name: $validation_error"
-        write_status
+        record_status_error "validation failed for $name: $validation_error"
         return 1
     fi
     log "Backup validated: $name ($size bytes)"
@@ -167,59 +170,55 @@ run_restore_test() {
     local ts
     ts="$(now_iso)"
 
-    if [ -z "$dump" ]; then
-        status_last_test_ts="$ts"
-        status_last_test_ok="false"
-        status_last_test_detail="no dump available to test"
-        write_status
-        log "ERROR: restore test failed — no dump available."
-        return 1
-    fi
-
-    log "Running automated restore test against $(basename "$dump")"
     local ok=false detail=""
     local restore_log
     restore_log=$(mktemp)
 
-    dropdb --if-exists "$SCRATCH_DB" 2>/dev/null || true
-    if { createdb "$SCRATCH_DB" && pg_restore --dbname="$SCRATCH_DB" --no-owner "$dump"; } 2>"$restore_log"; then
-        # The dump's TOC lists each table as "<dumpid>; <oid> <oid> TABLE <schema> <name> <owner>"
-        # (TABLE DATA lines carry one more field and are excluded by the field count). Mixed-case
-        # names appear quoted in the TOC; the quotes are stripped, matching how
-        # information_schema reports them.
-        local dump_tables
-        dump_tables=$(pg_restore --list "$dump" 2>/dev/null | awk -F'; ' '{
-            n = split($2, f, " ");
-            if (n == 6 && f[3] == "TABLE") {
-                table = f[5];
-                gsub(/"/, "", table);
-                print table;
-            }
-        }') || true
-
-        if [ -z "$dump_tables" ]; then
-            detail="the dump's restore catalog lists no tables"
-        else
-            local missing=""
-            local table
-            for table in $dump_tables; do
-                if ! psql -qtA -d "$SCRATCH_DB" -c "SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='$table'" 2>/dev/null | grep -q 1; then
-                    missing="$missing $table"
-                fi
-            done
-            if [ -z "$missing" ]; then
-                ok=true
-                detail="restore succeeded, every table from the dump's catalog present"
-            else
-                detail="restore succeeded but tables missing:$missing"
-            fi
-        fi
+    if [ -z "$dump" ]; then
+        detail="no dump available to test"
     else
-        # The recorded detail must carry the actual error — without it a failed test
-        # cannot be diagnosed after the status is overwritten by a later pass.
-        detail="restore into the scratch database failed: $(tail -n 5 "$restore_log" | tr '\n' ' ')"
+        log "Running automated restore test against $(basename "$dump")"
+
+        dropdb --if-exists "$SCRATCH_DB" 2>/dev/null || true
+        if { createdb "$SCRATCH_DB" && pg_restore --dbname="$SCRATCH_DB" --no-owner "$dump"; } 2>"$restore_log"; then
+            # The dump's TOC lists each table as "<dumpid>; <oid> <oid> TABLE <schema> <name> <owner>"
+            # (TABLE DATA lines carry one more field and are excluded by the field count). Mixed-case
+            # names appear quoted in the TOC; the quotes are stripped, matching how
+            # information_schema reports them.
+            local dump_tables
+            dump_tables=$(pg_restore --list "$dump" 2>/dev/null | awk -F'; ' '{
+                n = split($2, f, " ");
+                if (n == 6 && f[3] == "TABLE") {
+                    table = f[5];
+                    gsub(/"/, "", table);
+                    print table;
+                }
+            }') || true
+
+            if [ -z "$dump_tables" ]; then
+                detail="the dump's restore catalog lists no tables"
+            else
+                local missing=""
+                local table
+                for table in $dump_tables; do
+                    if ! psql -qtA -d "$SCRATCH_DB" -c "SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='$table'" 2>/dev/null | grep -q 1; then
+                        missing="$missing $table"
+                    fi
+                done
+                if [ -z "$missing" ]; then
+                    ok=true
+                    detail="restore succeeded, every table from the dump's catalog present"
+                else
+                    detail="restore succeeded but tables missing:$missing"
+                fi
+            fi
+        else
+            # The recorded detail must carry the actual error — without it a failed test
+            # cannot be diagnosed after the status is overwritten by a later pass.
+            detail="restore into the scratch database failed: $(tail -n 5 "$restore_log" | tr '\n' ' ')"
+        fi
+        dropdb --if-exists "$SCRATCH_DB" 2>/dev/null || true
     fi
-    dropdb --if-exists "$SCRATCH_DB" 2>/dev/null || true
     rm -f "$restore_log"
 
     status_last_test_ts="$ts"

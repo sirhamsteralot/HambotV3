@@ -4,11 +4,15 @@
     public sealed class TestCommands
     {
         [TestMethod]
-        public void Get_Helloworld_Output()
+        public async Task HelloWorld_Replies_With_The_Greeting()
         {
             var command = new HambotV2.Commands.SystemCommands.HelloWorld();
+            var sentMessages = new List<string>();
+            var message = DiscordTestDoubles.CreateGuildMessage("!hello", 1, 999, sentMessages);
 
-            Assert.IsTrue(command.GetResponse() == "Hello World");
+            await command.ExecuteCommand(message.Object, DiscordTestDoubles.CreateContext(DiscordTestDoubles.CreateDatabase()));
+
+            CollectionAssert.AreEqual(new[] { "Hello World" }, sentMessages);
         }
 
         [TestMethod]
