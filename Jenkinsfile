@@ -49,13 +49,21 @@ pipeline {
         }
 
         stage('Deploy') {
-            // Only master is ever deployed; feature branches and PR builds
-            // stop after Test. A stage also only runs when the previous ones
+            // Only version tags (C-5: v<major.minor.patch>) are ever deployed;
+            // ordinary pushes to master, feature branches, and PR builds stop
+            // after Test. A stage also only runs when the previous ones
             // succeeded, so a failed build or test run never deploys anything.
+            // Tag-triggered deploys require the Jenkins job to build tag refs
+            // (see docs/jenkins-cicd.md §7).
             when {
                 anyOf {
-                    branch 'master'                                   // multibranch jobs
-                    expression { env.GIT_BRANCH == 'origin/master' } // plain "Pipeline script from SCM" jobs
+                    tag pattern: "v\\d+\\.\\d+\\.\\d+", comparator: "REGEXP"   // multibranch tag builds
+                    expression {                                                // plain "Pipeline script from SCM" jobs: the built commit carries a version tag
+                        sh(
+                            returnStdout: true,
+                            script: 'git tag --points-at "$GIT_COMMIT" | grep -x -E "v[0-9]+\\.[0-9]+\\.[0-9]+" || true'
+                        ).trim() != ''
+                    }
                 }
             }
             steps {

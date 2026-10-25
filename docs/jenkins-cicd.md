@@ -1,6 +1,6 @@
 # Jenkins CI/CD Setup
 
-How to wire this repository up to [Jenkins](https://www.jenkins.io/) so that every push is built, tested, and — on `master` — automatically deployed to the production server.
+How to wire this repository up to [Jenkins](https://www.jenkins.io/) so that every push is built and tested, and — on a version tag (`v<major.minor.patch>`) — automatically deployed to the production server.
 
 The pipeline lives in the repository root [`Jenkinsfile`](../Jenkinsfile) and is meant to be used as **"Pipeline script from SCM"**, so the pipeline definition stays versioned alongside the code it builds.
 
@@ -10,7 +10,7 @@ The pipeline lives in the repository root [`Jenkinsfile`](../Jenkinsfile) and is
 |---|---|---|
 | **Build** | every build | `dotnet build HambotV2.sln --configuration Release /warnaserror:nullable` — the build is warning-free; this fails the job if a commit introduces a nullable warning. |
 | **Test** | every build | `dotnet test HambotV2.sln --no-build` with results written as TRX files to `TestResults/`. Tests need no database, Discord token, or Docker. |
-| **Deploy** | `master` only | Jenkins SSHes into the production host, checks out the exact commit CI just built and tested in the deploy clone, and runs [`scripts/deploy.sh`](../scripts/deploy.sh). Branch/PR builds stop after Test. |
+| **Deploy** | version tags only | Jenkins SSHes into the production host, checks out the exact commit CI just built and tested in the deploy clone, and runs [`scripts/deploy.sh`](../scripts/deploy.sh). Ordinary branch pushes (including `master`), feature branches, and PR builds stop after Test. |
 
 Safety properties:
 
@@ -159,14 +159,17 @@ Notes on `DEPLOY_HOST`:
 
 ## 7. Create the Jenkins job
 
-1. New Item → **Multibranch Pipeline** (recommended: it discovers branches and PRs automatically and matches the pipeline's `branch 'master'` condition), or a plain **Pipeline** job if you only build `master`.
+1. New Item → **Multibranch Pipeline** (recommended: it discovers branches and PRs automatically and matches the pipeline's tag condition), or a plain **Pipeline** job if you only build `master` and tags.
 2. Point it at this repository (Git). For a Multibranch Pipeline this goes in *Branch Sources*.
 3. Set **Script Path** to `Jenkinsfile` (the default) — the file is at the repository root.
-4. If Jenkins itself runs in a Docker container and the repository/agent layout needs it, give the container access to the host Docker socket or run the build on an agent with the SDK installed.
+4. **Enable builds of tag refs** — deploys are gated on version tags (`v<major.minor.patch>`), so the job must build tags or a pushed tag deploys nothing:
+   - *Multibranch Pipeline*: in the Git *Branch Source*, *Add property* → **Tag discovery** → *All*.
+   - *Plain Pipeline job*: add a refspec `+refs/tags/*:refs/remotes/origin/tags/*` and a branch specifier `origin/tags/*` (or `refs/tags/*`) alongside `*/master`.
+5. If Jenkins itself runs in a Docker container and the repository/agent layout needs it, give the container access to the host Docker socket or run the build on an agent with the SDK installed.
 
 ## 8. Run it and verify
 
-Push a branch → Jenkins builds and tests it, no deploy. Push (or merge) to `master` → build, test, then deploy to production.
+Push a branch → Jenkins builds and tests it, no deploy. Push (or merge) to `master` → build and test, still no deploy. Push a version tag (e.g. `git tag v1.0.0 && git push origin v1.0.0`) → build, test, then deploy to production.
 
 Verify a deploy from the server:
 
@@ -211,7 +214,7 @@ Caveats:
 |---|---|
 | `dotnet: not found` in the Build stage | SDK not on the agent's path as configured in `environment` — check `DOTNET_ROOT`/`PATH` in the Jenkinsfile match your install location (§3). |
 | Build fails with warning CS86xx | The pipeline treats nullable warnings as errors (`/warnaserror:nullable`); fix the warning in code, don't remove the flag. |
-| Deploy stage skipped on a plain Pipeline job | For non-multibranch jobs the condition relies on `env.GIT_BRANCH == 'origin/master'` — make sure the job builds the `master` branch. |
+| Deploy stage skipped on a tagged commit | The `when` gate only fires for tag builds (`TAG_NAME` matches `v<major.minor.patch>` in multibranch jobs) or, in plain jobs, when the built commit carries a matching tag — check tag discovery/refspec is configured (§7 step 4) and that the tag matches `v<major.minor.patch>` exactly. |
 | `sshagent` step not found | The **SSH Agent** plugin is not installed (§4), or the credential ID doesn't match `DEPLOY_SSH_CREDENTIAL`. |
 | SSH connection refused / timeout | `DEPLOY_HOST` not reachable from the Jenkins agent — see the host notes in §6. |
 | `Permission denied (publickey,password)` in the Deploy stage | The server rejected the agent's key. In order of likelihood: `authorized_keys` was never created or doesn't contain the key (§2 step 2 — check `sudo ssh-keygen -lf /home/hambot-deploy/.ssh/authorized_keys`); the private key in the Jenkins credential doesn't match (compare fingerprints, §2/§5); bad ownership/modes make sshd ignore the key under `StrictModes` (`.ssh` 700, `authorized_keys` 600, all owned by the deploy user — the auth log says "bad ownership or modes"); or sshd config (`PubkeyAuthentication no`, an `AllowUsers` list). Check `sudo journalctl -u ssh -n 50` on the server for the exact reason — the Jenkins attempt is the line with `rhost=172.17.0.x`. |

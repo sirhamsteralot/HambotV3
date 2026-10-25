@@ -335,11 +335,11 @@ docker run -d --name hambot-smoke -e Secrets__BotToken=... -e "ConnectionStrings
 
 ### 5.1 CI/CD pipeline — Jenkins auto-deploy
 
-The `Jenkinsfile` is a declarative pipeline with three stages; a push to `master` that builds warning-free and passes all tests is deployed to the server automatically, with no manual steps (NFR-6):
+The `Jenkinsfile` is a declarative pipeline with three stages; a pushed version tag (`v<major.minor.patch>`, C-5) that builds warning-free and passes all tests is deployed to the server automatically, with no manual steps (NFR-6). Ordinary pushes (including `master`) are built and tested but never deployed:
 
 1. **Build** — `dotnet build` in Release with nullable warnings as errors.
 2. **Test** — `dotnet test` (TRX results archived).
-3. **Deploy** — gated on `master` only (feature branches and PR builds stop after Test; a failed build or test run never reaches this stage). The Jenkins agent SSHes into the host — Jenkins itself runs in a container on the same server — where the deploy directory is a git clone of the same origin. The stage checks that clone out at exactly the commit CI built (`git fetch origin && git checkout --force $GIT_COMMIT`), then runs the repository's own `scripts/deploy.sh` with the commit SHA, build number, and build URL.
+3. **Deploy** — gated on version tags only (ordinary pushes, feature branches, and PR builds stop after Test; a failed build or test run never reaches this stage). The Jenkins agent SSHes into the host — Jenkins itself runs in a container on the same server — where the deploy directory is a git clone of the same origin. The stage checks that clone out at exactly the commit CI built (`git fetch origin && git checkout --force $GIT_COMMIT`), then runs the repository's own `scripts/deploy.sh` with the commit SHA, build number, and build URL.
 
 `scripts/deploy.sh` (runs on the server, in the deploy directory) provides the deploy hygiene:
 

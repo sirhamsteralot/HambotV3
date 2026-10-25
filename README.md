@@ -122,7 +122,7 @@ The image is secret-free: `appsecrets.json` is excluded from the build context (
 
 ## Continuous integration & deployment
 
-The repository ships a Jenkins pipeline ([`Jenkinsfile`](Jenkinsfile)): every build compiles the solution with warnings-as-errors, runs the unit tests, and — for `master` only — deploys the exact tested commit to the production server over SSH (build image, verify startup, auto-rollback on failure). See **[docs/jenkins-cicd.md](docs/jenkins-cicd.md)** for the full setup guide.
+The repository ships a Jenkins pipeline ([`Jenkinsfile`](Jenkinsfile)): every build compiles the solution with warnings-as-errors and runs the unit tests, and — for version tags (`v<major.minor.patch>`) only — deploys the exact tested commit to the production server over SSH (build image, verify startup, auto-rollback on failure). See **[docs/jenkins-cicd.md](docs/jenkins-cicd.md)** for the full setup guide.
 
 ## Smoke test
 

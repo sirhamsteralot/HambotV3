@@ -3,7 +3,8 @@
 #
 # Invoked by the Jenkins pipeline (the "Deploy" stage in the Jenkinsfile) over
 # SSH, after the deploy directory has been checked out at the commit to deploy.
-# It only ever runs after a successful build and test run, and only for master.
+# It only ever runs after a successful build and test run, and only for version
+# tags (v<major.minor.patch>).
 #
 # Guarantees (design §5.1):
 #   - The image is built before any container is replaced, so a failed build
