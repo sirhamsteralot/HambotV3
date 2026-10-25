@@ -254,12 +254,24 @@ Generated_Code/
 # Backup & report files from converting an old project file
 # to a newer Visual Studio version. Backup files are not needed,
 # because we have git ;-)
+# Anchored to the repo root: unanchored, `Backup*/` also ignored the source
+# folders HambotV2/Backups/ and HambotV2/Commands/BackupCommands/ (§5.2),
+# which broke CI builds from fresh clones.
 _UpgradeReport_Files/
-Backup*/
+/Backup*/
 UpgradeLog*.XML
 UpgradeLog*.htm
 ServiceFabricBackup/
 *.rptproj.bak
+
+# Database backup output when running from source (design §5.2): the dumps and
+# status files land in the working directory's `backups` folder. Ignored by file
+# pattern, not by directory — a `backups/` directory pattern would case-insensitively
+# swallow the HambotV2/Backups/ source folder on Windows. In containers these live
+# in the `backups` volume instead.
+*.dump
+.backup-status
+.last-restore-test
 
 # SQL Server files
 *.mdf
