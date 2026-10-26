@@ -9,7 +9,7 @@ namespace BotTests
     /// <summary>
     /// Behavior of the !help command (FR-38 to FR-40): tier-filtered listing with pagination,
     /// detailed help, and the generic non-revealing reply for unknown/insufficient-tier commands.
-    /// </summary>
+    /// </summary> 
     [TestClass]
     public sealed class TestHelp
     {
