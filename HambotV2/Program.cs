@@ -4,6 +4,7 @@ using HambotV2.Backups;
 using HambotV2.Commands;
 using HambotV2.Connections;
 using HambotV2.Maintenance;
+using HambotV2.Mcp;
 using HambotV2.Reminders;
 using HambotV2.Scheduling;
 using HambotV2.SlashCommands;
@@ -81,8 +82,8 @@ namespace HambotV2
             builder.Services.AddSingleton<IGuildSettingsService>(serviceProvider =>
                 new GuildSettingsService(serviceProvider, builder.Configuration));
 
-            // Slash surface (design §3.15): the virtual-invocation seam is shared with the planned
-            // MCP run_command tool (§3.11); the slash service registers the definitions after the
+            // Slash surface (design §3.15): the virtual-invocation seam is shared with the MCP
+            // run_command tool (§3.11); the slash service registers the definitions after the
             // gateway connects and executes interactions through the real pipeline. Opt-in via
             // SlashCommands:Enabled (default false), so Attach() stays a no-op unless enabled.
             builder.Services.AddSingleton<IVirtualCommandRunner, VirtualCommandRunner>();
@@ -112,6 +113,24 @@ namespace HambotV2
             builder.Services.AddSingleton<INotificationPublisher, NotificationPublisher>();
             builder.Services.AddSingleton<IHealthSnapshotProvider, HealthReport>();
             builder.Services.AddHostedService<WatchdogService>();
+
+            // MCP endpoint (design §3.11): the operator-agent tool surface, opt-in via
+            // Mcp:Enabled + Mcp:ApiKey. The narrow Discord seam keeps the tools unit-testable
+            // without a live connection; the hosted service starts Kestrel only when active.
+            builder.Services.AddSingleton<IMcpDiscordClient>(serviceProvider =>
+                new DiscordSocketMcpClient(serviceProvider.GetRequiredService<DiscordSocketClient>()));
+            builder.Services.AddSingleton<IMcpTools>(serviceProvider => new McpTools(
+                serviceProvider.GetRequiredService<IMcpDiscordClient>(),
+                serviceProvider.GetRequiredService<IPresenceService>(),
+                serviceProvider.GetRequiredService<IGatewayStatus>(),
+                serviceProvider.GetRequiredService<ICommandService>(),
+                serviceProvider.GetRequiredService<IVirtualCommandRunner>(),
+                serviceProvider.GetRequiredService<TimeProvider>(),
+                serviceProvider.GetRequiredService<ILogger<McpTools>>()));
+            builder.Services.AddSingleton<McpEndpointStatus>();
+            builder.Services.AddSingleton<IMcpEndpointStatus>(serviceProvider =>
+                serviceProvider.GetRequiredService<McpEndpointStatus>());
+            builder.Services.AddHostedService<McpServerService>();
 
             builder.Services.AddDbContext<DatabaseContext>(options =>
                 options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")),

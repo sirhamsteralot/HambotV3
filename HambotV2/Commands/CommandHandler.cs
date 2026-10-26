@@ -78,6 +78,20 @@ namespace HambotV2.Commands
                     BotOwnerId = ParseConfiguredDiscordId(_configuration["Permissions:BotOwnerDiscordId"])
                 };
 
+                // The MCP run_command invocation is the operator's agent: its virtual user
+                // acts at the guild's operator-agent tier — the lowest tier unless the guild
+                // raised it (design §3.11).
+                if (message is VirtualCommandMessage { OperatorAgentUserId: { } operatorAgentUserId })
+                {
+                    overrides = overrides with
+                    {
+                        OperatorAgentId = operatorAgentUserId,
+                        OperatorAgentTier = guildId is ulong agentGuild
+                            ? _guildSettingsService.GetOperatorAgentTier(agentGuild)
+                            : null
+                    };
+                }
+
                 if (_commandService.TryGetCommand(message.Content, identifier, out command))
                 {
                     // Maintenance mode: while a backup restore replaces the database, every

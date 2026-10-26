@@ -98,6 +98,9 @@ namespace HambotV2.Migrations
                     b.Property<int?>("CooldownSecondsTier3")
                         .HasColumnType("integer");
 
+                    b.Property<int?>("OperatorAgentTier")
+                        .HasColumnType("integer");
+
                     b.HasKey("GuildId");
 
                     b.ToTable("GuildSettings");

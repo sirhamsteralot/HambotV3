@@ -28,7 +28,7 @@ Generate the invite link in the developer portal (OAuth2 → URL Generator) with
 https://discord.com/oauth2/authorize?client_id=<bot id>&scope=bot+applications.commands&permissions=8533303368350784
 ```
 
-The permissions integer (`8533303368350784`) covers everything the bot needs and reasonable extras (View Channels, Send Messages, Embed Links, Read Message History, Attach Files, Manage Messages, thread and voice-message support, etc.). The `applications.commands` scope reserves support for slash commands later; it grants no extra permissions and does nothing until the bot registers commands.
+The permissions integer (`8533303368350784`) covers everything the bot needs and reasonable extras (View Channels, Send Messages, Embed Links, Read Message History, Attach Files, Manage Messages, thread and voice-message support, etc.). The `applications.commands` scope enables the opt-in slash-command surface (`SLASH_COMMANDS_ENABLED`); it grants no extra permissions and does nothing until the bot registers commands.
 
 ## Configuration
 
@@ -61,9 +61,16 @@ Secrets are provided differently depending on how you run the bot:
     },
     "ConnectionStrings": {
       "DefaultConnection": "Server=localhost:5432;Database=hambotdb;User Id=hambot;Password=PlaceholderPassword;"
+    },
+    "Mcp": {
+      "Enabled": false,
+      "ApiKey": "OptionalUnlessEnabled",
+      "ListenUri": "http://0.0.0.0:2525"
     }
   }
   ```
+
+  The `Mcp` section is optional (the endpoint is disabled without it); `ApiKey` is required when `Enabled` is true.
 
   Use `localhost` in `Server=` when running from source; use `host.docker.internal` when running the bot in a plain container against Postgres on the same host.
 
@@ -104,10 +111,43 @@ Each pass of the backup loop: `pg_dump -Fc` into the shared `backups` volume →
 
 ## Watchdog, health & operator notifications
 
-- `!health` — bot-owner tier, works in DMs: one report with the bot's version, uptime, gateway state, database reachability, pending reminder count, backup and restore-test status, and the configured notification channel. (LLM and MCP fields join the report when those features land; presence and bio are deliberately not part of it — `!presence` and `!bio` own that surface.)
+- `!health` — bot-owner tier, works in DMs: one report with the bot's version, uptime, gateway state, database reachability, pending reminder count, backup and restore-test status, the configured notification channel, and the MCP endpoint state. (The LLM field joins the report when that feature lands; presence and bio are deliberately not part of it — `!presence` and `!bio` own that surface.)
 - `!notifychannel` — bot-owner tier, works in DMs: show / set / clear the operator notification channel (`!notifychannel <#channel>` or a raw channel id; `!notifychannel clear`). The setting persists across restarts; `NOTIFY_CHANNEL_ID` in `.env` is the configuration default.
 - When a notification channel is set, command execution failures, retry-exhausted reminder deliveries, maintenance-mode entry/exit and restore outcomes, and watchdog alerts are posted there — rate-limited (default 5 posts per minute) with identical consecutive messages collapsed, so an error storm cannot flood the channel. Failed notification posts are logged and additionally DM'd to the bot owner.
 - The watchdog checks every 5 minutes (`WATCHDOG_CHECK_INTERVAL_MINUTES`) and alerts the bot owner by DM (and the notification channel) when: the gateway has been down for more than 10 minutes (`WATCHDOG_GATEWAY_DOWN_ALERT_MINUTES`), a backup failed validation or is overdue, a restore test failed or is overdue, the bot is in maintenance mode, or the notification channel is unreachable. Each condition alerts once, re-alerts hourly (`WATCHDOG_RE_ALERT_MINUTES`) while it persists, and announces recovery once. Without a configured `BOT_OWNER_DISCORD_ID`, alerts degrade to logs.
+
+## MCP endpoint (agent API)
+
+Opt-in, agent-facing API for the operator's tooling (design §3.11): a [Model Context Protocol](https://modelcontextprotocol.io) server over streamable HTTP, hosted in-process by the bot and authenticated with a bearer key. Every request must carry `Authorization: Bearer <MCP_API_KEY>`; anything else is rejected with 401 before any tool runs.
+
+- **Configuration**: `MCP_ENABLED` / `MCP_API_KEY` / `MCP_LISTEN_URI` in `.env` (from source: the `Mcp` section of `appsecrets.json`). Default: disabled, listening at `http://0.0.0.0:2525` when enabled; the compose file publishes that port **loopback-only** (`127.0.0.1:2525:2525`), so an agent on the deployment host reaches `http://127.0.0.1:2525/mcp` while the internet cannot. Enabled without a key → the endpoint stays down.
+- **API key**: the key is just a long random secret you invent once — treat it like the bot token, and never commit it. Generate one, e.g.:
+
+  ```bash
+  openssl rand -hex 32
+  ```
+
+  Put it in `.env` as `MCP_API_KEY` (or `"ApiKey"` in the `Mcp` section of `appsecrets.json`), set `MCP_ENABLED=true`, restart, and confirm the startup log line `MCP endpoint listening at http://0.0.0.0:2525/mcp`. Rotating the key is the same procedure with a new value; a restart always applies the configured state.
+- **Connecting**: any MCP-capable client works — point it at the endpoint URL and pass the key as the bearer header:
+
+  ```json
+  {
+    "mcpServers": {
+      "hambot": {
+        "url": "http://127.0.0.1:2525/mcp",
+        "headers": { "Authorization": "Bearer <your-key>" }
+      }
+    }
+  }
+  ```
+
+  The port is loopback-only in Compose, so a client on another machine needs a tunnel to the deployment host first (e.g. `ssh -L 2525:127.0.0.1:2525 <host>`).
+- **Tools**: `bot_status` (version, uptime, gateway state, guild count, presence, bio), `list_guilds`, `list_commands` (every command's name, tier, description, and usage — the discoverable surface for `run_command`), `set_presence` and `set_bio` (the same limits and services as `!presence`/`!bio`), `get_recent_messages(channelId, limit)` (≤ 50), `send_message(channelId, text)` (plain text ≤ 2000 chars), and `run_command(guildId, commandLine)` — a virtual invocation through the real command pipeline as the operator's agent: same permissions, cooldowns, custom responses, and audit events as a chat invocation, with the command's reply captured and returned as the tool result, never posted to a channel.
+- **Per-server authority**: the agent acts at the lowest tier (0) by default — it can only run commands everyone can. A server owner or the bot owner raises it per server with `!agenttier <tier 0-4>` (`!agenttier` shows, `!agenttier clear` resets to the default). Commands whose required tier exceeds it are denied like any other invocation, and the agent itself can never change its own ceiling.
+
+## Slash commands
+
+Opt-in via `SLASH_COMMANDS_ENABLED=true` (default false), exposed when the bot was invited with the `applications.commands` scope: the administrative/configuration commands (`/settings`, `/backup`, `/userpermission`, ...), the personal reminder commands (`/remindme`, `/reminders`, `/cancelreminder`), and `/help` are available as Discord application commands. They run through the same command pipeline — identical permission tiers, cooldowns, and reply text — but every reply is **ephemeral** (visible only to the invoker); a multi-page `/help` list carries previous/next buttons that page it in place. The community-facing commands (`!quote` & co., the custom responses, `!version`) stay text-only, and text commands keep working either way. Global commands can take up to an hour to appear after the first registration.
 
 ## Building & running locally (from source)
 
@@ -136,7 +176,7 @@ The unit tests (MSTest + Moq, in `BotTests/`) run without a database, Discord to
 dotnet test HambotV2.sln
 ```
 
-They cover command registration (lowercase names, help text, default tiers), command lookup and parsing edge cases, the typed argument-parsing helper, the permission tier scale with tier overrides and escalation guards, per-guild scoping and the DM scope, the permission-management, `!settings` and `!help` command behavior, command cooldowns, startup configuration validation, the command pipeline failure paths (throwing commands, database errors during permission checks), the backup commands (trigger, list, two-step restore confirmation, maintenance-mode gating), and the watchdog/health/notification surface (condition detection, alert cadence, `!health`, `!notifychannel`).
+They cover command registration (lowercase names, help text, default tiers), command lookup and parsing edge cases, the typed argument-parsing helper, the permission tier scale with tier overrides and escalation guards, per-guild scoping and the DM scope, the permission-management, `!settings`, `!agenttier` and `!help` command behavior, command cooldowns, startup configuration validation, the command pipeline failure paths (throwing commands, database errors during permission checks), the quote and custom-response commands, the reminder commands (including the recurring form and the delivery engine), version formatting, the backup commands (trigger, list, two-step restore confirmation, maintenance-mode gating), the watchdog/health/notification surface (condition detection, alert cadence, `!health`, `!notifychannel`), presence and profile images, the slash surface (registration contract, virtual invocation, interactive help pagination), and the MCP endpoint (bearer auth, every tool over fakes, `run_command` capture/tier/cooldown/audit semantics, the per-guild agent tier).
 
 ## Running in production
 
@@ -162,6 +202,8 @@ docker run -d --name hambot --restart unless-stopped \
   hambotv2:latest
 ```
 
+Optional integrations are environment variables too: `SlashCommands__Enabled=true`, and `Mcp__Enabled=true` + `Mcp__ApiKey=<key>` (+ `-p 127.0.0.1:2525:2525` — the MCP server listens inside the container, so publish its port loopback-only like Compose does).
+
 The image is secret-free: `appsecrets.json` is excluded from the build context (`.dockerignore`), so it can be pushed to a registry — secrets always come in via environment variables.
 
 ## Continuous integration & deployment
@@ -176,6 +218,7 @@ Expected startup log sequence (from source, Compose, or plain Docker):
 2. `Database migrations applied successfully`
 3. `Initializing Discord connection...`
 4. Gateway ready (Discord.Net logs a `Ready` message; afterwards `Worker running at: ...` lines appear every 5 minutes).
+5. The MCP state line: `MCP endpoint listening at ...` when enabled with a key, or `MCP endpoint disabled: ...` otherwise (never an error either way). With `SLASH_COMMANDS_ENABLED=true` you'll also see `Registered N application commands with Discord.` after the gateway connects.
 
 Then, in a Discord channel the bot can see, send `!hello` — it should reply `Hello World`.
 
@@ -188,12 +231,21 @@ If the token is wrong/missing you'll instead see a critical message naming the m
 | `!hello` | Replies "Hello World". |
 | `!version` | Replies with the bot's version: the release tag semver plus the build commit's short hash (e.g. `1.2.3+1639324`). Works in DMs. |
 | `!help [commandName]` | Lists the commands you can use, or shows detailed help (description, usage, required tier) for one command. |
+| `!remindme <duration> <message...>` | Sets a personal reminder the bot sends you as a **DM** when it's due (durations like `10m`, `1d 12h`, `2w`; `!remindme every <duration> <message...>` repeats on that interval). Works in DMs. |
+| `!reminders` / `!cancelreminder <number>` | Lists your pending reminders (soonest first) / cancels one by its number. Works in DMs. |
+| `!quote [number\|text...]` | Shows a random quote of this server, a numbered one (`!quote 7`), or — with new text — saves that text as the server's next quote. |
+| `!searchquotes <text...>` | Searches this server's quotes (up to 10 results). |
+| `!removequote <number>` | Removes one of this server's quotes. |
+| `!importquotes` | Imports the old bot's quotes: attach its `quoteSettings.json` to the message. |
+| `!addresponse <name> <text...>` | Creates or updates a custom response for this server — afterwards `!<name>` replies with the stored text (dispatched like any command: same permission and cooldown checks). |
+| `!listresponses` / `!removeresponse <name>` | Lists this server's custom response names / removes one. |
 | `!commandpermission <name> [tier]` | Prints a command's required tier, or sets/creates it. Admin-only by default. |
 | `!userpermission <user> [tier]` | Prints a user's tier, or sets/creates it. `<user>` is a raw Discord id or an @mention. Admin-only by default. |
 | `!settings` | Shows the server's effective command identifier and per-tier cooldown overrides. Admin-only by default. |
 | `!settings commandidentifier <value>` / `reset` | Sets or clears the server's command identifier override (≤ 5 chars; `reset` reverts to the global default). |
 | `!settings cooldown <tier> <seconds>` / `reset` | Sets or clears the server's per-tier cooldown override (tiers 0–3; `0` disables throttling for that tier). |
-| `!health` | Shows the bot's operational state: version, uptime, gateway, database, pending reminders, backups, restore test, notification channel. Bot-owner tier; works in DMs. |
+| `!agenttier [<tier 0-4>` / `clear]` | Shows, sets, or clears the tier the MCP operator agent acts at in this server — the agent can only run commands everyone can until a guild raises it. Owner-tier by default (guild owner or bot owner); the agent itself can never change its own ceiling. |
+| `!health` | Shows the bot's operational state: version, uptime, gateway, database, pending reminders, backups, restore test, notification channel, MCP endpoint. Bot-owner tier; works in DMs. |
 | `!presence [<type> <text...>` / `clear]` | Shows, sets, or clears the bot's activity (`playing`/`watching`/`listening`/`competing` + text ≤ 128 chars). Bot-owner tier; works in DMs; not persisted across restarts. |
 | `!bio [<text...>` / `clear]` | Shows, sets, or clears the bot's profile "About Me" (≤ 190 chars, line breaks allowed), applied in every guild the bot is a member of. Bot-owner tier; works in DMs; not persisted across restarts. |
 | `!avatar [<image-url>` / `reset]` | Shows, sets, or resets the bot's profile picture — attach exactly one image or pass a single image URL (PNG/JPEG/GIF, ≤ 10 MB; validated before anything changes). Bot-owner tier; works in DMs. |
@@ -219,7 +271,7 @@ Bootstrap administrator: the **guild owner** automatically acts at owner tier in
 
 The **bot owner** is configured in `.env` as `BOT_OWNER_DISCORD_ID` (wired through to `Permissions:BotOwnerDiscordId`). They hold tier 4 in every guild — the highest permission level of all, above guild owners — and are the designated operator for things that apply across guilds (e.g. managing any guild's settings by running `!settings` there). The tier comes from configuration only: it can never be granted through commands, not even by the bot owner themselves.
 
-Permission tiers and bot settings are **scoped per guild**: a user's tier or a command's required tier in one server has no effect in any other, and each server can override the global command identifier with `!settings commandidentifier <value>` (admins; `!settings commandidentifier reset` reverts to the global default). In **direct messages**, commands run in a DM scope: you act at owner tier and commands require their built-in default tiers — no per-server state is read or written. Commands that manage per-server state (`!userpermission`, `!commandpermission`, `!settings`) are only available in servers.
+Permission tiers and bot settings are **scoped per guild**: a user's tier or a command's required tier in one server has no effect in any other, and each server can override the global command identifier with `!settings commandidentifier <value>` (admins; `!settings commandidentifier reset` reverts to the global default). In **direct messages**, commands run in a DM scope: you act at owner tier and commands require their built-in default tiers — no per-server state is read or written. Commands that manage per-server state (`!userpermission`, `!commandpermission`, `!settings`, `!agenttier`) are only available in servers.
 
 Tiers are then managed at runtime, e.g.:
 

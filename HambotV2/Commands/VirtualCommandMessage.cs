@@ -11,13 +11,14 @@ namespace HambotV2.Commands
     /// </summary>
     internal sealed class VirtualCommandMessage : IMessage
     {
-        public VirtualCommandMessage(IUser author, IMessageChannel channel, string content, DateTimeOffset timestamp)
+        public VirtualCommandMessage(IUser author, IMessageChannel channel, string content, DateTimeOffset timestamp, ulong? operatorAgentUserId = null)
         {
             Id = 0;
             Author = author;
             Channel = channel;
             Content = content;
             Timestamp = timestamp;
+            OperatorAgentUserId = operatorAgentUserId;
         }
 
         public ulong Id { get; }
@@ -26,6 +27,9 @@ namespace HambotV2.Commands
         /// <summary>The equivalent text-surface command line, identifier included (e.g. <c>!userpermission &lt;@1&gt; 2</c>).</summary>
         public string Content { get; }
         public DateTimeOffset Timestamp { get; }
+
+        /// <summary>The Discord id granted tier-4 authority for this invocation (the MCP run_command tool); null keeps the author's real tiers.</summary>
+        public ulong? OperatorAgentUserId { get; }
         public DateTimeOffset CreatedAt => Timestamp;
 
         public MessageActivity? Activity => null;

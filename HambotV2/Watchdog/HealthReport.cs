@@ -1,5 +1,6 @@
 using HambotV2.Backups;
 using HambotV2.Connections;
+using HambotV2.Mcp;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 
@@ -20,6 +21,7 @@ namespace HambotV2.Watchdog
         public required string Backup { get; init; }
         public required string RestoreTest { get; init; }
         public required string NotificationChannel { get; init; }
+        public required string Mcp { get; init; }
     }
 
     /// <summary>
@@ -37,6 +39,7 @@ namespace HambotV2.Watchdog
         private readonly IGatewayStatus _gateway;
         private readonly INotificationChannelStore _notificationChannel;
         private readonly IBackupStatusReader _backupStatus;
+        private readonly IMcpEndpointStatus _mcpEndpoint;
         private readonly IServiceScopeFactory _scopeFactory;
         private readonly string _connectionString;
         private readonly TimeProvider _timeProvider;
@@ -46,6 +49,7 @@ namespace HambotV2.Watchdog
             IGatewayStatus gateway,
             INotificationChannelStore notificationChannel,
             IBackupStatusReader backupStatus,
+            IMcpEndpointStatus mcpEndpoint,
             IServiceScopeFactory scopeFactory,
             IConfiguration configuration,
             TimeProvider timeProvider)
@@ -53,6 +57,7 @@ namespace HambotV2.Watchdog
             _gateway = gateway;
             _notificationChannel = notificationChannel;
             _backupStatus = backupStatus;
+            _mcpEndpoint = mcpEndpoint;
             _scopeFactory = scopeFactory;
             _connectionString = configuration.GetConnectionString("DefaultConnection") ?? string.Empty;
             _timeProvider = timeProvider;
@@ -61,8 +66,8 @@ namespace HambotV2.Watchdog
 
         public async Task<HealthSnapshot> CaptureAsync(CancellationToken cancellationToken = default)
         {
-            // The LLM (§3.12), MCP (§3.11), and presence (§3.10) fields are omitted until
-            // those phases land — the report shows only what is actually running today.
+            // The LLM (§3.12) and presence (§3.10) fields are omitted until those phases land —
+            // the report shows only what is actually running today.
             return new HealthSnapshot
             {
                 Version = BotVersion.Current,
@@ -72,7 +77,8 @@ namespace HambotV2.Watchdog
                 PendingReminders = await CountPendingRemindersAsync(cancellationToken),
                 Backup = FormatLastBackup(),
                 RestoreTest = FormatRestoreTest(),
-                NotificationChannel = FormatNotificationChannel(await _notificationChannel.GetChannelIdAsync(cancellationToken))
+                NotificationChannel = FormatNotificationChannel(await _notificationChannel.GetChannelIdAsync(cancellationToken)),
+                Mcp = _mcpEndpoint.State
             };
         }
 

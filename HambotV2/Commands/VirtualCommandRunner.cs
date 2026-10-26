@@ -12,7 +12,8 @@ namespace HambotV2.Commands
     /// <param name="OriginChannel">The origin channel; guild data and audit ids flow through, replies are captured.</param>
     /// <param name="CommandLine">The equivalent text command line without identifier, e.g. <c>userpermission &lt;@1&gt; 2</c>.</param>
     /// <param name="Timestamp">When the invocation happened; reminder scheduling uses it.</param>
-    internal sealed record VirtualCommandInvocation(IUser Author, IMessageChannel OriginChannel, string CommandLine, DateTimeOffset Timestamp);
+    /// <param name="OperatorAgentUserId">The Discord id granted tier-4 authority for this invocation (the MCP run_command tool); null keeps the invoking user's real tiers.</param>
+    internal sealed record VirtualCommandInvocation(IUser Author, IMessageChannel OriginChannel, string CommandLine, DateTimeOffset Timestamp, ulong? OperatorAgentUserId = null);
 
     /// <summary>
     /// One captured reply of a virtual invocation: the text, plus any message components the
@@ -68,7 +69,7 @@ namespace HambotV2.Commands
                 ? identifier
                 : $"{identifier}{invocation.CommandLine.TrimStart()}";
 
-            var message = new VirtualCommandMessage(invocation.Author, channel, content, invocation.Timestamp);
+            var message = new VirtualCommandMessage(invocation.Author, channel, content, invocation.Timestamp, invocation.OperatorAgentUserId);
 
             using var handler = _serviceProvider.GetService<ICommandHandler>();
             if (handler is null)

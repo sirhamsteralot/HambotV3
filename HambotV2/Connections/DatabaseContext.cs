@@ -56,6 +56,9 @@ namespace HambotV2.Connections
             /// <summary>The guild's command identifier override; null means the global default applies.</summary>
             public string? CommandIdentifier { get; set; }
 
+            /// <summary>The tier the MCP operator agent acts at in this guild (design §3.11); null = the lowest-tier default.</summary>
+            public int? OperatorAgentTier { get; set; }
+
             /// <summary>Per-tier cooldown overrides in seconds; null = inherit the global default.</summary>
             public int? CooldownSecondsTier0 { get; set; }
             public int? CooldownSecondsTier1 { get; set; }

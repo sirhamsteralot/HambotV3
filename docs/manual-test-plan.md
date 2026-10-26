@@ -187,7 +187,7 @@ Set `SlashCommands__Enabled: true` (or `SLASH_COMMANDS_ENABLED=true` in Compose)
 
 | # | Action | Expected |
 |---|---|---|
-| 12.1 | Type `/` in the test server | The bot's `/` picker shows exactly the administrative/configuration, user-scoped, and help commands (backup, backups, bio, cancelreminder, commandpermission, health, help, notifychannel, presence, remindme, reminders, restorebackup, settings, userpermission, avatar, banner) — **no** quote, response, or `version` commands (FR-110/FR-119). |
+| 12.1 | Type `/` in the test server | The bot's `/` picker shows exactly the administrative/configuration, user-scoped, and help commands (agenttier, backup, backups, bio, cancelreminder, commandpermission, health, help, notifychannel, presence, remindme, reminders, restorebackup, settings, userpermission, avatar, banner) — **no** quote, response, or `version` commands (FR-110/FR-119). |
 | 12.2 | `/remindme` with arguments `10m water the plants` | Confirmation reply identical to the text surface, visible **only to the invoker** (ephemeral, FR-112). |
 | 12.3 | `/reminders` | Lists your pending reminders, visible only to the invoker. |
 | 12.4 | `/userpermission` picking a user and tier 1 (as guild owner) | Same reply as `!userpermission <@user> 1`; the tier is set. |
@@ -201,3 +201,32 @@ Set `SlashCommands__Enabled: true` (or `SLASH_COMMANDS_ENABLED=true` in Compose)
 | 12.8 | `/userpermission` in a **DM** | "This command manages per-server state and is only available in servers" — the DM scope applies (FR-25). `/reminders` in a DM works. |
 | 12.9 | `/restorebackup <name>` without confirm | The destructive-restore warning, same as the text surface. |
 | 12.10 | Set `SlashCommands__Enabled: false`, restart | Nothing registers; the `/` picker keeps stale commands until the next enabled boot's bulk overwrite removes them (the overwrite runs only when enabled — re-enable once before production to clear). Text surface unaffected throughout. |
+
+## 13. MCP endpoint (FR-86–FR-91 / FR-120 / NFR-20)
+
+Set `MCP_ENABLED=true` and `MCP_API_KEY=<key>` in `.env` (or `Mcp__Enabled`/`Mcp__ApiKey` as environment variables), then restart the bot. The startup log must name the state and address; with a key: "MCP endpoint listening at http://0.0.0.0:2525/mcp". Reach the endpoint from the deployment host only (`http://127.0.0.1:2525/mcp` — the compose port is loopback-published).
+
+Any MCP-capable client works; with raw HTTP, each call is a POST with the headers `Authorization: Bearer <key>`, `Accept: application/json, text/event-stream`, and a JSON-RPC body (`initialize` first, then `tools/call`).
+
+| # | Action | Expected |
+|---|---|---|
+| 13.1 | Start with `MCP_ENABLED=true` but **no** key | Log: "MCP endpoint disabled: Mcp:Enabled is true but no Mcp:ApiKey is configured"; nothing listens on 2525; `!health` shows the same state. |
+| 13.2 | Start with `MCP_ENABLED=false` | Log: "MCP endpoint disabled: Mcp:Enabled is false"; `!health` reports it. |
+| 13.3 | POST without the `Authorization` header | 401 — rejected before any tool logic (FR-87). |
+| 13.4 | POST with a wrong key | 401. |
+| 13.5 | `bot_status` | Version, uptime, gateway state, guild count, presence, bio — all matching the live bot. |
+| 13.6 | `list_guilds` | The test server's id and name. |
+| 13.7 | `list_commands` | Every registered command with tier, description, and usage, in name order. |
+| 13.8 | `get_recent_messages` on a channel the bot can read (limit 5) | The 5 most recent messages, newest first, ≤ 50. |
+| 13.9 | `send_message` to the test channel | The plain-text message appears in the channel. |
+| 13.10 | `run_command` with a tier-0 command line, e.g. `hello` | The command's reply returned as the tool result; **nothing** posted to any channel. |
+| 13.11 | `run_command` with a tier-4 command line (e.g. `health`) on a fresh guild | "You are not permitted to use that command" — the default agent tier is the lowest (FR-120). |
+| 13.12 | `!agenttier` (guild owner) | "The operator agent acts at the default, tier 0 (everyone), in this server; raise it with a tier 1-4". |
+| 13.13 | `!agenttier 4`, then `run_command` with a tier-4 command line again | The command executes; its reply is the tool result. |
+| 13.14 | `!agenttier 1`, then `run_command` with a tier-2+ command line | Denied again — the per-guild tier governs the agent. |
+| 13.15 | `run_command` with the command line `agenttier 4` | "The operator agent cannot change its own tier in this server" — the agent can never raise its own ceiling (FR-120). |
+| 13.16 | `!agenttier 4` from a second, non-owner account | "You are not permitted to use that command" (owner tier required). |
+| 13.17 | `!agenttier clear` | Reset to the lowest-tier default; `!agenttier` shows it. |
+| 13.18 | `!agenttier` in a **DM** | "This command manages per-server settings and is only available in servers" (FR-25). |
+| 13.19 | `!health` | The MCP line shows "listening at http://0.0.0.0:2525/mcp" (or the disabled state) — the endpoint state joins the report (FR-105). |
+| 13.20 | `/agenttier` (slash surface on) | Same show/set/clear behavior as the text surface, reply visible only to the invoker. |

@@ -16,9 +16,18 @@ namespace HambotV2.Commands
         /// <summary>Discord id configured under Permissions:BotOwnerDiscordId; null when unset.</summary>
         public ulong? BotOwnerId { get; init; }
 
-        /// <summary>The user's effective tier: the stored database tier, raised to owner for the guild owner and to bot owner for the configured bot owner.</summary>
+        /// <summary>Discord id granted bot-owner tier for operator-agent virtual invocations (the MCP run_command tool); null otherwise.</summary>
+        public ulong? OperatorAgentId { get; init; }
+
+        /// <summary>The tier the operator agent acts at — the guild's per-guild setting, or the lowest tier (everyone) when null.</summary>
+        public int? OperatorAgentTier { get; init; }
+
+        /// <summary>The user's effective tier: the stored database tier, raised to owner for the guild owner, to bot owner for the configured bot owner, and to the operator agent's per-guild tier for the agent.</summary>
         public int EffectiveTierOf(ulong userDiscordId, int storedTier)
         {
+            if (userDiscordId == OperatorAgentId)
+                return OperatorAgentTier ?? PermissionTier.Everyone;
+
             if (userDiscordId == BotOwnerId)
                 return PermissionTier.BotOwner;
 
@@ -34,6 +43,9 @@ namespace HambotV2.Commands
         /// </summary>
         public string? DescribeOverride(ulong userDiscordId, int storedTier)
         {
+            if (userDiscordId == OperatorAgentId)
+                return storedTier == PermissionTier.BotOwner ? null : "operator agent";
+
             if (userDiscordId == BotOwnerId)
                 return storedTier == PermissionTier.BotOwner ? null : "bot owner";
 

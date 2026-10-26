@@ -25,29 +25,12 @@ Everything specified so far is implemented and in production:
 - **Discord presence & profile identity** (FR-78–FR-80, FR-113, FR-115–FR-116 / NFR-18; design §3.10) — the `IPresenceService` singleton behind a gateway seam applies activity, bio, avatar, and banner (startup configuration plus the tier-4, DM-usable `!presence`, `!bio`, `!avatar`, and `!banner` commands). Discord.Net 3.20.2 natively supports the September 2025 per-guild member route (bio/avatar/banner via `ModifyCurrentUserAsync`) and the global avatar route (`ISelfUser.ModifyAsync`), so no raw REST fallback was needed.
 - **Recurring reminders** (FR-107–FR-109 / NFR-24; design §3.14) — `!remindme every <duration> <message...>`: the same entity, commands, and delivery engine as one-shot reminders, re-scheduled from the actual delivery time (downtime shifts the schedule, never bursts), with the configurable interval floor (`Reminders:MinRecurrenceMinutes`, default 10) and the separate per-user cap (`Reminders:MaxRecurring`, default 5) that never consumes one-shot slots.
 - **Slash commands & interactive help** (FR-110–FR-112, FR-119 / NFR-26; design §3.15) — the administrative/configuration, user-scoped, and help commands as Discord application commands, opt-in via `SlashCommands:Enabled` (default false): eligibility declared per command (`ICommand.ApplicationCommand`), definitions pushed as one bulk global overwrite after the gateway connects, and invocations executed through the real `CommandHandler` via the shared virtual-invocation seam (`IVirtualCommandRunner`) — same tiers, cooldown keys, audit, and errors as the text surface, with every reply shown ephemerally (visible only to the invoker — the text surface is the public one). `!help` is exposed as `/help` (typed `command`/`page` options), and a multi-page help list carries interactive previous/next buttons on both surfaces: a click re-enters the same seam and updates the message in place (`HelpPaginationService`, always attached). The other community-facing commands stay text-only; the text surface is unchanged.
+- **MCP server** (FR-86–FR-91, FR-120 / NFR-20; design §3.11) — the operator-agent tool surface over streamable HTTP, opt-in via `Mcp:Enabled` + `Mcp:ApiKey` (bearer-authenticated, loopback-published in compose): `bot_status`, `list_guilds`, `list_commands`, `set_presence`, `set_bio`, `get_recent_messages` (≤ 50), `send_message` (plain text ≤ 2000 chars), and `run_command` — a virtual invocation through the real command pipeline as the operator's agent (same permissions, cooldowns, custom responses, and audit events as a chat invocation), with the command's reply captured and returned as the tool result, never posted to a channel. The agent's authority is set per server by `!agenttier` (owner/bot-owner command; default the lowest tier, so the agent can only run what everyone can until a guild raises it; the agent itself cannot change its ceiling).
 
 The remaining backlog is specified ahead of implementation and organised into phases:
 
-- **Phase #1: MCP** — the MCP server for Odysseus (FR-86–FR-91 / NFR-20; design §3.11).
 - **Phase #2: LLM Integration** — LLM-driven presence and bio updates (FR-92–FR-95, FR-99, FR-102–FR-104, FR-114 / NFR-21, NFR-25; design §3.12), then LLM conversation participation & memory (a deliberately unspecced placeholder; design it after everything above is in production). The LLM-related watchdog conditions (design §3.13) activate when this phase lands.
 - **Phase #3: Extra features** — the automated hall of fame (per-guild reaction tracking and a scheduled digest of the community's best messages; FRs and design section to be authored when scheduled), with room for further community-facing extras as they are proposed.
-
-## Phase #1: MCP
-
-- [ ] **MCP server — Odysseus hook-in (FR-86–FR-91 / NFR-20; design §3.11)**
-
-    **Problem**: there is no way for the operator's agent (Odysseus) to interact with the bot programmatically — no status introspection, no message reading/sending, no command execution.
-
-    **Steps**:
-
-    1. Add the official `ModelContextProtocol` C# SDK and host the streamable-HTTP endpoint via Kestrel in the worker; config `Mcp:Enabled` (default false) / `Mcp:ListenUri` / `Mcp:ApiKey`; bearer-key auth in front of everything; startup log line naming the state and URI.
-    2. Implement the status & identity tools: `bot_status` (version, uptime, guild count, presence and bio), `list_guilds`, `set_presence` and `set_bio` (via `IPresenceService`, design §3.10).
-    3. Implement the messaging tools: `get_recent_messages` (Discord REST, capped at 50) and `send_message` (plain text ≤ 2000 chars).
-    4. Implement `run_command` — virtual invocation through the real `CommandHandler` as tier 4: reply captured and returned as the tool result, never posted to a real channel; cooldowns, custom responses, audit events reused unchanged.
-    5. Wire compose (loopback-only publish) and `.env.example`; document the endpoint and tool surface.
-    6. Unit tests per NFR-20: bearer rejection, each tool over fakes, `run_command` capture/cooldown/audit semantics.
-
-    **Acceptance criteria**: FR-86–FR-91 hold; Odysseus connects with the API key and completes a status → read → `run_command` round trip (and is rejected without the key); tests green and warning-free; design §3.11 loses its **(planned)** marker.
 
 ## Phase #2: LLM Integration
 

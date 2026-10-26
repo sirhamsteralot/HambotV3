@@ -50,8 +50,19 @@ services:
       # Optional: expose the administrative/configuration and user-scoped commands as
       # Discord slash commands (FR-110, default false).
       SlashCommands__Enabled: ${SLASH_COMMANDS_ENABLED:-}
+      # Optional: the operator-agent MCP endpoint (FR-86, default off) — status, guild,
+      # messaging, and command tools for an agent on the deployment host. The API key is
+      # required when enabled; without it the endpoint stays down (FR-87).
+      Mcp__Enabled: ${MCP_ENABLED:-}
+      Mcp__ApiKey: ${MCP_API_KEY:-}
+      Mcp__ListenUri: ${MCP_LISTEN_URI:-}
     volumes:
       - backups:/app/backups
+    # The MCP endpoint's listen port, published loopback-only (FR-86): an agent on the
+    # deployment host reaches http://127.0.0.1:2525/mcp while the internet cannot. Nothing
+    # listens on it while the endpoint is disabled.
+    ports:
+      - "127.0.0.1:2525:2525"
 
   # Backup sidecar (FR-81–FR-85, FR-100–FR-101; design §5.2): backs the database up on
   # schedule independently of the bot, validates each dump, prunes local retention, pushes

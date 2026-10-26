@@ -482,7 +482,8 @@ namespace BotTests
                 PendingReminders = "3",
                 Backup = "2026-01-01 03:00 UTC — hambotv2-x.dump (2 KB)",
                 RestoreTest = "2026-01-01 03:05 UTC — passed",
-                NotificationChannel = "<#777> (777)"
+                NotificationChannel = "<#777> (777)",
+                Mcp = "disabled (Mcp:Enabled is false)"
             };
 
             public Task<HealthSnapshot> CaptureAsync(CancellationToken cancellationToken = default)
@@ -517,6 +518,7 @@ namespace BotTests
             StringAssert.Contains(report, "Last restore test: 2026-01-01 03:05 UTC — passed");
             StringAssert.Contains(report, "Pending reminders: 3");
             StringAssert.Contains(report, "Notification channel: <#777> (777)");
+            StringAssert.Contains(report, "MCP: disabled (Mcp:Enabled is false)");
             StringAssert.Contains(report, "Uptime: 2h 0m");
         }
 
