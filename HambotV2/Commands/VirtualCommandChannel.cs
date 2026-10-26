@@ -19,8 +19,8 @@ namespace HambotV2.Commands
             _origin = origin;
         }
 
-        /// <summary>The replies the pipeline sent, in order.</summary>
-        public List<string> SentMessages { get; } = [];
+        /// <summary>The replies the pipeline sent, in order, components included.</summary>
+        public List<VirtualCommandReply> SentMessages { get; } = [];
 
         public ulong Id => _origin.Id;
         public string Name => _origin.Name;
@@ -29,7 +29,7 @@ namespace HambotV2.Commands
 
         public Task<IUserMessage> SendMessageAsync(string text = "", bool isTTS = false, Embed? embed = null, RequestOptions? options = null, AllowedMentions? allowedMentions = null, MessageReference? messageReference = null, MessageComponent? components = null, ISticker[]? stickers = null, Embed[]? embeds = null, MessageFlags flags = MessageFlags.None, PollProperties? poll = null)
         {
-            SentMessages.Add(text);
+            SentMessages.Add(new VirtualCommandReply(text, components));
             return Task.FromResult<IUserMessage>(null!);
         }
 

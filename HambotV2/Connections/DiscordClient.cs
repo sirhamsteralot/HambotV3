@@ -12,16 +12,18 @@ namespace HambotV2.Connections
         private readonly IServiceProvider _serviceProvider;
         private readonly IGuildSettingsService _guildSettingsService;
         private readonly SlashCommandService _slashCommandService;
+        private readonly HelpPaginationService _helpPaginationService;
         private readonly string _logFormat;
         private readonly DiscordSocketClient _client;
 
-        public DiscordClient(ILogger<DiscordClient> logger, IConfiguration configuration, IServiceProvider serviceProvider, IGuildSettingsService guildSettingsService, SlashCommandService slashCommandService, DiscordSocketClient client)
+        public DiscordClient(ILogger<DiscordClient> logger, IConfiguration configuration, IServiceProvider serviceProvider, IGuildSettingsService guildSettingsService, SlashCommandService slashCommandService, HelpPaginationService helpPaginationService, DiscordSocketClient client)
         {
             _logger = logger;
             _configuration = configuration;
             _serviceProvider = serviceProvider;
             _guildSettingsService = guildSettingsService;
             _slashCommandService = slashCommandService;
+            _helpPaginationService = helpPaginationService;
             _logFormat = configuration["BotConfiguration:LogFormat"]!;
             // The client comes from DI (shared with ReminderDmSender, container-owned);
             // its gateway intents are configured once at the composition root.
@@ -41,6 +43,10 @@ namespace HambotV2.Connections
             // registration pass runs as soon as the gateway is ready; disabled by default.
             if (_slashCommandService.Enabled)
                 _slashCommandService.Attach();
+
+            // Help pagination (design §3.15): attached unconditionally — the previous/next
+            // buttons ride on text-surface help messages too, not only interaction replies.
+            _helpPaginationService.Attach();
 
             await _client.LoginAsync(TokenType.Bot, _configuration["Secrets:BotToken"]);
             await _client.StartAsync();

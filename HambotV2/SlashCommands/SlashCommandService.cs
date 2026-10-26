@@ -157,8 +157,8 @@ namespace HambotV2.SlashCommands
                 VirtualCommandResult result = await _virtualCommandRunner.RunAsync(invocation);
 
                 bool ephemeral = IsEphemeralReply(result.Outcome);
-                foreach (string reply in result.Replies)
-                    await command.FollowupAsync(reply, ephemeral: ephemeral);
+                foreach (VirtualCommandReply reply in result.Replies)
+                    await command.FollowupAsync(reply.Text, components: reply.Components, ephemeral: ephemeral);
             }
             catch (Exception ex)
             {

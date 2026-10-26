@@ -29,13 +29,13 @@ namespace BotTests
         private static readonly string[] ExpectedSlashEligible =
         [
             "backup", "backups", "bio", "cancelreminder", "commandpermission", "health",
-            "notifychannel", "presence", "remindme", "reminders", "restorebackup",
+            "help", "notifychannel", "presence", "remindme", "reminders", "restorebackup",
             "settings", "userpermission", "avatar", "banner",
         ];
 
         private static readonly string[] ExpectedTextOnly =
         [
-            "addresponse", "help", "hello", "importquotes", "listresponses", "quote",
+            "addresponse", "hello", "importquotes", "listresponses", "quote",
             "removeresponse", "removequote", "searchquotes", "version",
         ];
 
@@ -130,6 +130,14 @@ namespace BotTests
             ApplicationCommandOption freeForm = remindMe.ApplicationCommand!.Options.Single();
             Assert.AreEqual(ApplicationCommandOption.FreeFormOptionName, freeForm.Name);
             Assert.IsFalse(freeForm.Required);
+
+            var help = (ICommand)commandService.Commands["help"];
+            Assert.IsNotNull(help.ApplicationCommand);
+            CollectionAssert.AreEqual(new[] { "command", "page" }, help.ApplicationCommand!.Options.Select(option => option.Name).ToArray());
+            Assert.AreEqual(ApplicationCommandOptionKind.Text, help.ApplicationCommand.Options[0].Kind);
+            Assert.AreEqual(ApplicationCommandOptionKind.Integer, help.ApplicationCommand.Options[1].Kind);
+            Assert.IsFalse(help.ApplicationCommand.Options[0].Required);
+            Assert.IsFalse(help.ApplicationCommand.Options[1].Required);
         }
 
         [TestMethod]
@@ -247,6 +255,25 @@ namespace BotTests
             Assert.AreEqual("notifychannel <#77>", commandLine);
         }
 
+        [TestMethod]
+        public void CommandLine_HelpOptionsMapToTheirTextArguments()
+        {
+            CommandService commandService = CreateRegisteredCommandService();
+            ApplicationCommandDeclaration declaration = commandService.Commands["help"].ApplicationCommand!;
+
+            Assert.IsTrue(SlashCommandLineBuilder.TryBuild("help", declaration, new Dictionary<string, object?> { ["command"] = "quote" }, out string detailLine));
+            Assert.AreEqual("help quote", detailLine);
+
+            Assert.IsTrue(SlashCommandLineBuilder.TryBuild("help", declaration, new Dictionary<string, object?> { ["page"] = 2L }, out string pageLine));
+            Assert.AreEqual("help 2", pageLine);
+
+            Assert.IsTrue(SlashCommandLineBuilder.TryBuild("help", declaration, new Dictionary<string, object?> { ["command"] = "quote", ["page"] = 3L }, out string bothLine));
+            Assert.AreEqual("help quote 3", bothLine);
+
+            Assert.IsTrue(SlashCommandLineBuilder.TryBuild("help", declaration, new Dictionary<string, object?>(), out string bareLine));
+            Assert.AreEqual("help", bareLine);
+        }
+
         // Virtual invocation through the real pipeline
 
         /// <summary>Wires a real CommandHandler behind a VirtualCommandRunner, like the production container does per invocation.</summary>
@@ -258,6 +285,9 @@ namespace BotTests
             public string DatabaseStoreName { get; } = Guid.NewGuid().ToString();
             public RecordingDatabase Database { get; }
             public CommandService CommandService { get; }
+
+            /// <summary>When set, the pipeline grants that user the tier-4 bot-owner override — the help pagination test needs the full tier-4 command list to span multiple pages.</summary>
+            public string? BotOwnerId { get; set; }
 
             public VirtualPipeline()
             {
@@ -286,7 +316,12 @@ namespace BotTests
 
             public VirtualCommandRunner CreateRunner()
             {
-                var handler = new CommandHandler(CommandService, GuildSettings.Object, Permissions.Object, Cooldown.Object, Database, Mock.Of<IConfiguration>(), Mock.Of<ILogger<CommandHandler>>());
+                IConfiguration configuration = BotOwnerId is null
+                    ? Mock.Of<IConfiguration>()
+                    : new ConfigurationBuilder()
+                        .AddInMemoryCollection(new Dictionary<string, string?> { ["Permissions:BotOwnerDiscordId"] = BotOwnerId })
+                        .Build();
+                var handler = new CommandHandler(CommandService, GuildSettings.Object, Permissions.Object, Cooldown.Object, Database, configuration, Mock.Of<ILogger<CommandHandler>>());
                 var provider = Mock.Of<IServiceProvider>(sp => sp.GetService(typeof(ICommandHandler)) == handler);
                 return new VirtualCommandRunner(GuildSettings.Object, provider);
             }
@@ -334,7 +369,21 @@ namespace BotTests
 
             Assert.AreEqual(CommandOutcome.Executed, result.Outcome);
             Assert.AreEqual(1, result.Replies.Count, "The command's reply is captured, not posted.");
-            StringAssert.Contains(result.Replies[0], "reminder");
+            StringAssert.Contains(result.Replies[0].Text, "reminder");
+        }
+
+        [TestMethod]
+        public async Task VirtualInvocation_HelpPageCarriesItsPaginationButtons()
+        {
+            // The invoker acts as the configured bot owner, so the list spans multiple pages —
+            // the interaction reply re-posts the captured buttons, and a click re-enters this seam.
+            var pipeline = new VirtualPipeline { BotOwnerId = InvokerId.ToString() };
+
+            VirtualCommandResult result = await RunAsync(pipeline, pipeline.CreateGuildChannel(), "help 2");
+
+            Assert.AreEqual(CommandOutcome.Executed, result.Outcome);
+            StringAssert.Contains(result.Replies[0].Text, "page 2 of");
+            Assert.IsNotNull(result.Replies[0].Components, "A multi-page help list carries its pagination buttons through the seam.");
         }
 
         [TestMethod]
@@ -361,7 +410,7 @@ namespace BotTests
             VirtualCommandResult result = await RunAsync(pipeline, pipeline.CreateGuildChannel(), "userpermission <@42> 1");
 
             Assert.AreEqual(CommandOutcome.DeniedPermission, result.Outcome);
-            CollectionAssert.AreEqual(new[] { "You are not permitted to use that command" }, (System.Collections.IList)result.Replies);
+            CollectionAssert.AreEqual(new[] { "You are not permitted to use that command" }, (System.Collections.ICollection)result.Replies.Select(reply => reply.Text).ToList());
         }
 
         [TestMethod]
@@ -400,7 +449,7 @@ namespace BotTests
 
             Assert.AreEqual(CommandOutcome.Throttled, result.Outcome);
             Assert.AreEqual(1, result.Replies.Count);
-            StringAssert.Contains(result.Replies[0], "too quickly");
+            StringAssert.Contains(result.Replies[0].Text, "too quickly");
         }
 
         [TestMethod]
@@ -414,7 +463,7 @@ namespace BotTests
 
             Assert.AreEqual(CommandOutcome.Executed, result.Outcome);
             Assert.AreEqual(1, result.Replies.Count);
-            StringAssert.Contains(result.Replies[0], "only available in servers");
+            StringAssert.Contains(result.Replies[0].Text, "only available in servers");
         }
 
         [TestMethod]
@@ -427,7 +476,7 @@ namespace BotTests
 
             Assert.AreEqual(CommandOutcome.Failed, result.Outcome);
             Assert.AreEqual(1, result.Replies.Count);
-            StringAssert.Contains(result.Replies[0], "unexpected error");
+            StringAssert.Contains(result.Replies[0].Text, "unexpected error");
         }
 
         private sealed class ThrowingCommand : ICommand
@@ -454,12 +503,12 @@ namespace BotTests
             // executed against a real database: the mention parses, the tier applies.
             VirtualCommandResult slashResult = await RunAsync(pipeline, guildChannel, "userpermission <@42> 1");
             Assert.AreEqual(CommandOutcome.Executed, slashResult.Outcome);
-            StringAssert.Contains(slashResult.Replies[0], "Updated permission tier for user <@42> to 1");
+            StringAssert.Contains(slashResult.Replies[0].Text, "Updated permission tier for user <@42> to 1");
 
             var secondPipeline = new VirtualPipeline();
             VirtualCommandResult textResult = await RunAsync(secondPipeline, secondPipeline.CreateGuildChannel(ownerId: InvokerId), "userpermission <@42> 1");
             Assert.AreEqual(slashResult.Outcome, textResult.Outcome);
-            Assert.AreEqual(slashResult.Replies[0], textResult.Replies[0]);
+            Assert.AreEqual(slashResult.Replies[0].Text, textResult.Replies[0].Text);
         }
 
         [TestMethod]
@@ -513,7 +562,7 @@ namespace BotTests
             // The two inputs of the interaction handler's reply decision, asserted together:
             // the captured denial text plus the ephemeral outcome mapping.
             Assert.IsTrue(SlashCommandService.IsEphemeralReply(result.Outcome));
-            Assert.AreEqual("You are not permitted to use that command", result.Replies.Single());
+            Assert.AreEqual("You are not permitted to use that command", result.Replies.Single().Text);
         }
 
         // Configuration

@@ -54,22 +54,22 @@ namespace BotTests
         }
 
         /// <summary>A direct-message mock: no guild, so only the configured bot owner can raise a tier.</summary>
-        public static Mock<IMessage> CreateDirectMessage(string content, ulong authorId, List<string> sentMessages, DateTimeOffset? timestamp = null)
+        public static Mock<IMessage> CreateDirectMessage(string content, ulong authorId, List<string> sentMessages, DateTimeOffset? timestamp = null, List<MessageComponent?>? sentComponents = null)
         {
             var channel = new Mock<IMessageChannel>();
-            RecordSends(channel, sentMessages);
+            RecordSends(channel, sentMessages, sentComponents);
 
             return CreateMessage(channel, content, authorId, timestamp);
         }
 
         /// <summary>A guild message mock whose channel belongs to a guild owned by <paramref name="guildOwnerId"/>.</summary>
-        public static Mock<IMessage> CreateGuildMessage(string content, ulong authorId, ulong guildOwnerId, List<string> sentMessages, ulong guildId = DefaultGuildId, DateTimeOffset? timestamp = null, IAttachment? attachment = null)
+        public static Mock<IMessage> CreateGuildMessage(string content, ulong authorId, ulong guildOwnerId, List<string> sentMessages, ulong guildId = DefaultGuildId, DateTimeOffset? timestamp = null, IAttachment? attachment = null, List<MessageComponent?>? sentComponents = null)
         {
-            return CreateGuildMessage(content, authorId, guildOwnerId, sentMessages, attachment is null ? [] : [attachment], guildId, timestamp);
+            return CreateGuildMessage(content, authorId, guildOwnerId, sentMessages, attachment is null ? [] : [attachment], guildId, timestamp, sentComponents);
         }
 
         /// <summary>A guild message mock carrying several attachments (e.g. the avatar/banner rejection cases).</summary>
-        public static Mock<IMessage> CreateGuildMessage(string content, ulong authorId, ulong guildOwnerId, List<string> sentMessages, IAttachment[] attachments, ulong guildId = DefaultGuildId, DateTimeOffset? timestamp = null)
+        public static Mock<IMessage> CreateGuildMessage(string content, ulong authorId, ulong guildOwnerId, List<string> sentMessages, IAttachment[] attachments, ulong guildId = DefaultGuildId, DateTimeOffset? timestamp = null, List<MessageComponent?>? sentComponents = null)
         {
             var guild = new Mock<IGuild>();
             guild.SetupGet(g => g.OwnerId).Returns(guildOwnerId);
@@ -79,7 +79,7 @@ namespace BotTests
             var channel = new Mock<ITextChannel>();
             channel.SetupGet(c => c.GuildId).Returns(guildId);
             channel.SetupGet(c => c.Guild).Returns(guild.Object);
-            RecordSends(channel, sentMessages);
+            RecordSends(channel, sentMessages, sentComponents);
 
             return CreateMessage(channel, content, authorId, timestamp, attachments);
         }
@@ -101,7 +101,7 @@ namespace BotTests
             return message;
         }
 
-        private static void RecordSends<TChannel>(Mock<TChannel> channel, List<string> sentMessages) where TChannel : class, IMessageChannel
+        private static void RecordSends<TChannel>(Mock<TChannel> channel, List<string> sentMessages, List<MessageComponent?>? sentComponents = null) where TChannel : class, IMessageChannel
         {
             channel
                 .Setup(c => c.SendMessageAsync(
@@ -117,7 +117,11 @@ namespace BotTests
                     It.IsAny<MessageFlags>(),
                     It.IsAny<PollProperties?>()))
                 .Callback<string, bool, Embed?, RequestOptions?, AllowedMentions?, MessageReference?, MessageComponent, ISticker[]?, Embed[]?, MessageFlags, PollProperties?>(
-                    (text, _, _, _, _, _, _, _, _, _, _) => sentMessages.Add(text))
+                    (text, _, _, _, _, _, components, _, _, _, _) =>
+                    {
+                        sentMessages.Add(text);
+                        sentComponents?.Add(components);
+                    })
                 .Returns(Task.FromResult<IUserMessage?>(null));
         }
     }

@@ -1,23 +1,33 @@
 using Discord;
+using HambotV2.SlashCommands;
 
 namespace HambotV2.Commands.SystemCommands
 {
     /// <summary>
     /// Lists the commands available to the invoking user, or shows detailed help for one
-    /// command. The list is paginated when it would exceed Discord's message length limit;
-    /// pages are requested with a numeric argument (<c>!help 2</c>). Unknown commands and commands
-    /// above the user's tier get the same generic reply, so the existence of higher-tier commands
-    /// is never revealed.
+    /// command. The list is paginated (10 commands per page); a page is requested with a
+    /// numeric argument (<c>!help 2</c>) or, interactively, with the previous/next buttons
+    /// attached to a multi-page list. The command is exposed on both surfaces — text and
+    /// <c>/help</c> — and unknown commands and commands above the user's tier get the same
+    /// generic reply, so the existence of higher-tier commands is never revealed.
     /// </summary>
     internal class HelpCommand : ICommand
     {
         public string Name => "help";
         public string Description => "List the commands you can use, or show detailed help for one command";
         public string Usage => "help [commandName | pageNumber]";
+
+        public ApplicationCommandDeclaration? ApplicationCommand { get; } = new(
+        [
+            new ApplicationCommandOption("command", "Show detailed help for one command", ApplicationCommandOptionKind.Text, Required: false),
+            new ApplicationCommandOption("page", "The page number of the command list to show", ApplicationCommandOptionKind.Integer, Required: false),
+        ]);
+
         public int DefaultPermissionTier => PermissionTier.Everyone;
 
-        // Discord caps a message at 2000 characters. The budget applies to the command lines only;
-        // the page header and page-hint footer are short enough that the full message stays below the cap.
+        // A page holds at most 10 commands; the character budget below stays as a secondary
+        // guard so a page of long lines still fits Discord's 2000-character message limit.
+        internal const int MaxPageLines = 10;
         internal const int MaxPageLength = 1800;
 
         private readonly ICommandService _commandService;
@@ -48,16 +58,7 @@ namespace HambotV2.Commands.SystemCommands
 
         private async Task SendCommandList(IMessage message, ICommandContext context, int requestedPage)
         {
-            int userTier = context.GetUserEffectiveTier(message.Author.Id);
-
-            var lines = new List<string>();
-            foreach (ICommand command in _commandService.Commands.Values.OrderBy(command => command.Name))
-            {
-                int requiredTier = await _permissionsService.GetCommandRequiredTier(context.GuildId, command, context.DbContext);
-                if (requiredTier <= userTier)
-                    lines.Add($"{context.CommandIdentifier}{command.Name} — {command.Description}");
-            }
-
+            List<string> lines = await GetVisibleCommandLinesAsync(context, message.Author.Id);
             List<string> pages = BuildPages(lines);
 
             if (requestedPage < 1 || requestedPage > pages.Count)
@@ -78,13 +79,31 @@ namespace HambotV2.Commands.SystemCommands
             if (multiPage)
                 pageText += Environment.NewLine + $"Use {context.CommandIdentifier}help <pageNumber> to see another page.";
 
-            await message.Channel.SendMessageAsync(pageText);
+            // The buttons ride along on every surface: a real channel renders them, the
+            // virtual channel captures them for the interaction reply.
+            await message.Channel.SendMessageAsync(pageText, components: HelpPagination.BuildButtons(requestedPage, pages.Count));
+        }
+
+        /// <summary>The alphabetized <c>!name — description</c> lines for the commands the user's tier permits.</summary>
+        private async Task<List<string>> GetVisibleCommandLinesAsync(ICommandContext context, ulong userId)
+        {
+            int userTier = context.GetUserEffectiveTier(userId);
+
+            var lines = new List<string>();
+            foreach (ICommand command in _commandService.Commands.Values.OrderBy(command => command.Name))
+            {
+                int requiredTier = await _permissionsService.GetCommandRequiredTier(context.GuildId, command, context.DbContext);
+                if (requiredTier <= userTier)
+                    lines.Add($"{context.CommandIdentifier}{command.Name} — {command.Description}");
+            }
+
+            return lines;
         }
 
         /// <summary>
-        /// Splits the command lines into pages of at most <paramref name="maxPageLength"/> characters each
-        /// (line breaks included), preserving alphabetical order. A single line always forms a page even
-        /// if it alone exceeds the budget.
+        /// Splits the command lines into pages of at most <see cref="MaxPageLines"/> lines each,
+        /// never exceeding <paramref name="maxPageLength"/> characters per page (line breaks included),
+        /// preserving alphabetical order. A single line always forms a page even if it alone exceeds the budget.
         /// </summary>
         internal static List<string> BuildPages(IReadOnlyList<string> lines, int maxPageLength = MaxPageLength)
         {
@@ -95,7 +114,7 @@ namespace HambotV2.Commands.SystemCommands
             foreach (string line in lines)
             {
                 int additionalLength = line.Length + (current.Count > 0 ? Environment.NewLine.Length : 0);
-                if (current.Count > 0 && currentLength + additionalLength > maxPageLength)
+                if (current.Count >= MaxPageLines || (current.Count > 0 && currentLength + additionalLength > maxPageLength))
                 {
                     pages.Add(string.Join(Environment.NewLine, current));
                     current.Clear();

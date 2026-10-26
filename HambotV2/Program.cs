@@ -88,6 +88,11 @@ namespace HambotV2
             builder.Services.AddSingleton<IVirtualCommandRunner, VirtualCommandRunner>();
             builder.Services.AddSingleton<SlashCommandService>();
 
+            // Interactive help pagination (design §3.15): handles the previous/next buttons on a
+            // multi-page help list through the same virtual-invocation seam as the slash surface.
+            // Attached unconditionally — the buttons ride on text-surface help messages too.
+            builder.Services.AddSingleton<HelpPaginationService>();
+
             // Singleton so the cooldown timestamps are shared across messages; time comes from
             // an injectable TimeProvider for deterministic tests.
             builder.Services.AddSingleton(TimeProvider.System);

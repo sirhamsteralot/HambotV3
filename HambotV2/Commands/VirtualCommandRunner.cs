@@ -15,11 +15,18 @@ namespace HambotV2.Commands
     internal sealed record VirtualCommandInvocation(IUser Author, IMessageChannel OriginChannel, string CommandLine, DateTimeOffset Timestamp);
 
     /// <summary>
+    /// One captured reply of a virtual invocation: the text, plus any message components the
+    /// command attached (e.g. help's pagination buttons) so the origin interaction can re-post
+    /// the reply intact.
+    /// </summary>
+    internal sealed record VirtualCommandReply(string Text, MessageComponent? Components);
+
+    /// <summary>
     /// The captured result of a virtual invocation: the pipeline outcome (the audit outcome
     /// and reply-ephemerality input) and every reply the pipeline sent,
     /// in order, without posting anything to the origin channel.
     /// </summary>
-    internal sealed record VirtualCommandResult(CommandOutcome Outcome, IReadOnlyList<string> Replies);
+    internal sealed record VirtualCommandResult(CommandOutcome Outcome, IReadOnlyList<VirtualCommandReply> Replies);
 
     internal interface IVirtualCommandRunner
     {
