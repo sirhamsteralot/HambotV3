@@ -47,6 +47,9 @@ services:
       Watchdog__CheckIntervalMinutes: ${WATCHDOG_CHECK_INTERVAL_MINUTES:-}
       Watchdog__GatewayDownAlertMinutes: ${WATCHDOG_GATEWAY_DOWN_ALERT_MINUTES:-}
       Watchdog__ReAlertMinutes: ${WATCHDOG_RE_ALERT_MINUTES:-}
+      # Optional: expose the administrative/configuration and user-scoped commands as
+      # Discord slash commands (FR-110, default false).
+      SlashCommands__Enabled: ${SLASH_COMMANDS_ENABLED:-}
     volumes:
       - backups:/app/backups
 

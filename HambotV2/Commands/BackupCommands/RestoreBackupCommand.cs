@@ -1,6 +1,7 @@
 using Discord;
 using HambotV2.Backups;
 using HambotV2.Maintenance;
+using HambotV2.SlashCommands;
 using HambotV2.Watchdog;
 using Npgsql;
 
@@ -35,6 +36,13 @@ namespace HambotV2.Commands.BackupCommands
         public string Description => "Restores a database backup (destructive — requires an explicit confirm step)";
         public string Usage => "restorebackup <name> [confirm]";
         public int DefaultPermissionTier => PermissionTier.BotOwner;
+
+        /// <summary>
+        /// Slash surface (FR-110): the two-step confirmation stays free-form so
+        /// <c>&lt;name&gt; confirm</c> parses exactly as on the text surface.
+        /// </summary>
+        public ApplicationCommandDeclaration? ApplicationCommand =>
+            ApplicationCommandDeclaration.FreeForm("The backup name from the backups list, plus confirm on the confirming invocation");
 
         public async Task ExecuteCommand(IMessage message, ICommandContext context)
         {

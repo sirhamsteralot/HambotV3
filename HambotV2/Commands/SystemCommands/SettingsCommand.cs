@@ -1,5 +1,6 @@
 using Discord;
 using HambotV2.Connections;
+using HambotV2.SlashCommands;
 
 namespace HambotV2.Commands.SystemCommands
 {
@@ -17,6 +18,13 @@ namespace HambotV2.Commands.SystemCommands
         public string Description => "Show this server's bot settings, or set the command identifier or per-tier cooldown overrides";
         public string Usage => "settings [commandidentifier <value>|commandidentifier reset|cooldown <tier> <seconds>|cooldown <tier> reset]";
         public int DefaultPermissionTier => PermissionTier.Admin;
+
+        /// <summary>
+        /// Slash surface (FR-110): the operation stays free-form — the subcommands
+        /// (<c>commandidentifier</c>, <c>cooldown</c>) parse exactly as on the text surface.
+        /// </summary>
+        public ApplicationCommandDeclaration? ApplicationCommand =>
+            ApplicationCommandDeclaration.FreeForm("Omit to show, or: commandidentifier <value>|reset, cooldown <tier> <seconds>|reset");
 
         public async Task ExecuteCommand(IMessage message, ICommandContext context)
         {

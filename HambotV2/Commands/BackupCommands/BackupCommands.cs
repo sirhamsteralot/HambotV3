@@ -1,5 +1,6 @@
 using Discord;
 using HambotV2.Backups;
+using HambotV2.SlashCommands;
 
 namespace HambotV2.Commands.BackupCommands
 {
@@ -23,6 +24,9 @@ namespace HambotV2.Commands.BackupCommands
         public string Description => "Creates a database backup immediately and replies with its name and size";
         public string Usage => "backup";
         public int DefaultPermissionTier => PermissionTier.BotOwner;
+
+        /// <summary>Slash surface (FR-110): administrative, no arguments.</summary>
+        public ApplicationCommandDeclaration? ApplicationCommand => ApplicationCommandDeclaration.NoArguments;
 
         public async Task ExecuteCommand(IMessage message, ICommandContext context)
         {
@@ -66,6 +70,9 @@ namespace HambotV2.Commands.BackupCommands
         public string Description => "Lists the available database backups, newest first";
         public string Usage => "backups";
         public int DefaultPermissionTier => PermissionTier.BotOwner;
+
+        /// <summary>Slash surface (FR-110): administrative, no arguments.</summary>
+        public ApplicationCommandDeclaration? ApplicationCommand => ApplicationCommandDeclaration.NoArguments;
 
         public async Task ExecuteCommand(IMessage message, ICommandContext context)
         {

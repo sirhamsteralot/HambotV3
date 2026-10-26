@@ -1,6 +1,7 @@
 using Discord;
 using HambotV2.Connections;
 using HambotV2.Scheduling;
+using HambotV2.SlashCommands;
 using Microsoft.EntityFrameworkCore;
 
 namespace HambotV2.Commands.ReminderCommands
@@ -24,6 +25,12 @@ namespace HambotV2.Commands.ReminderCommands
         public string Description => "Cancel one of your pending reminders by its number";
         public string Usage => "cancelreminder <number>";
         public int DefaultPermissionTier => PermissionTier.Everyone;
+
+        /// <summary>Slash surface (FR-110): the reminder number picked as an integer.</summary>
+        public ApplicationCommandDeclaration? ApplicationCommand => new(
+        [
+            new ApplicationCommandOption("number", "The number of the reminder to cancel (from the reminders list)", ApplicationCommandOptionKind.Integer),
+        ]);
 
         public async Task ExecuteCommand(IMessage message, ICommandContext context)
         {

@@ -1,6 +1,7 @@
 using Discord;
 using Discord.WebSocket;
 using HambotV2.Commands;
+using HambotV2.SlashCommands;
 
 namespace HambotV2.Connections
 {
@@ -10,15 +11,17 @@ namespace HambotV2.Connections
         private readonly IConfiguration _configuration;
         private readonly IServiceProvider _serviceProvider;
         private readonly IGuildSettingsService _guildSettingsService;
+        private readonly SlashCommandService _slashCommandService;
         private readonly string _logFormat;
         private readonly DiscordSocketClient _client;
 
-        public DiscordClient(ILogger<DiscordClient> logger, IConfiguration configuration, IServiceProvider serviceProvider, IGuildSettingsService guildSettingsService, DiscordSocketClient client)
+        public DiscordClient(ILogger<DiscordClient> logger, IConfiguration configuration, IServiceProvider serviceProvider, IGuildSettingsService guildSettingsService, SlashCommandService slashCommandService, DiscordSocketClient client)
         {
             _logger = logger;
             _configuration = configuration;
             _serviceProvider = serviceProvider;
             _guildSettingsService = guildSettingsService;
+            _slashCommandService = slashCommandService;
             _logFormat = configuration["BotConfiguration:LogFormat"]!;
             // The client comes from DI (shared with ReminderDmSender, container-owned);
             // its gateway intents are configured once at the composition root.
@@ -33,6 +36,11 @@ namespace HambotV2.Connections
             _client.Connected += OnConnected;
             _client.Disconnected += OnDisconnected;
             _client.MessageReceived += OnMessageReceived;
+
+            // Slash surface (design §3.15): subscribing before the first connect means the
+            // registration pass runs as soon as the gateway is ready; disabled by default (FR-110).
+            if (_slashCommandService.Enabled)
+                _slashCommandService.Attach();
 
             await _client.LoginAsync(TokenType.Bot, _configuration["Secrets:BotToken"]);
             await _client.StartAsync();

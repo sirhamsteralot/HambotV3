@@ -1,4 +1,5 @@
 using HambotV2.Connections;
+using HambotV2.SlashCommands;
 
 namespace HambotV2.Commands.SystemCommands
 {
@@ -17,6 +18,9 @@ namespace HambotV2.Commands.SystemCommands
         public override string Name => "avatar";
         public override string Description => "Shows, sets, or resets the bot's profile picture (attach one image or pass an image URL)";
         public override string Usage => "avatar [<image-url> | reset]";
+
+        public override ApplicationCommandDeclaration? ApplicationCommand =>
+            ApplicationCommandDeclaration.FreeForm("Omit to show, an image URL, or reset");
 
         protected override string ResetKeyword => "reset";
         protected override string ImageKind => "avatar";

@@ -1,5 +1,6 @@
 using Discord;
 using HambotV2.Connections;
+using HambotV2.SlashCommands;
 using Microsoft.EntityFrameworkCore;
 
 namespace HambotV2.Commands.ReminderCommands
@@ -16,6 +17,9 @@ namespace HambotV2.Commands.ReminderCommands
         public string Description => "List your pending reminders, soonest first";
         public string Usage => "reminders";
         public int DefaultPermissionTier => PermissionTier.Everyone;
+
+        /// <summary>Slash surface (FR-110): user-scoped, no arguments.</summary>
+        public ApplicationCommandDeclaration? ApplicationCommand => ApplicationCommandDeclaration.NoArguments;
 
         public async Task ExecuteCommand(IMessage message, ICommandContext context)
         {

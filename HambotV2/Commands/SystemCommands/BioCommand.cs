@@ -1,5 +1,6 @@
 using Discord;
 using HambotV2.Connections;
+using HambotV2.SlashCommands;
 
 namespace HambotV2.Commands.SystemCommands
 {
@@ -22,6 +23,13 @@ namespace HambotV2.Commands.SystemCommands
         public string Description => "Shows, sets, or clears the bot's profile \"About Me\" text";
         public string Usage => "bio [<text...> | clear]";
         public int DefaultPermissionTier => PermissionTier.BotOwner;
+
+        /// <summary>
+        /// Slash surface (FR-110): the bio text stays free-form so <c>clear</c> and multi-line
+        /// text parse exactly as on the text surface.
+        /// </summary>
+        public ApplicationCommandDeclaration? ApplicationCommand =>
+            ApplicationCommandDeclaration.FreeForm("Omit to show, the new bio text, or clear");
 
         public async Task ExecuteCommand(IMessage message, ICommandContext context)
         {

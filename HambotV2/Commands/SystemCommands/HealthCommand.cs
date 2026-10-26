@@ -1,4 +1,5 @@
 using Discord;
+using HambotV2.SlashCommands;
 using HambotV2.Watchdog;
 
 namespace HambotV2.Commands.SystemCommands
@@ -23,6 +24,9 @@ namespace HambotV2.Commands.SystemCommands
         public string Description => "Reports the bot's operational state (version, gateway, database, backups, reminders)";
         public string Usage => "health";
         public int DefaultPermissionTier => PermissionTier.BotOwner;
+
+        /// <summary>Slash surface (FR-110): administrative, no arguments.</summary>
+        public ApplicationCommandDeclaration? ApplicationCommand => ApplicationCommandDeclaration.NoArguments;
 
         public async Task ExecuteCommand(IMessage message, ICommandContext context)
         {

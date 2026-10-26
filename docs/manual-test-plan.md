@@ -180,3 +180,20 @@ Requires a second test server the bot is a member of (per-guild applies are visi
 | 11.12 | Same commands in a **DM** | All work — DM-usable (no guild state). |
 | 11.13 | Configure `BotConfiguration:Presence:Type`/`:Text` (and optionally `BotConfiguration:Bio`), restart the bot | The configured activity (and bio) apply once the gateway is ready; a runtime change made before the restart is gone — runtime changes are not persisted. |
 | 11.14 | Set `BotConfiguration:Presence:Type` to an invalid value, restart | Startup fails fast with a critical log line naming `BotConfiguration:Presence:Type`. |
+
+## 12. Slash commands (FR-110–FR-112 / NFR-26)
+
+Set `SlashCommands__Enabled: true` (or `SLASH_COMMANDS_ENABLED=true` in Compose) and restart the bot; the log line "Registered N application commands with Discord." confirms the registration pass. Requires the test account to have the commands visible (global commands can take up to an hour to propagate in the Discord client; re-login refreshes them).
+
+| # | Action | Expected |
+|---|---|---|
+| 12.1 | Type `/` in the test server | The bot's `/` picker shows exactly the administrative/configuration and user-scoped commands (backup, backups, bio, cancelreminder, commandpermission, health, notifychannel, presence, remindme, reminders, restorebackup, settings, userpermission, avatar, banner) — **no** quote, response, `help`, or `version` commands (FR-110). |
+| 12.2 | `/remindme` with arguments `10m water the plants` | Confirmation reply identical to the text surface, posted publicly in the channel. |
+| 12.3 | `/reminders` | Lists your pending reminders, publicly. |
+| 12.4 | `/userpermission` picking a user and tier 1 (as guild owner) | Same reply as `!userpermission <@user> 1`; the tier is set. |
+| 12.5 | Second account runs `/backup` (tier 4 required) | Denial visible **only to the invoker** (ephemeral); no public reply (FR-112). |
+| 12.6 | `/backup` twice within the cooldown window as an allowed user | Ephemeral throttle reply naming the wait; the text surface shows the same shared throttle afterwards (one key per user per command across surfaces). |
+| 12.7 | `/remindme 10m test`, then `!remindme 10m test` again within the window | The text invocation is throttled — slash and text share the cooldown (NFR-12). |
+| 12.8 | `/userpermission` in a **DM** | "This command manages per-server state and is only available in servers" — the DM scope applies (FR-25). `/reminders` in a DM works. |
+| 12.9 | `/restorebackup <name>` without confirm | The destructive-restore warning, same as the text surface. |
+| 12.10 | Set `SlashCommands__Enabled: false`, restart | Nothing registers; the `/` picker keeps stale commands until the next enabled boot's bulk overwrite removes them (the overwrite runs only when enabled — re-enable once before production to clear). Text surface unaffected throughout. |

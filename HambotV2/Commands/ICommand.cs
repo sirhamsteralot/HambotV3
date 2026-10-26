@@ -1,4 +1,5 @@
 using Discord;
+using HambotV2.SlashCommands;
 
 namespace HambotV2.Commands
 {
@@ -15,6 +16,14 @@ namespace HambotV2.Commands
 
         /// <summary>Required permission tier when no CommandMetaData override exists in the database (FR-35).</summary>
         int DefaultPermissionTier { get; }
+
+        /// <summary>
+        /// Slash-surface declaration (FR-110): null — the default — keeps the command text-only;
+        /// an instance opts the command into the Discord application-command surface. Only
+        /// administrative/configuration commands and commands acting solely on the invoking user's
+        /// own state declare one (design §3.15).
+        /// </summary>
+        ApplicationCommandDeclaration? ApplicationCommand => null;
 
         Task ExecuteCommand(IMessage message, ICommandContext context);
     }

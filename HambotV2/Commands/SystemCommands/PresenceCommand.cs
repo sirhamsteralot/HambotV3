@@ -1,5 +1,6 @@
 using Discord;
 using HambotV2.Connections;
+using HambotV2.SlashCommands;
 
 namespace HambotV2.Commands.SystemCommands
 {
@@ -21,6 +22,13 @@ namespace HambotV2.Commands.SystemCommands
         public string Description => "Shows, sets, or clears the bot's activity (playing/watching/listening/competing)";
         public string Usage => "presence [<type> <text...> | clear]";
         public int DefaultPermissionTier => PermissionTier.BotOwner;
+
+        /// <summary>
+        /// Slash surface (FR-110): the activity argument line stays free-form so
+        /// <c>&lt;type&gt; &lt;text...&gt;</c> and <c>clear</c> parse exactly as on the text surface.
+        /// </summary>
+        public ApplicationCommandDeclaration? ApplicationCommand =>
+            ApplicationCommandDeclaration.FreeForm("Omit to show, or: playing|watching|listening|competing <text...>, or clear");
 
         public async Task ExecuteCommand(IMessage message, ICommandContext context)
         {

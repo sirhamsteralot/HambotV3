@@ -1,4 +1,5 @@
 using HambotV2.Connections;
+using HambotV2.SlashCommands;
 
 namespace HambotV2.Commands.SystemCommands
 {
@@ -16,6 +17,9 @@ namespace HambotV2.Commands.SystemCommands
         public override string Name => "banner";
         public override string Description => "Shows, sets, or clears the bot's profile banner (attach one image or pass an image URL)";
         public override string Usage => "banner [<image-url> | clear]";
+
+        public override ApplicationCommandDeclaration? ApplicationCommand =>
+            ApplicationCommandDeclaration.FreeForm("Omit to show, an image URL, or clear");
 
         protected override string ResetKeyword => "clear";
         protected override string ImageKind => "banner";
