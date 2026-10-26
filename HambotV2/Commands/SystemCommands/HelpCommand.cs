@@ -4,15 +4,21 @@ namespace HambotV2.Commands.SystemCommands
 {
     /// <summary>
     /// Lists the commands available to the invoking user, or shows detailed help for one command
-    /// (FR-38 to FR-40). Unknown commands and commands above the user's tier get
-    /// the same generic reply, so the existence of higher-tier commands is never revealed.
+    /// (FR-38 to FR-40). The list is paginated when it would exceed Discord's message length limit;
+    /// pages are requested with a numeric argument (<c>!help 2</c>). Unknown commands and commands
+    /// above the user's tier get the same generic reply, so the existence of higher-tier commands
+    /// is never revealed.
     /// </summary>
     internal class HelpCommand : ICommand
     {
         public string Name => "help";
         public string Description => "List the commands you can use, or show detailed help for one command";
-        public string Usage => "help [commandName]";
+        public string Usage => "help [commandName | pageNumber]";
         public int DefaultPermissionTier => PermissionTier.Everyone;
+
+        // Discord caps a message at 2000 characters. The budget applies to the command lines only;
+        // the page header and page-hint footer are short enough that the full message stays below the cap.
+        internal const int MaxPageLength = 1800;
 
         private readonly ICommandService _commandService;
         private readonly IPermissionsService _permissionsService;
@@ -27,17 +33,24 @@ namespace HambotV2.Commands.SystemCommands
         {
             var arguments = CommandArguments.Parse(message.Content);
 
-            if (arguments.Get(0) is string requestedCommandName)
-                await SendCommandHelp(message, context, requestedCommandName);
+            if (arguments.Get(0) is string firstArgument)
+            {
+                if (int.TryParse(firstArgument, out int requestedPage))
+                    await SendCommandList(message, context, requestedPage);
+                else
+                    await SendCommandHelp(message, context, firstArgument);
+            }
             else
-                await SendCommandList(message, context);
+            {
+                await SendCommandList(message, context, requestedPage: 1);
+            }
         }
 
-        private async Task SendCommandList(IMessage message, ICommandContext context)
+        private async Task SendCommandList(IMessage message, ICommandContext context, int requestedPage)
         {
             int userTier = context.GetUserEffectiveTier(message.Author.Id);
 
-            var lines = new List<string> { "Available commands:" };
+            var lines = new List<string>();
             foreach (ICommand command in _commandService.Commands.Values.OrderBy(command => command.Name))
             {
                 int requiredTier = await _permissionsService.GetCommandRequiredTier(context.GuildId, command, context.DbContext);
@@ -45,7 +58,58 @@ namespace HambotV2.Commands.SystemCommands
                     lines.Add($"{context.CommandIdentifier}{command.Name} — {command.Description}");
             }
 
-            await message.Channel.SendMessageAsync(string.Join(Environment.NewLine, lines));
+            List<string> pages = BuildPages(lines);
+
+            if (requestedPage < 1 || requestedPage > pages.Count)
+            {
+                await message.Channel.SendMessageAsync(
+                    pages.Count == 0
+                        ? "There are no commands available to you"
+                        : $"There is no page {requestedPage}; the command list has {pages.Count} page(s)");
+                return;
+            }
+
+            bool multiPage = pages.Count > 1;
+            string header = multiPage
+                ? $"Available commands (page {requestedPage} of {pages.Count}):"
+                : "Available commands:";
+
+            string pageText = header + Environment.NewLine + pages[requestedPage - 1];
+            if (multiPage)
+                pageText += Environment.NewLine + $"Use {context.CommandIdentifier}help <pageNumber> to see another page.";
+
+            await message.Channel.SendMessageAsync(pageText);
+        }
+
+        /// <summary>
+        /// Splits the command lines into pages of at most <paramref name="maxPageLength"/> characters each
+        /// (line breaks included), preserving alphabetical order. A single line always forms a page even
+        /// if it alone exceeds the budget.
+        /// </summary>
+        internal static List<string> BuildPages(IReadOnlyList<string> lines, int maxPageLength = MaxPageLength)
+        {
+            var pages = new List<string>();
+            var current = new List<string>();
+            int currentLength = 0;
+
+            foreach (string line in lines)
+            {
+                int additionalLength = line.Length + (current.Count > 0 ? Environment.NewLine.Length : 0);
+                if (current.Count > 0 && currentLength + additionalLength > maxPageLength)
+                {
+                    pages.Add(string.Join(Environment.NewLine, current));
+                    current.Clear();
+                    currentLength = 0;
+                }
+
+                current.Add(line);
+                currentLength += line.Length + (current.Count > 1 ? Environment.NewLine.Length : 0);
+            }
+
+            if (current.Count > 0)
+                pages.Add(string.Join(Environment.NewLine, current));
+
+            return pages;
         }
 
         private async Task SendCommandHelp(IMessage message, ICommandContext context, string requestedCommandName)
