@@ -19,6 +19,8 @@ Safety properties:
 - After starting the new container, the script waits for the database healthcheck and the bot's known startup lines (`Database migrations applied successfully`, `Discord gateway connection established.`, and `Bot version: <version>` matching the deployed tag + commit); if they don't appear in time, it rolls back to the previously running image and the Jenkins job fails.
 - Secrets never pass through Jenkins: the production `.env` (gitignored) lives on the server next to `docker-compose.yml` and is read by Compose there.
 
+Besides this build/test/deploy pipeline, a second **scheduled** pipeline — [`Jenkinsfile.security`](../Jenkinsfile.security) — runs a weekly dependency security scan (SBOM + CVE report, never deploys). See [§10](#10-the-weekly-dependency-security-scan-job).
+
 ## Setup in the order you'll do it
 
 The steps below are chronological — each one depends on the previous:
@@ -39,6 +41,7 @@ The steps below are chronological — each one depends on the previous:
 - A production host with **Docker + the Compose plugin** and **git**, reachable from the Jenkins agent over SSH.
 - The **.NET 10 SDK** (`10.0.x`) for the Jenkins agent.
 - Git credentials for this repository in Jenkins (or a public repo).
+- For the weekly scan job (§10) only: **Docker** on the Jenkins agent itself, **jq**, and outbound network access to NuGet, GitHub releases, and `ghcr.io` (the Trivy vulnerability DB).
 
 ## 1. Prepare the production server
 
@@ -208,6 +211,43 @@ Caveats:
 - `docker compose down` without `-v` keeps the `db-data` volume, so quotes, permissions, and reminders survive; with `-v` they are gone permanently.
 - Stopping the **database** alone is possible (`docker compose stop db`), but pointless for maintenance — the bot's `depends_on: service_healthy` will keep it from starting (or restart-loop on an unhealthy db) until Postgres is back.
 
+## 10. The weekly dependency security scan job
+
+A second, **scheduled** pipeline runs the weekly dependency security scan: it inventories what is actually deployed (per-project NuGet SBOMs plus the Docker image) and checks it against known CVEs. It **never deploys and never touches the running stack** — it has no Deploy stage, and the job deliberately holds no deploy or bot credentials (FR-121). Requirements: FR-121–FR-126 / NFR-27–NFR-28 in [`software-requirements.md`](software-requirements.md); design: §5.3 in [`software-design.md`](software-design.md).
+
+### What the scan pipeline does
+
+| Stage | What happens |
+|---|---|
+| **Build** | Same command and warning policy as the main pipeline's Build stage — the scan sees the tree exactly as CI builds it. No tests. |
+| **SBOM** | Installs the pinned `dotnet CycloneDX` tool and Trivy **into the workspace** (no global agent state, cleaned with the workspace) and generates one CycloneDX JSON SBOM per project: `sbom.hambotv2.cdx.json` (the deployed image's NuGet package set) and `sbom.bottests.cdx.json` (informational). |
+| **Image** | `docker build` + `docker save` the deployment image under a scan-only tag — the only way to cover what the NuGet graph cannot see: the ASP.NET Core runtime base layers and the apt-installed `postgresql-client-17`. The image is never pushed, never started, and removed in `post`. |
+| **Scan** | Trivy scans both SBOMs and the saved image (`--input`, no Docker socket access needed), emitting one JSON CVE report per input plus the image's own CycloneDX SBOM (`sbom.image.cdx.json`). All scans run with `--exit-code 0`, so findings never fail a stage — but a tool or vulnerability-DB failure does fail the build, so a broken scan is red, not silent. |
+| **Report** | Prints a per-report severity summary and the list of high/critical findings to the build output, and applies the result policy (below). |
+
+Artifacts archived per build under `security/`: the three SBOMs, the three CVE reports, and the deployed-tree high/critical count.
+
+### Result policy
+
+- **Low/medium findings**: informational only — the build stays green.
+- **HIGH or CRITICAL in the deployed tree** (the `HambotV2` SBOM or the image scan): the build is marked **UNSTABLE — never FAILED** — so the yellow badge is visible in the Jenkins UI without blocking history or re-runs.
+- **`BotTests` findings**: archived and reported, but never affect the build result (test-only packages never reach the deployed image).
+- There is no Discord/notification-channel route: the pipeline deliberately holds no bot credentials, so findings surface through the Jenkins build status, the build-output summary, and Jenkins email if the controller is configured for it.
+
+### Creating the job
+
+1. New Item → **Pipeline** (a plain pipeline job, *not* multibranch — the scan always checks out `master` on a schedule and builds no tags).
+2. **Pipeline** → *Definition*: "Pipeline script from SCM" → point it at this repository (same git credentials as the main job) → **Script Path**: `Jenkinsfile.security`.
+3. **Build Triggers**: nothing — the cron trigger lives in the pipeline itself (`0 4 * * 0`, Sundays 04:00). Jenkins evaluates cron in the **controller's timezone**: FR-121 specifies 04:00 UTC, so run the controller on UTC or adjust the expression. The trigger only registers after the pipeline has run once — kick a first build manually after creating the job.
+4. **Do not attach any credentials to this job.** No deploy SSH key, no bot token — the scan is isolated by construction (FR-121).
+5. **Discard old builds**: enable it and keep the **artifacts** for at least ~26 builds (six months of weekly history — enough to see when a vulnerability entered or left the tree, FR-125); build logs can rotate earlier.
+
+Run the job once manually and verify: the five stages run, the `security/` artifacts appear under the build, the build-output summary lists severities, and (unless the tree is already clean) the result matches the policy. That live run is the feature's acceptance verification (NFR-28) — after it, remove the **(planned)** marker from design §5.3 and fold the as-built behavior into the docs per [`roadmap.md`](roadmap.md).
+
+### Keeping the scan current
+
+The tool versions are pinned in `Jenkinsfile.security`'s `environment` block so results stay comparable week over week: bump `CYCLONEDX_VERSION` / `TRIVY_VERSION` deliberately (a new Trivy version also refreshes its vulnerability DB on first run, cached in the agent user's home). The vulnerability DB downloads automatically from `ghcr.io` on the first scan after each DB update — no registration or interaction.
+
 ## Troubleshooting
 
 | Symptom | Likely cause / fix |
@@ -220,4 +260,10 @@ Caveats:
 | `Permission denied (publickey,password)` in the Deploy stage | The server rejected the agent's key. In order of likelihood: `authorized_keys` was never created or doesn't contain the key (§2 step 2 — check `sudo ssh-keygen -lf /home/hambot-deploy/.ssh/authorized_keys`); the private key in the Jenkins credential doesn't match (compare fingerprints, §2/§5); bad ownership/modes make sshd ignore the key under `StrictModes` (`.ssh` 700, `authorized_keys` 600, all owned by the deploy user — the auth log says "bad ownership or modes"); or sshd config (`PubkeyAuthentication no`, an `AllowUsers` list). Check `sudo journalctl -u ssh -n 50` on the server for the exact reason — the Jenkins attempt is the line with `rhost=172.17.0.x`. |
 | `Permission denied` inspecting `~hambot-deploy/.ssh/` as your admin user | Expected — the deploy home is `750` (§1 pitfall). Use `sudo` for all inspection of the deploy user's files. |
 | Deploy fails and Jenkins reports `Deploy verification FAILED` | The bot didn't reach its startup lines in time; the job log includes the last 100 bot log lines, and the previous image was rolled back. Check the bot logs on the server (e.g. a bad token in the server's `.env`). |
+| Scan job: `docker: not found` / `Cannot connect to the Docker daemon` in the Image stage | The scan job needs Docker *on the Jenkins agent* (unlike the main pipeline, which only SSHes to the server). If Jenkins runs in a container, give it access to the host Docker socket (§7 step 5). |
+| Scan job: `jq: not found` in the Report stage | Install `jq` on the agent (e.g. `apt-get install -y jq`) — it parses the CVE reports for the summary and the result policy. |
+| Scan job fails downloading the Trivy vulnerability DB | The agent needs outbound access to `ghcr.io`. The DB is cached in the agent user's home (`~/.cache/trivy`); a stale cache after an interrupted download is the usual fix — delete the directory and re-run. |
+| Scan job: `dotnet-CycloneDX` fails to find a .NET runtime | The pipeline sets `DOTNET_ROLL_FORWARD=Major` so the pinned SBOM tool (built for an older runtime) runs on the agent's .NET 10 — check `DOTNET_ROOT`/`PATH` still point at the SDK install (§3). |
+| Scan job never runs on schedule | The cron trigger registers only after the pipeline has run once from the job — run one manual build after creating the job, and remember the expression is evaluated in the controller's timezone (§10). |
+| Scan build UNSTABLE but nothing seems broken | That is the result policy working: a HIGH/CRITICAL finding in the deployed tree marks the build UNSTABLE by design (§10). The build-output summary lists the findings; the fix is updating the affected package, not re-running. |
 | Host key verification failed after server reinstall | `accept-new` only accepts *new* keys; remove the stale entry from the deploy user's `known_hosts`. |

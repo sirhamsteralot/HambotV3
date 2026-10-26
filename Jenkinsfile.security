@@ -1,0 +1,143 @@
+// Weekly dependency security scan pipeline for HambotV2 (design §5.3, FR-121–FR-126).
+//
+// Point a dedicated Jenkins Pipeline job at this file ("Pipeline script from SCM",
+// script path "Jenkinsfile.security") — NOT the main build/deploy job. The job:
+//   - runs weekly via the cron trigger below (Sundays 04:00 in the controller's
+//     timezone; FR-121 says 04:00 UTC — run the controller on UTC or adjust),
+//   - needs the .NET 10 SDK on its PATH (same install as the main pipeline),
+//   - needs Docker on the agent (build + save the deployment image for scanning),
+//   - needs jq on the agent (report summarizing and the result policy),
+//   - needs outbound network access (NuGet, GitHub releases, the Trivy
+//     vulnerability DB on ghcr.io),
+//   - never deploys anything and deliberately holds no deploy or bot credentials.
+//
+// Schedule and tools are pinned in the environment block below; bump versions
+// deliberately so scan results stay comparable week over week.
+
+pipeline {
+    agent any
+
+    environment {
+        DOTNET_ROOT = '/opt/dotnet10'
+        PATH = "/opt/dotnet10:${env.WORKSPACE}/.tools:${env.PATH}"
+        DOTNET_CLI_TELEMETRY_OPTOUT = '1'
+        DOTNET_NOLOGO = '1'
+        // The pinned CycloneDX tool targets a runtime older than net10; let it
+        // roll forward onto the agent's .NET 10 runtime.
+        DOTNET_ROLL_FORWARD = 'Major'
+
+        CYCLONEDX_VERSION = '6.3.1'
+        TRIVY_VERSION = '0.73.0'
+
+        SCAN_TAG = "hambotv2-scan:${env.BUILD_NUMBER}"
+    }
+
+    options {
+        timestamps()
+        timeout(time: 60, unit: 'MINUTES')
+        disableConcurrentBuilds()
+    }
+
+    triggers {
+        cron('0 4 * * 0')
+    }
+
+    stages {
+        stage('Build') {
+            steps {
+                // Same command and warning policy as the main pipeline's Build
+                // stage, so the scan always sees the tree exactly as CI builds
+                // it. Tests are not run — the scan cares about the dependency
+                // graph, not behavior.
+                sh 'dotnet build HambotV2.sln --configuration Release /warnaserror:nullable'
+            }
+        }
+
+        stage('SBOM') {
+            steps {
+                // Workspace-local tool installs: pinned, non-interactive, no
+                // global agent state, cleaned with the workspace.
+                sh '''
+                    dotnet tool install CycloneDX --version "$CYCLONEDX_VERSION" --tool-path "$WORKSPACE/.tools"
+                    curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b "$WORKSPACE/.tools" "v$TRIVY_VERSION"
+                    mkdir -p security/hambotv2 security/bottests
+                    "$WORKSPACE/.tools/dotnet-CycloneDX" HambotV2/HambotV2.csproj --json -o security/hambotv2
+                    "$WORKSPACE/.tools/dotnet-CycloneDX" BotTests/BotTests.csproj --json -o security/bottests
+                    mv security/hambotv2/bom.json security/sbom.hambotv2.cdx.json
+                    mv security/bottests/bom.json security/sbom.bottests.cdx.json
+                '''
+            }
+        }
+
+        stage('Image') {
+            steps {
+                // Build and save the deployment image for the FR-123 coverage:
+                // the base image layers and apt packages the NuGet graph cannot
+                // see. Scan-only — never pushed, never started, never tagged as
+                // anything the stack uses.
+                sh '''
+                    docker build -f HambotV2/Dockerfile -t "$SCAN_TAG" .
+                    mkdir -p scan-image
+                    docker save "$SCAN_TAG" -o scan-image/hambotv2-image.tar
+                '''
+            }
+        }
+
+        stage('Scan') {
+            steps {
+                // Findings never fail a stage (--exit-code 0, FR-126); tool or
+                // vulnerability-DB failures do, so a broken scan is red in the
+                // Jenkins UI, not silent.
+                sh '''
+                    trivy sbom security/sbom.hambotv2.cdx.json --format json --output security/cve-report.hambotv2.json --exit-code 0
+                    trivy sbom security/sbom.bottests.cdx.json --format json --output security/cve-report.bottests.json --exit-code 0
+                    trivy image --input scan-image/hambotv2-image.tar --scanners vuln --format json --output security/cve-report.image.json --exit-code 0
+                    trivy image --input scan-image/hambotv2-image.tar --scanners vuln --format cyclonedx --output security/sbom.image.cdx.json --exit-code 0
+                '''
+            }
+        }
+
+        stage('Report') {
+            steps {
+                sh '''
+                    echo "=== Dependency security scan summary ==="
+                    for report in hambotv2 bottests image; do
+                        echo "--- $report ---"
+                        for severity in CRITICAL HIGH MEDIUM LOW UNKNOWN; do
+                            count=$(jq --arg s "$severity" '[.Results[]?.Vulnerabilities[]? | select(.Severity==$s)] | length' "security/cve-report.$report.json")
+                            echo "$severity: $count"
+                        done
+                        jq -r '.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH" or .Severity=="CRITICAL") | "\\(.Severity) \\(.VulnerabilityID) \\(.PkgName) \\(.InstalledVersion) -> fixed \\(.FixedVersion // "unknown")"' "security/cve-report.$report.json" || true
+                    done
+                    # The result policy gates on the deployed tree only: the
+                    # HambotV2 SBOM and the image. BotTests findings are
+                    # informational (FR-126).
+                    jq -s '[.[] | .Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH" or .Severity=="CRITICAL")] | length' security/cve-report.hambotv2.json security/cve-report.image.json > security/deployed-high-critical-count.txt
+                '''
+                script {
+                    def deployedFindings = readFile('security/deployed-high-critical-count.txt').trim().toInteger()
+                    if (deployedFindings > 0) {
+                        // UNSTABLE, never FAILED (FR-126): findings are visible
+                        // in the Jenkins build status without blocking build
+                        // history or re-runs.
+                        currentBuild.result = 'UNSTABLE'
+                        echo "HIGH/CRITICAL findings in the deployed dependency tree: ${deployedFindings}"
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            // Keep partial artifacts (SBOMs, whatever reports exist) for
+            // debugging even when a stage fails mid-pipeline.
+            archiveArtifacts artifacts: 'security/**', allowEmptyArchive: true
+            sh 'docker rmi -f "$SCAN_TAG" || true'
+        }
+
+        cleanup {
+            cleanWs notFailBuild: true
+        }
+    }
+}
