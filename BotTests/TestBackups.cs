@@ -17,12 +17,6 @@ using Moq;
 
 namespace BotTests
 {
-    /// <summary>
-    /// The backup-management commands (FR-96–FR-98, NFR-22): on-demand trigger and reply, list
-    /// behavior and cap, the two-step restore confirmation, maintenance-mode gating of other
-    /// commands and deferred reminder deliveries, the tier-4 gate, DM availability, and failure
-    /// replies — all against a fake <see cref="IBackupManager"/> behind the process boundary.
-    /// </summary>
     [TestClass]
     public sealed class TestBackups
     {
@@ -30,7 +24,7 @@ namespace BotTests
         private const ulong AuthorId = 200;
         private const ulong BotOwnerId = 250;
 
-        /// <summary>Backup manager double: canned list, counted calls, injectable failures (NFR-22).</summary>
+        /// <summary>Backup manager double: canned list, counted calls, injectable failures.</summary>
         private sealed class FakeBackupManager : IBackupManager
         {
             public List<BackupInfo> Backups { get; } = new();
@@ -86,13 +80,10 @@ namespace BotTests
             return sentMessages;
         }
 
-        // --- The shared status file (§5.2/§3.13): the sidecar writes, the bot reads ---
-
         [TestMethod]
         public void BackupStatusFileReader_Reads_The_Sidecar_Status_File()
         {
             // The exact shape scripts/backup/run-backup.sh writes (jq camelCase JSON) — the
-            // round-trip contract between the sidecar and !health/the watchdog (FR-100/FR-101).
             string directory = Path.Combine(Path.GetTempPath(), "hambotv2-test-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(directory);
             try
@@ -148,10 +139,8 @@ namespace BotTests
             Assert.IsNull(reader.Read(), "No sidecar deployment means no status — not an error");
         }
 
-        // --- Registration contract (FR-96–FR-98) ---
-
         [TestMethod]
-        public void Backup_Commands_Are_Registered_With_Help_Text_And_Bot_Owner_Tier()
+        public void Backup_Commands_Are_Registered_With_Bot_Owner_Tier()
         {
             var commandService = new CommandService();
             commandService.RegisterCommands();
@@ -159,14 +148,9 @@ namespace BotTests
             foreach (string name in new[] { "backup", "backups", "restorebackup" })
             {
                 Assert.IsTrue(commandService.Commands.TryGetValue(name, out ICommand? command), $"!{name} must be registered");
-                Assert.AreEqual(name, command.Name.ToLower(), "Command names must be lowercase");
-                Assert.IsFalse(string.IsNullOrWhiteSpace(command.Description), $"!{name} needs help text (FR-39)");
-                Assert.IsFalse(string.IsNullOrWhiteSpace(command.Usage), $"!{name} needs usage text (FR-39)");
-                Assert.AreEqual(PermissionTier.BotOwner, command.DefaultPermissionTier, $"!{name} must default to bot owner tier (FR-41)");
+                Assert.AreEqual(PermissionTier.BotOwner, command.DefaultPermissionTier, $"!{name} must default to bot owner tier");
             }
         }
-
-        // --- !backup (FR-96) ---
 
         [TestMethod]
         public async Task Backup_Triggers_An_On_Demand_Backup_And_Replies_With_Name_And_Size()
@@ -178,8 +162,8 @@ namespace BotTests
 
             Assert.AreEqual(1, manager.CreateCalls, "The command must trigger exactly one backup");
             Assert.AreEqual(1, replies.Count);
-            StringAssert.Contains(replies[0], "hambotv2-test-1.dump", "The reply must name the dump (FR-96)");
-            StringAssert.Contains(replies[0], "2 KB", "The reply must state the dump's size (FR-96)");
+            StringAssert.Contains(replies[0], "hambotv2-test-1.dump", "The reply must name the dump");
+            StringAssert.Contains(replies[0], "2 KB", "The reply must state the dump's size");
         }
 
         [TestMethod]
@@ -191,7 +175,7 @@ namespace BotTests
             List<string> replies = await ExecuteAsync(command, "!backup");
 
             Assert.AreEqual(1, replies.Count);
-            StringAssert.Contains(replies[0], "backup failed", "A failure must produce an in-channel error (FR-96)");
+            StringAssert.Contains(replies[0], "backup failed", "A failure must produce an in-channel error");
         }
 
         [TestMethod]
@@ -202,7 +186,7 @@ namespace BotTests
 
             List<string> replies = await ExecuteAsync(command, "!backup", guildId: null);
 
-            Assert.AreEqual(1, manager.CreateCalls, "A global operation must work from DMs (FR-25)");
+            Assert.AreEqual(1, manager.CreateCalls, "A global operation must work from DMs");
             Assert.AreEqual(1, replies.Count);
         }
 
@@ -220,10 +204,8 @@ namespace BotTests
 
             var botOwnerOverrides = new TierOverrides { BotOwnerId = BotOwnerId };
             Assert.IsTrue((await permissionsService.CheckUserPermissions(BotOwnerId, GuildId, botOwnerOverrides, command, database)).IsAllowed,
-                "The configured bot owner must reach tier 4 (FR-41)");
+                "The configured bot owner must reach tier 4");
         }
-
-        // --- !backups (FR-97) ---
 
         [TestMethod]
         public async Task Backups_Lists_Newest_First_With_Name_Timestamp_And_Size()
@@ -240,7 +222,7 @@ namespace BotTests
             StringAssert.Contains(replies[0], "hambotv2-2.dump");
             int newestIndex = replies[0].IndexOf("hambotv2-2.dump", StringComparison.Ordinal);
             int oldestIndex = replies[0].IndexOf("hambotv2-0.dump", StringComparison.Ordinal);
-            Assert.IsTrue(newestIndex < oldestIndex, "The list must be newest first (FR-97)");
+            Assert.IsTrue(newestIndex < oldestIndex, "The list must be newest first");
         }
 
         [TestMethod]
@@ -251,7 +233,7 @@ namespace BotTests
             List<string> replies = await ExecuteAsync(command, "!backups");
 
             Assert.AreEqual(1, replies.Count);
-            StringAssert.Contains(replies[0], "no backups", "An empty directory is not an error (FR-97)");
+            StringAssert.Contains(replies[0], "no backups", "An empty directory is not an error");
         }
 
         [TestMethod]
@@ -267,10 +249,8 @@ namespace BotTests
 
             StringAssert.Contains(replies[0], "hambotv2-11.dump", "The newest entry must be listed");
             StringAssert.DoesNotMatch(replies[0], new System.Text.RegularExpressions.Regex("hambotv2-0\\.dump"));
-            StringAssert.Contains(replies[0], "2 older backups", "The reply must name how many were cut (FR-97)");
+            StringAssert.Contains(replies[0], "2 older backups", "The reply must name how many were cut");
         }
-
-        // --- !restorebackup: the two-step confirmation (FR-98) ---
 
         [TestMethod]
         public async Task RestoreBackup_First_Invocation_Warns_And_Demands_Confirm()
@@ -281,7 +261,7 @@ namespace BotTests
 
             List<string> replies = await ExecuteAsync(command, "!restorebackup hambotv2-x.dump");
 
-            Assert.AreEqual(0, manager.RestoreCalls.Count, "The first invocation must not restore (FR-98)");
+            Assert.AreEqual(0, manager.RestoreCalls.Count, "The first invocation must not restore");
             Assert.AreEqual(1, replies.Count);
             StringAssert.Contains(replies[0], "REPLACE ALL CURRENT DATA", "The warning must name the consequences");
             StringAssert.Contains(replies[0], "!restorebackup hambotv2-x.dump confirm", "The warning must teach the confirm step");
@@ -324,11 +304,11 @@ namespace BotTests
             List<string> replies = await ExecuteAsync(command, "!restorebackup hambotv2-x.dump confirm", guildSettings);
 
             CollectionAssert.AreEqual(new[] { "hambotv2-x.dump" }, manager.RestoreCalls, "The confirmed invocation must restore the named backup");
-            Assert.IsFalse(maintenance.IsActive, "Maintenance mode must end after the restore (FR-98)");
+            Assert.IsFalse(maintenance.IsActive, "Maintenance mode must end after the restore");
             StringAssert.Contains(replies[0], "restored successfully");
             guildSettings.Verify(settings => settings.InvalidateCache(), Times.Once,
-                "Caches derived from the database must be invalidated after a restore (FR-98)");
-            Assert.IsTrue(publisher.Published.Any(message => message.Contains("Maintenance mode")), "The restore must notify the operator channel (FR-118)");
+                "Caches derived from the database must be invalidated after a restore");
+            Assert.IsTrue(publisher.Published.Any(message => message.Contains("Maintenance mode")), "The restore must notify the operator channel");
         }
 
         [TestMethod]
@@ -341,14 +321,12 @@ namespace BotTests
 
             List<string> replies = await ExecuteAsync(command, "!restorebackup hambotv2-x.dump confirm");
 
-            Assert.IsFalse(maintenance.IsActive, "Maintenance mode must end even on failure (FR-98)");
+            Assert.IsFalse(maintenance.IsActive, "Maintenance mode must end even on failure");
             Assert.AreEqual(1, replies.Count);
             StringAssert.Contains(replies[0], "restore failed", "A restore failure must produce an in-channel error");
             StringAssert.DoesNotMatch(replies[0], new System.Text.RegularExpressions.Regex("restore broke"),
-                "Exception details must not be exposed in-channel (FR-15)");
+                "Exception details must not be exposed in-channel");
         }
-
-        // --- Maintenance-mode gating through the command pipeline (FR-98) ---
 
         /// <summary>A full pipeline over the real command registry with a controllable maintenance flag.</summary>
         private sealed class PipelineHarness
@@ -413,7 +391,7 @@ namespace BotTests
             List<string> replies = await harness.HandleAsync("!hello", BotOwnerId);
 
             Assert.AreEqual(1, replies.Count);
-            StringAssert.Contains(replies[0], "maintenance mode", "Other commands must decline during a restore (FR-98)");
+            StringAssert.Contains(replies[0], "maintenance mode", "Other commands must decline during a restore");
         }
 
         [TestMethod]
@@ -427,7 +405,7 @@ namespace BotTests
             List<string> replies = await harness.HandleAsync("!restorebackup x", BotOwnerId);
 
             Assert.AreEqual(1, replies.Count);
-            Assert.IsFalse(replies[0].Contains("maintenance mode"), "The restore command must pass the maintenance gate (FR-98)");
+            Assert.IsFalse(replies[0].Contains("maintenance mode"), "The restore command must pass the maintenance gate");
         }
 
         [TestMethod]
@@ -442,8 +420,6 @@ namespace BotTests
 
             CollectionAssert.AreEqual(new[] { "Hello World" }, replies, "The pipeline must be fully usable again after the restore");
         }
-
-        // --- Deferred reminder deliveries during maintenance (FR-98) ---
 
         private sealed class DeliveryHarness : IDisposable
         {
@@ -528,11 +504,10 @@ namespace BotTests
             }
         }
 
-        /// <summary>
-        /// Polls until the condition holds. Between polls the fake clock is nudged forward one
+        /// <summary>/// Polls until the condition holds. Between polls the fake clock is nudged forward one
         /// second so timer-chained waits (the fallback poll, the maintenance re-check) keep making
         /// progress even while the loop is between awaits on the thread pool.
-        /// </summary>
+        ///</summary>
         private static async Task WaitUntilAsync(Func<bool> condition, FakeTimeProvider time, int timeoutMilliseconds = 10_000)
         {
             for (int attempt = 0; attempt < timeoutMilliseconds / 25 && !condition(); attempt++)
@@ -560,8 +535,8 @@ namespace BotTests
                 harness.Time.Advance(TimeSpan.FromSeconds(1));
             }
 
-            Assert.AreEqual(0, harness.DeliveredMessages.Count, "Deliveries must defer during a restore (FR-98)");
-            Assert.IsTrue(await harness.ReminderIsPendingAsync(), "No reminder may be marked failed due to a running restore (FR-98)");
+            Assert.AreEqual(0, harness.DeliveredMessages.Count, "Deliveries must defer during a restore");
+            Assert.IsTrue(await harness.ReminderIsPendingAsync(), "No reminder may be marked failed due to a running restore");
 
             harness.Maintenance.Exit();
             harness.Signal.NotifyPendingSetChanged();

@@ -3,14 +3,14 @@ using HambotV2.Connections;
 namespace HambotV2.Watchdog
 {
     /// <summary>
-    /// Resolves the operator notification channel (FR-117): the runtime `BotSetting` override
+    /// Resolves the operator notification channel: the runtime `BotSetting` override
     /// persisted by `!notifychannel`, with the optional configuration key
     /// `Notifications:ChannelId` as the default when no override exists. Reading and writing go
     /// through fresh scopes, so this singleton never holds a DbContext.
     /// </summary>
     internal interface INotificationChannelStore
     {
-        /// <summary>The effective channel id, or null when notifications degrade to logs and owner DMs (FR-118).</summary>
+        /// <summary>The effective channel id, or null when notifications degrade to logs and owner DMs.</summary>
         Task<ulong?> GetChannelIdAsync(CancellationToken cancellationToken = default);
 
         /// <summary>
@@ -22,7 +22,7 @@ namespace HambotV2.Watchdog
 
     internal sealed class NotificationChannelStore : INotificationChannelStore
     {
-        /// <summary>The `BotSetting` key holding the runtime notification channel override (FR-117).</summary>
+        /// <summary>The `BotSetting` key holding the runtime notification channel override.</summary>
         internal const string ChannelSettingKey = "NotificationChannelId";
 
         private readonly IServiceScopeFactory _scopeFactory;
@@ -43,7 +43,7 @@ namespace HambotV2.Watchdog
             if (!string.IsNullOrEmpty(stored) && ulong.TryParse(stored, out ulong runtimeChannel))
                 return runtimeChannel;
 
-            // The configuration default applies when no runtime override exists (FR-117).
+            // The configuration default applies when no runtime override exists.
             return ulong.TryParse(_configuration["Notifications:ChannelId"], out ulong configuredChannel)
                 ? configuredChannel
                 : null;
@@ -58,7 +58,7 @@ namespace HambotV2.Watchdog
             if (channelId is null)
             {
                 // "clear": the stored override is removed, so the configuration default (if any)
-                // applies again — nothing is persisted that would shadow it (FR-117).
+                // applies again — nothing is persisted that would shadow it.
                 if (setting is not null)
                     database.BotSettings.Remove(setting);
             }

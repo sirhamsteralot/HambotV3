@@ -7,11 +7,6 @@ using Moq;
 
 namespace BotTests
 {
-    /// <summary>
-    /// The profile image commands (FR-115/FR-116 / NFR-18) over a faked image downloader and a
-    /// mocked presence service. The per-guild apply itself is covered by the service tests in
-    /// <see cref="TestPresence"/>.
-    /// </summary>
     [TestClass]
     public sealed class TestProfileImages
     {
@@ -65,8 +60,6 @@ namespace BotTests
             return sentMessages;
         }
 
-        // --- Image validation (FR-115/FR-116) ---
-
         [TestMethod]
         [DataRow(0)]
         [DataRow(1)]
@@ -96,8 +89,6 @@ namespace BotTests
             StringAssert.Contains(error!, "10 MB");
         }
 
-        // --- Registration contracts ---
-
         [TestMethod]
         public void Avatar_And_Banner_Command_Registration_Contracts()
         {
@@ -106,22 +97,14 @@ namespace BotTests
 
             Assert.AreEqual("avatar", avatar.Name);
             Assert.AreEqual("banner", banner.Name);
-            Assert.IsTrue(avatar.Name == avatar.Name.ToLower());
-            Assert.IsTrue(banner.Name == banner.Name.ToLower());
-            Assert.IsFalse(string.IsNullOrWhiteSpace(avatar.Description));
-            Assert.IsFalse(string.IsNullOrWhiteSpace(avatar.Usage));
-            Assert.IsFalse(string.IsNullOrWhiteSpace(banner.Description));
-            Assert.IsFalse(string.IsNullOrWhiteSpace(banner.Usage));
-            Assert.AreEqual(PermissionTier.BotOwner, avatar.DefaultPermissionTier, "tier 4 (FR-115/FR-116)");
-            Assert.AreEqual(PermissionTier.BotOwner, banner.DefaultPermissionTier, "tier 4 (FR-115/FR-116)");
+            Assert.AreEqual(PermissionTier.BotOwner, avatar.DefaultPermissionTier, "tier 4");
+            Assert.AreEqual(PermissionTier.BotOwner, banner.DefaultPermissionTier, "tier 4");
 
             var commandService = new CommandService();
             commandService.RegisterCommands();
             Assert.IsTrue(commandService.TryGetCommand("!avatar", "!", out _));
             Assert.IsTrue(commandService.TryGetCommand("!banner", "!", out _));
         }
-
-        // --- !avatar (FR-115) ---
 
         [TestMethod]
         public async Task Avatar_Command_Reports_The_Current_Avatar_Url()
@@ -178,7 +161,7 @@ namespace BotTests
             List<string> replies = await ExecuteAsync(command, "!avatar https://images.example.test/picture.png", directMessage: true);
 
             harness.Presence.Verify(p => p.ApplyAvatarAsync(PngBytes), Times.Once);
-            Assert.AreEqual(1, replies.Count, "the commands touch no guild state, so they answer in DMs (FR-115)");
+            Assert.AreEqual(1, replies.Count, "the commands touch no guild state, so they answer in DMs");
             StringAssert.Contains(replies[0], "updated");
         }
 
@@ -199,8 +182,8 @@ namespace BotTests
             List<string> replies = await ExecuteAsync(command, content);
 
             StringAssert.Contains(replies[0], "not a PNG, JPEG, or GIF image", "the validation error replies in-channel");
-            harness.Presence.Verify(p => p.ApplyAvatarAsync(It.IsAny<byte[]>()), Times.Never, "nothing is applied (FR-115)");
-            harness.Presence.Verify(p => p.ApplyBannerAsync(It.IsAny<byte[]>()), Times.Never, "nothing is applied (FR-116)");
+            harness.Presence.Verify(p => p.ApplyAvatarAsync(It.IsAny<byte[]>()), Times.Never, "nothing is applied");
+            harness.Presence.Verify(p => p.ApplyBannerAsync(It.IsAny<byte[]>()), Times.Never, "nothing is applied");
         }
 
         [TestMethod]
@@ -295,7 +278,7 @@ namespace BotTests
 
             List<string> replies = await ExecuteAsync(command, "!avatar https://images.example.test/avatar.png");
 
-            StringAssert.Contains(replies[0], "Failed to update", "apply failures reply in-channel (FR-115)");
+            StringAssert.Contains(replies[0], "Failed to update", "apply failures reply in-channel");
         }
 
         [TestMethod]
@@ -308,8 +291,6 @@ namespace BotTests
             Assert.AreEqual(1, replies.Count);
             StringAssert.Contains(replies[0], "not configured");
         }
-
-        // --- !banner (FR-116) ---
 
         [TestMethod]
         public async Task Banner_Command_Reports_The_Current_Banner_Url_Or_That_None_Is_Set()

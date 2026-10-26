@@ -3,8 +3,8 @@ using Discord;
 namespace HambotV2.Commands.SystemCommands
 {
     /// <summary>
-    /// Lists the commands available to the invoking user, or shows detailed help for one command
-    /// (FR-38 to FR-40). The list is paginated when it would exceed Discord's message length limit;
+    /// Lists the commands available to the invoking user, or shows detailed help for one
+    /// command. The list is paginated when it would exceed Discord's message length limit;
     /// pages are requested with a numeric argument (<c>!help 2</c>). Unknown commands and commands
     /// above the user's tier get the same generic reply, so the existence of higher-tier commands
     /// is never revealed.
@@ -125,7 +125,7 @@ namespace HambotV2.Commands.SystemCommands
 
             if (requiredTier > userTier)
             {
-                // Deliberately identical to the reply for unknown commands (FR-40): the reply must
+                // Deliberately identical to the reply for unknown commands: the reply must
                 // not reveal whether the command exists at a higher tier.
                 await SendGenericUnavailableReply(message);
                 return;

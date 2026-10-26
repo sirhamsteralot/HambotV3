@@ -6,9 +6,9 @@ using Npgsql;
 namespace HambotV2.Watchdog
 {
     /// <summary>
-    /// One capture of the bot's operational state (FR-105): everything the `!health` report shows.
+    /// One capture of the bot's operational state: everything the `!health` report shows.
     /// The string fields are pre-formatted so the command stays a pure formatter, and unit tests
-    /// assert the fields against a fake provider (NFR-23).
+    /// assert the fields against a fake provider.
     /// </summary>
     internal sealed record HealthSnapshot
     {
@@ -24,8 +24,8 @@ namespace HambotV2.Watchdog
 
     /// <summary>
     /// Aggregates the health snapshot from the existing components (§3.13) — nothing is re-probed
-    /// ad hoc by the command. Two consumers share it: `!health` (FR-105) and (indirectly, via the
-    /// same status file) the watchdog (FR-106).
+    /// ad hoc by the command. Two consumers share it: `!health` and (indirectly, via the
+    /// same status file) the watchdog.
     /// </summary>
     internal interface IHealthSnapshotProvider
     {
@@ -87,7 +87,7 @@ namespace HambotV2.Watchdog
             }
             catch (Exception)
             {
-                // The report names the state, not the exception (FR-15 spirit); the watchdog
+                // The report names the state, not the exception details; the watchdog
                 // covers database trouble through its other conditions.
                 return "unreachable";
             }

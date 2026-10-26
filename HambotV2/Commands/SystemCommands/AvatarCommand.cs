@@ -3,7 +3,7 @@ using HambotV2.Connections;
 namespace HambotV2.Commands.SystemCommands
 {
     /// <summary>
-    /// Manages the bot's profile picture (FR-115): show URL, set from one attachment or an image
+    /// Manages the bot's profile picture: show URL, set from one attachment or an image
     /// URL (per guild plus globally), `reset` falls back to the application default. Tier 4,
     /// DM-usable, not persisted.
     /// </summary>

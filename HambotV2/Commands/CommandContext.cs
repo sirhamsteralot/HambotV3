@@ -27,7 +27,7 @@ namespace HambotV2.Commands
 
         public int GetUserEffectiveTier(ulong userDiscordId)
         {
-            // In direct messages everyone acts at owner tier (FR-25); no database read happens.
+            // In direct messages everyone acts at owner tier; no database read happens.
             if (IsDirectMessage)
                 return Overrides.EffectiveTierOf(userDiscordId, PermissionTier.Owner);
 

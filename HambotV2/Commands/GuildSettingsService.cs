@@ -10,7 +10,7 @@ namespace HambotV2.Commands
 
         /// <summary>
         /// The effective command identifier for a guild: its <c>GuildSetting</c> override if set,
-        /// otherwise the global default (FR-26). Results are cached per guild.
+        /// otherwise the global default. Results are cached per guild.
         /// </summary>
         string GetCommandIdentifier(ulong guildId);
 
@@ -23,13 +23,13 @@ namespace HambotV2.Commands
 
         /// <summary>
         /// Drops all cached per-guild identifiers, so the next read comes from the database — used
-        /// after a backup restore replaced the data the cache was derived from (FR-98).
+        /// after a backup restore replaced the data the cache was derived from.
         /// </summary>
         void InvalidateCache();
     }
 
     /// <summary>
-    /// Guild-scoped settings resolution (FR-26): guild overrides with global defaults.
+    /// Guild-scoped settings resolution: guild overrides with global defaults.
     /// The service is a singleton so the resolved identifiers are cached in memory — the per-message
     /// path (gateway pre-filter and command parsing) never queries the database on a cache hit.
     /// </summary>
@@ -78,7 +78,7 @@ namespace HambotV2.Commands
             _identifierCache[guildId] = identifier ?? GlobalCommandIdentifier;
         }
 
-        /// <summary>FR-98: after a restore, the cached identifiers may no longer match the database.</summary>
+        /// <summary>After a restore, the cached identifiers may no longer match the database.</summary>
         public void InvalidateCache()
         {
             _identifierCache.Clear();

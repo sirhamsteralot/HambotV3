@@ -4,7 +4,7 @@ using HambotV2.Connections;
 namespace HambotV2.Commands.SystemCommands
 {
     /// <summary>
-    /// Manages the bot's activity (FR-79): no args report it, `<type> <text...>` applies it, `clear`
+    /// Manages the bot's activity: no args report it, `<type> <text...>` applies it, `clear`
     /// removes it. Tier 4, DM-usable; runtime changes are not persisted — a restart reapplies the
     /// startup configuration.
     /// </summary>

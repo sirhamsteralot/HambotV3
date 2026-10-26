@@ -22,7 +22,7 @@ namespace HambotV2.Connections
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
-            // Per-guild scoping (FR-20/FR-24): tiers and settings are keyed per guild.
+            // Per-guild scoping: tiers and settings are keyed per guild.
             // Rows written before this change sit at the sentinel GuildId 0, which matches no
             // real guild id, so legacy rows are inert (see the PerGuildScoping migration).
             modelBuilder.Entity<User>().HasKey(user => new { user.GuildId, user.DiscordId });
@@ -31,7 +31,7 @@ namespace HambotV2.Connections
             modelBuilder.Entity<Quote>().HasKey(quote => new { quote.GuildId, quote.Number });
             modelBuilder.Entity<CustomResponse>().HasKey(response => new { response.GuildId, response.Name });
             modelBuilder.Entity<Reminder>().HasKey(reminder => new { reminder.OwnerDiscordId, reminder.Number });
-            // Global key-value settings (§3.13, FR-117): the global analog of GuildSetting.
+            // Global key-value settings (§3.13): the global analog of GuildSetting.
             modelBuilder.Entity<BotSetting>().HasKey(setting => setting.Key);
         }
 
@@ -53,7 +53,7 @@ namespace HambotV2.Connections
         {
             public ulong GuildId { get; set; }
 
-            /// <summary>The guild's command identifier override; null means the global default applies (FR-26).</summary>
+            /// <summary>The guild's command identifier override; null means the global default applies.</summary>
             public string? CommandIdentifier { get; set; }
 
             /// <summary>Per-tier cooldown overrides in seconds; null = inherit the global default.</summary>
@@ -85,35 +85,35 @@ namespace HambotV2.Connections
             }
         }
 
-        /// <summary>A stored quote, scoped per guild (FR-42); <see cref="Quote.Number"/> is the per-guild sequential index (FR-43).</summary>
+        /// <summary>A stored quote, scoped per guild; <see cref="Quote.Number"/> is the per-guild sequential index.</summary>
         public class Quote
         {
             public ulong GuildId { get; set; }
 
-            /// <summary>Per-guild sequential number: MAX(Number) + 1 at creation (FR-43); never renumbered on removal.</summary>
+            /// <summary>Per-guild sequential number: MAX(Number) + 1 at creation; never renumbered on removal.</summary>
             public int Number { get; set; }
 
             public string Text { get; set; } = string.Empty;
 
-            /// <summary>Discord ID of the user who added the quote (FR-42).</summary>
+            /// <summary>Discord ID of the user who added the quote.</summary>
             public ulong AddedByDiscordId { get; set; }
 
-            /// <summary>Timestamp of the adding message (FR-42).</summary>
+            /// <summary>Timestamp of the adding message.</summary>
             public DateTime CreatedAt { get; set; }
         }
 
-        /// <summary>A user-defined text response, scoped per guild (FR-51); dispatched when its name matches an otherwise unknown command token (FR-54).</summary>
+        /// <summary>A user-defined text response, scoped per guild; dispatched when its name matches an otherwise unknown command token.</summary>
         public class CustomResponse
         {
             public ulong GuildId { get; set; }
 
-            /// <summary>The response name: a single lowercase token of 1–32 characters — lowercase letters, digits, hyphen, underscore (FR-52).</summary>
+            /// <summary>The response name: a single lowercase token of 1–32 characters — lowercase letters, digits, hyphen, underscore.</summary>
             public string Name { get; set; } = string.Empty;
 
-            /// <summary>The reply text (1–1000 characters, FR-56): plain text only — links are stored verbatim, files are never stored (FR-60).</summary>
+            /// <summary>The reply text (1–1000 characters): plain text only — links are stored verbatim, files are never stored.</summary>
             public string Content { get; set; } = string.Empty;
 
-            /// <summary>Discord ID of the user who last modified the response (FR-51).</summary>
+            /// <summary>Discord ID of the user who last modified the response.</summary>
             public ulong LastModifiedByDiscordId { get; set; }
 
             public DateTime CreatedAt { get; set; }
@@ -121,36 +121,36 @@ namespace HambotV2.Connections
             public DateTime UpdatedAt { get; set; }
         }
 
-        /// <summary>A pending reminder, scoped per user (FR-61): the key carries the owner, so reminders follow them across guilds and direct messages.</summary>
+        /// <summary>A pending reminder, scoped per user: the key carries the owner, so reminders follow them across guilds and direct messages.</summary>
         public class Reminder
         {
-            /// <summary>Discord ID of the user the reminder belongs to and is delivered to (FR-61).</summary>
+            /// <summary>Discord ID of the user the reminder belongs to and is delivered to.</summary>
             public ulong OwnerDiscordId { get; set; }
 
             /// <summary>Per-owner sequential number: MAX(Number) + 1 at creation; never renumbered on cancellation.</summary>
             public int Number { get; set; }
 
-            /// <summary>The reminder text (1–500 characters, FR-62).</summary>
+            /// <summary>The reminder text (1–500 characters,.</summary>
             public string Message { get; set; } = string.Empty;
 
-            /// <summary>Due time, always UTC (FR-61).</summary>
+            /// <summary>Due time, always UTC.</summary>
             public DateTimeOffset DueAtUtc { get; set; }
 
-            /// <summary>Recurrence interval for recurring reminders (FR-107); null = one-shot (the pre-existing rows' value).</summary>
+            /// <summary>Recurrence interval for recurring reminders; null = one-shot (the pre-existing rows' value).</summary>
             public TimeSpan? RecurrenceInterval { get; set; }
 
-            /// <summary>Guild the reminder was created in; null when created in a direct message (FR-61).</summary>
+            /// <summary>Guild the reminder was created in; null when created in a direct message.</summary>
             public ulong? GuildId { get; set; }
 
             public DateTime CreatedAt { get; set; }
 
-            /// <summary>Set when delivery failed after the bounded retries (FR-67); null = pending. Failed rows stay for audit but leave the pending set.</summary>
+            /// <summary>Set when delivery failed after the bounded retries; null = pending. Failed rows stay for audit but leave the pending set.</summary>
             public DateTimeOffset? FailedAtUtc { get; set; }
         }
 
         /// <summary>
         /// A global key-value setting (§3.13): bot-owner-scope state that is not guild- or user-scoped,
-        /// persisted across restarts. First key: the operator notification channel id (FR-117).
+        /// persisted across restarts. First key: the operator notification channel id.
         /// </summary>
         public class BotSetting
         {

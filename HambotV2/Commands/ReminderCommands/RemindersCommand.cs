@@ -6,7 +6,7 @@ namespace HambotV2.Commands.ReminderCommands
 {
     /// <summary>
     /// Lists the invoking user's pending reminders — number, due time, message — soonest first,
-    /// capped at 10 entries (FR-68). User-scoped, so it works in direct messages too (FR-71).
+    /// capped at 10 entries. User-scoped, so it works in direct messages too.
     /// </summary>
     internal sealed class RemindersCommand : ICommand
     {
@@ -19,7 +19,7 @@ namespace HambotV2.Commands.ReminderCommands
 
         public async Task ExecuteCommand(IMessage message, ICommandContext context)
         {
-            // Every query filters by owner (FR-69): users only ever see their own reminders.
+            // Every query filters by owner: users only ever see their own reminders.
             ulong ownerId = message.Author.Id;
 
             var pending = await context.DbContext.Reminders
@@ -37,7 +37,7 @@ namespace HambotV2.Commands.ReminderCommands
 
             IEnumerable<string> lines = pending.Select(reminder =>
             {
-                // Recurring entries are marked with their interval (FR-108), right after the
+                // Recurring entries are marked with their interval, right after the
                 // due time of the current occurrence.
                 string recurrence = reminder.RecurrenceInterval is TimeSpan interval
                     ? $" — repeats every {ReminderIntervalFormat.Format(interval)}"

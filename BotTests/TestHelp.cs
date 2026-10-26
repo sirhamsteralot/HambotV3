@@ -6,10 +6,6 @@ using System.Threading.Tasks;
 
 namespace BotTests
 {
-    /// <summary>
-    /// Behavior of the !help command (FR-38 to FR-40): tier-filtered listing with pagination,
-    /// detailed help, and the generic non-revealing reply for unknown/insufficient-tier commands.
-    /// </summary> 
     [TestClass]
     public sealed class TestHelp
     {
@@ -138,8 +134,6 @@ namespace BotTests
         [TestMethod]
         public async Task Help_Detail_Generic_Reply_Does_Not_Leak_Whether_Command_Exists()
         {
-            // FR-40: the reply for an insufficient-tier command must be indistinguishable from the
-            // reply for a truly unknown command.
             var commandService = CreateRegisteredService();
             var database = DiscordTestDoubles.CreateDatabase();
 
@@ -166,8 +160,6 @@ namespace BotTests
         [TestMethod]
         public async Task Help_In_DirectMessage_Shows_Commands_At_Default_Tiers()
         {
-            // DM scope (FR-25): the user acts at owner tier and command tiers are their built-in
-            // defaults, so a random user sees every command whose default is at most owner.
             var commandService = CreateRegisteredService();
             var database = DiscordTestDoubles.CreateDatabase();
 

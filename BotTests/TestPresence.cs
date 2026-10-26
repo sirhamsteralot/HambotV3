@@ -9,12 +9,6 @@ using Moq;
 
 namespace BotTests
 {
-    /// <summary>
-    /// The presence &amp; profile identity feature (FR-78–FR-80, FR-113 / NFR-18): startup
-    /// configuration parsing and validation, the presence service (deferred apply, single-flight
-    /// serialization, apply failures, per-guild applies, not-persisted-across-restarts), and the
-    /// `!presence`/`!bio` commands. Avatar/banner coverage: <see cref="TestProfileImages"/>.
-    /// </summary>
     [TestClass]
     public sealed class TestPresence
     {
@@ -47,8 +41,6 @@ namespace BotTests
             };
         }
 
-        // --- Startup configuration: parsing & validation (FR-78, FR-113) ---
-
         [TestMethod]
         public void Absent_Presence_And_Bio_Parse_To_No_Startup_Configuration()
         {
@@ -57,7 +49,7 @@ namespace BotTests
 
             Assert.IsTrue(parsed, "absent configuration is valid");
             Assert.AreEqual(0, errors.Count);
-            Assert.IsNull(startup, "no activity is set and the bio is left untouched (FR-78/FR-113)");
+            Assert.IsNull(startup, "no activity is set and the bio is left untouched");
         }
 
         [TestMethod]
@@ -76,7 +68,7 @@ namespace BotTests
             Assert.AreEqual(ActivityType.Watching, startup.Activity!.Type);
             Assert.AreEqual("the logs", startup.Activity.Text);
             Assert.IsTrue(startup.HasBio);
-            Assert.AreEqual("a small hamster\nkeeping the servers running", startup.Bio, "line breaks are allowed (FR-113)");
+            Assert.AreEqual("a small hamster\nkeeping the servers running", startup.Bio, "line breaks are allowed");
         }
 
         [TestMethod]
@@ -89,7 +81,7 @@ namespace BotTests
             PresenceStartupConfiguration.TryParse(BuildConfiguration(values), out _, out List<string> errors);
 
             Assert.AreEqual(1, errors.Count);
-            StringAssert.Contains(errors[0], "BotConfiguration:Presence:Type", "the offending key is named (FR-78)");
+            StringAssert.Contains(errors[0], "BotConfiguration:Presence:Type", "the offending key is named");
         }
 
         [TestMethod]
@@ -122,7 +114,7 @@ namespace BotTests
             overLimit["BotConfiguration:Presence:Text"] = Repeat("x", 129);
             Assert.IsFalse(PresenceStartupConfiguration.TryParse(BuildConfiguration(overLimit), out _, out List<string> overLimitErrors));
             Assert.AreEqual(1, overLimitErrors.Count);
-            StringAssert.Contains(overLimitErrors[0], "BotConfiguration:Presence:Text", "the offending key is named (FR-78)");
+            StringAssert.Contains(overLimitErrors[0], "BotConfiguration:Presence:Text", "the offending key is named");
         }
 
         [TestMethod]
@@ -138,10 +130,8 @@ namespace BotTests
             overLimit["BotConfiguration:Bio"] = Repeat(LongBio, 191);
             Assert.IsFalse(PresenceStartupConfiguration.TryParse(BuildConfiguration(overLimit), out _, out List<string> overLimitErrors));
             Assert.AreEqual(1, overLimitErrors.Count);
-            StringAssert.Contains(overLimitErrors[0], "BotConfiguration:Bio", "the offending key is named (FR-113)");
+            StringAssert.Contains(overLimitErrors[0], "BotConfiguration:Bio", "the offending key is named");
         }
-
-        // --- The presence service (FR-78–FR-80, FR-113) ---
 
         private sealed class FakePresenceGateway : IPresenceGateway
         {
@@ -245,11 +235,11 @@ namespace BotTests
             CollectionAssert.AreEqual(
                 new[] { (ActivityType.Watching, "the logs") },
                 gateway.ActivityCalls.Select(call => (call.Type, call.Text)).ToList(),
-                "the configured activity is applied once the gateway is ready (FR-78)");
+                "the configured activity is applied once the gateway is ready");
             CollectionAssert.AreEqual(
                 new[] { (1UL, "a small hamster"), (2UL, "a small hamster") },
                 gateway.BioCalls.ToList(),
-                "the configured bio is applied in every member guild (FR-113)");
+                "the configured bio is applied in every member guild");
             Assert.AreEqual("a small hamster", service.CurrentBio);
         }
 
@@ -262,7 +252,7 @@ namespace BotTests
 
             await gateway.SimulateReadyAsync();
 
-            Assert.AreEqual(0, gateway.BioCalls.Count, "a restart never wipes a hand-set bio (FR-113)");
+            Assert.AreEqual(0, gateway.BioCalls.Count, "a restart never wipes a hand-set bio");
             Assert.IsNull(service.CurrentBio);
         }
 
@@ -298,7 +288,7 @@ namespace BotTests
             CollectionAssert.AreEqual(
                 new[] { (1UL, "new bio"), (2UL, "new bio") },
                 gateway.BioCalls.ToList(),
-                "runtime bio changes apply in every member guild (FR-113)");
+                "runtime bio changes apply in every member guild");
         }
 
         [TestMethod]
@@ -328,9 +318,9 @@ namespace BotTests
             Task<bool> second = service.ApplyActivityAsync(ActivityType.Watching, "second");
             await Task.WhenAll(first, second);
 
-            Assert.AreEqual(1, gateway.MaxInFlight, "exactly one Discord apply runs at a time (FR-80)");
+            Assert.AreEqual(1, gateway.MaxInFlight, "exactly one Discord apply runs at a time");
             Assert.AreEqual(2, gateway.ActivityCalls.Count);
-            Assert.AreEqual("second", service.CurrentActivity!.Text, "the last request wins (FR-80)");
+            Assert.AreEqual("second", service.CurrentActivity!.Text, "the last request wins");
         }
 
         [TestMethod]
@@ -343,14 +333,13 @@ namespace BotTests
             await gateway.SimulateReadyAsync();
 
             bool activityFailed = await service.ApplyActivityAsync(ActivityType.Playing, "doomed");
-            Assert.IsFalse(activityFailed, "the failure surfaces to the command path as false (FR-80)");
+            Assert.IsFalse(activityFailed, "the failure surfaces to the command path as false");
 
             bool bioPartiallyFailed = await service.ApplyBioAsync("partially applied");
             Assert.IsFalse(bioPartiallyFailed, "a failing guild fails the overall apply");
             CollectionAssert.Contains(gateway.BioCalls.ToList(), (2UL, "partially applied"),
                 "the other guilds are still attempted");
 
-            // The service keeps working after failures — nothing crashed (FR-80).
             gateway.FailingOperations.Clear();
             Assert.IsTrue(await service.ApplyActivityAsync(ActivityType.Playing, "recovered"));
         }
@@ -373,7 +362,7 @@ namespace BotTests
             Assert.AreEqual(
                 ("the logs", ActivityType.Watching),
                 (restartedGateway.ActivityCalls.Single().Text, restartedGateway.ActivityCalls.Single().Type),
-                "runtime presence changes are not persisted — the startup configuration reapplies (FR-79)");
+                "runtime presence changes are not persisted — the startup configuration reapplies");
         }
 
         [TestMethod]
@@ -385,8 +374,6 @@ namespace BotTests
             Assert.AreEqual("https://cdn.example.test/a.png", service.CurrentAvatarUrl);
             Assert.AreEqual("https://cdn.example.test/b.png", service.CurrentBannerUrl);
         }
-
-        // --- !presence (FR-79) ---
 
         private static async Task<List<string>> ExecuteCommandAsync(ICommand command, string content, bool directMessage = false)
         {
@@ -406,10 +393,7 @@ namespace BotTests
             var command = new PresenceCommand();
 
             Assert.AreEqual("presence", command.Name);
-            Assert.IsTrue(command.Name == command.Name.ToLower(), "command names must be lowercase");
-            Assert.IsFalse(string.IsNullOrWhiteSpace(command.Description), "help text is required (FR-39)");
-            Assert.IsFalse(string.IsNullOrWhiteSpace(command.Usage), "help text is required (FR-39)");
-            Assert.AreEqual(PermissionTier.BotOwner, command.DefaultPermissionTier, "presence is a global bot identity — tier 4 (FR-79)");
+            Assert.AreEqual(PermissionTier.BotOwner, command.DefaultPermissionTier, "presence is a global bot identity — tier 4");
 
             var commandService = new CommandService();
             commandService.RegisterCommands();
@@ -465,7 +449,7 @@ namespace BotTests
 
             List<string> replies = await ExecuteCommandAsync(command, "!presence playing chess", directMessage: true);
 
-            Assert.AreEqual(1, replies.Count, "presence touches no guild state, so it answers in DMs too (FR-25)");
+            Assert.AreEqual(1, replies.Count, "presence touches no guild state, so it answers in DMs too");
             StringAssert.Contains(replies[0], "playing chess");
         }
 
@@ -480,7 +464,7 @@ namespace BotTests
             List<string> replies = await ExecuteCommandAsync(command, $"!presence {content}");
 
             presence.Verify(p => p.ApplyActivityAsync(It.IsAny<ActivityType>(), It.IsAny<string>()), Times.Never,
-                "an invalid type must not touch the service (FR-79)");
+                "an invalid type must not touch the service");
             Assert.AreEqual(1, replies.Count);
             StringAssert.Contains(replies[0], "Unknown activity type");
         }
@@ -527,7 +511,7 @@ namespace BotTests
             List<string> replies = await ExecuteCommandAsync(command, "!presence playing chess");
 
             Assert.AreEqual(1, replies.Count);
-            StringAssert.Contains(replies[0], "Failed to update", "the apply failure surfaces as the standard in-channel error (FR-80)");
+            StringAssert.Contains(replies[0], "Failed to update", "the apply failure surfaces as the standard in-channel error");
         }
 
         [TestMethod]
@@ -541,18 +525,13 @@ namespace BotTests
             StringAssert.Contains(replies[0], "not configured");
         }
 
-        // --- !bio (FR-113) ---
-
         [TestMethod]
         public void Bio_Command_Registration_Contract()
         {
             var command = new BioCommand();
 
             Assert.AreEqual("bio", command.Name);
-            Assert.IsTrue(command.Name == command.Name.ToLower());
-            Assert.IsFalse(string.IsNullOrWhiteSpace(command.Description));
-            Assert.IsFalse(string.IsNullOrWhiteSpace(command.Usage));
-            Assert.AreEqual(PermissionTier.BotOwner, command.DefaultPermissionTier, "bio is a global bot identity — tier 4 (FR-113)");
+            Assert.AreEqual(PermissionTier.BotOwner, command.DefaultPermissionTier, "bio is a global bot identity — tier 4");
 
             var commandService = new CommandService();
             commandService.RegisterCommands();
@@ -582,7 +561,7 @@ namespace BotTests
             List<string> replies = await ExecuteCommandAsync(command, "!bio first line\nsecond line");
 
             presence.Verify(p => p.ApplyBioAsync("first line\nsecond line"), Times.Once,
-                "the raw text after the command token is preserved verbatim (FR-113)");
+                "the raw text after the command token is preserved verbatim");
             StringAssert.Contains(replies[0], "first line\nsecond line");
         }
 
@@ -599,7 +578,7 @@ namespace BotTests
 
             List<string> overLimit = await ExecuteCommandAsync(command, $"!bio {Repeat(LongBio, 191)}");
             presence.Verify(p => p.ApplyBioAsync(It.Is<string>(bio => bio.Length == 191)), Times.Never,
-                "over-limit text must not reach the service (FR-113)");
+                "over-limit text must not reach the service");
             StringAssert.Contains(overLimit[0], "at most 190 characters");
         }
 
@@ -616,7 +595,7 @@ namespace BotTests
 
             presence.Setup(p => p.ClearBioAsync()).ReturnsAsync(false);
             List<string> failed = await ExecuteCommandAsync(command, "!bio clear");
-            StringAssert.Contains(failed[0], "Failed to update", "the apply failure surfaces in-channel (FR-80)");
+            StringAssert.Contains(failed[0], "Failed to update", "the apply failure surfaces in-channel");
         }
     }
 }

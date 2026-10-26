@@ -3,7 +3,7 @@ using Discord;
 namespace HambotV2.Commands.SystemCommands
 {
     /// <summary>
-    /// Shows or sets a user's permission tier. Escalation guard (FR-36): the invoking
+    /// Shows or sets a user's permission tier. Escalation guard: the invoking
     /// user may only assign tiers strictly below their own effective tier, and can never modify
     /// their own tier or that of an equal/higher-tiered user. The guild owner always acts at
     /// owner tier, so a fresh guild has a working first admin.
@@ -17,7 +17,7 @@ namespace HambotV2.Commands.SystemCommands
 
         public async Task ExecuteCommand(IMessage message, ICommandContext context)
         {
-            // User tiers are per-guild state; the DM scope (FR-25) has no guild to manage.
+            // User tiers are per-guild state; the DM scope has no guild to manage.
             if (context.GuildId is not ulong guildId)
             {
                 await message.Channel.SendMessageAsync("This command manages per-server state and is only available in servers");

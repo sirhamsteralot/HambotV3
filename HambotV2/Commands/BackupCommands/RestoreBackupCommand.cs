@@ -7,7 +7,7 @@ using Npgsql;
 namespace HambotV2.Commands.BackupCommands
 {
     /// <summary>
-    /// Restores a listed backup into the live database (FR-98) as a two-step, explicitly confirmed
+    /// Restores a listed backup into the live database as a two-step, explicitly confirmed
     /// operation: `!restorebackup &lt;name&gt;` warns that all current data will be replaced and demands the
     /// `confirm` suffix; only `!restorebackup &lt;name&gt; confirm` executes. While the restore runs the
     /// bot is in maintenance mode (other commands decline, scheduled deliveries defer), pooled
@@ -58,7 +58,7 @@ namespace HambotV2.Commands.BackupCommands
                 return;
             }
 
-            // The explicit confirm step (FR-98): the first invocation only warns.
+            // The explicit confirm step: the first invocation only warns.
             if (arguments.Get(1) is not { } secondArgument)
             {
                 await message.Channel.SendMessageAsync(
@@ -90,7 +90,7 @@ namespace HambotV2.Commands.BackupCommands
 
                 await backupManager.RestoreBackupAsync(name);
 
-                // Caches derived from the database may hold pre-restore state (FR-98).
+                // Caches derived from the database may hold pre-restore state.
                 context.GuildSettings.InvalidateCache();
 
                 await message.Channel.SendMessageAsync($"Backup '{name}' restored successfully. The bot is back in normal operation.");
@@ -98,7 +98,7 @@ namespace HambotV2.Commands.BackupCommands
             }
             catch (Exception)
             {
-                // Exception details go to the log only — never to Discord (FR-15).
+                // Exception details go to the log only — never to Discord.
                 await message.Channel.SendMessageAsync("The restore failed — the database may be in an inconsistent state. " +
                     "Check the bot logs and consider scripts/restore-backup.sh for recovery.");
                 await TryPublishAsync($"Restore FAILED for backup '{name}' — operator attention required; maintenance mode ended.");
@@ -112,7 +112,7 @@ namespace HambotV2.Commands.BackupCommands
         private async Task TryPublishAsync(string notification)
         {
             // Notifications must never affect the restore; the publisher never throws by contract,
-            // but the restore must not depend on it (FR-118).
+            // but the restore must not depend on it.
             try
             {
                 if (_notificationPublisher is not null)

@@ -17,7 +17,7 @@ namespace HambotV2.Commands.SystemCommands
 
         public async Task ExecuteCommand(IMessage message, ICommandContext context)
         {
-            // Command tiers are per-guild state; the DM scope (FR-25) has no guild to manage.
+            // Command tiers are per-guild state; the DM scope has no guild to manage.
             if (context.GuildId is not ulong guildId)
             {
                 await message.Channel.SendMessageAsync("This command manages per-server state and is only available in servers");

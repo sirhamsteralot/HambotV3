@@ -58,8 +58,6 @@ namespace BotTests
         [TestMethod]
         public async Task FreshGuild_RandomUser_Cannot_Run_Permission_Management_Commands()
         {
-            // Permission commands carry a built-in default required tier of admin (FR-35),
-            // so on a fresh guild (no database rows) a random user is denied.
             var database = DiscordTestDoubles.CreateDatabase();
             var permissionsService = new PermissionsService();
             var userPermission = DiscordTestDoubles.CreateMockCommand("userpermission", defaultPermissionTier: PermissionTier.Admin);
@@ -136,8 +134,6 @@ namespace BotTests
         [TestMethod]
         public async Task User_Tier_In_One_Guild_Has_No_Effect_In_Another_Guild()
         {
-            // (FR-24): tiers are scoped per guild — a moderator in guild 1 is a regular
-            // user in guild 2.
             var database = DiscordTestDoubles.CreateDatabase();
             database.Users.Add(new DatabaseContext.User { GuildId = GuildId, DiscordId = RandomUser, PermissionTier = PermissionTier.Moderator });
             database.SaveChanges();
@@ -152,8 +148,6 @@ namespace BotTests
         [TestMethod]
         public async Task Command_Required_Tier_In_One_Guild_Has_No_Effect_In_Another_Guild()
         {
-            // (FR-24): command tier overrides are scoped per guild — a command gated at
-            // owner tier in guild 1 keeps its built-in default in guild 2.
             var database = DiscordTestDoubles.CreateDatabase();
             database.Commands.Add(new DatabaseContext.CommandMetaData { GuildId = GuildId, CommandName = "hello", PermissionTier = PermissionTier.Owner });
             database.SaveChanges();
@@ -168,8 +162,6 @@ namespace BotTests
         [TestMethod]
         public async Task Dm_Every_User_Acts_At_Owner_Tier()
         {
-            // DM scope (FR-25): everyone acts at owner tier in direct messages — no
-            // database rows are involved — and the configured bot owner keeps tier 4.
             var database = DiscordTestDoubles.CreateDatabase();
             var permissionsService = new PermissionsService();
             var overrides = new TierOverrides { BotOwnerId = BotOwner };
@@ -181,7 +173,6 @@ namespace BotTests
         [TestMethod]
         public async Task Dm_Command_Required_Tier_Is_Always_The_BuiltIn_Default()
         {
-            // DM scope (FR-25): guild overrides must not leak into direct messages.
             var database = DiscordTestDoubles.CreateDatabase();
             database.Commands.Add(new DatabaseContext.CommandMetaData { GuildId = GuildId, CommandName = "hello", PermissionTier = PermissionTier.Owner });
             database.SaveChanges();

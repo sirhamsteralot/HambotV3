@@ -2,7 +2,7 @@ namespace HambotV2.Commands
 {
     /// <summary>
     /// Downloads the text content of a message attachment (e.g. the legacy quote file of
-    /// !importquotes, FR-72). Abstracted so command implementations stay unit-testable with a
+    /// !importquotes). Abstracted so command implementations stay unit-testable with a
     /// fake instead of a live HTTP call.
     /// </summary>
     internal interface IAttachmentContentDownloader

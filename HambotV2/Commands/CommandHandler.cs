@@ -13,7 +13,7 @@ namespace HambotV2.Commands
     /// </summary>
     internal sealed class CommandHandler : ICommandHandler
     {
-        /// <summary>The reply other commands get while a backup restore is in progress (FR-98).</summary>
+        /// <summary>The reply other commands get while a backup restore is in progress.</summary>
         internal const string MaintenanceNotice = "The bot is in maintenance mode (a backup restore is in progress) — please try again in a moment.";
 
         private readonly ICommandService _commandService;
@@ -52,7 +52,7 @@ namespace HambotV2.Commands
         {
             ICommand? command = null;
 
-            // Set when a custom response was dispatched, so the audit event names it (FR-54).
+            // Set when a custom response was dispatched, so the audit event names it.
             string? responseName = null;
 
             var outcome = CommandOutcome.Ignored;
@@ -61,7 +61,7 @@ namespace HambotV2.Commands
 
             try
             {
-                // A null guild id marks the DM scope (FR-25): the user acts at owner tier, commands
+                // A null guild id marks the DM scope: the user acts at owner tier, commands
                 // require their built-in default tiers, and no per-guild state is read or written.
                 var guildChannel = message.Channel as IGuildChannel;
                 guildId = guildChannel?.GuildId;
@@ -80,7 +80,7 @@ namespace HambotV2.Commands
 
                 if (_commandService.TryGetCommand(message.Content, identifier, out command))
                 {
-                    // Maintenance mode (FR-98): while a backup restore replaces the database, every
+                    // Maintenance mode: while a backup restore replaces the database, every
                     // command declines except the restore command finishing its own confirmation.
                     if (_maintenanceMode?.IsActive == true && command.Name != BackupCommands.RestoreBackupCommand.CommandName)
                     {
@@ -98,11 +98,10 @@ namespace HambotV2.Commands
                 if (_commandService.IsIdentifierOnlyMessage(message.Content, identifier))
                     return;
 
-                // Custom-response fallback (FR-54): before the "unavailable" reply, a guild
+                // Custom-response fallback: before the "unavailable" reply, a guild
                 // message's command token is checked against the invoking guild's custom
                 // responses. Built-ins always win — this branch only runs after the built-in
-                // lookup failed (FR-53). Direct messages keep the plain "unavailable" reply
-                // (FR-59).
+                // lookup failed. Direct messages keep the plain "unavailable" reply.
                 if (guildId is ulong guildIdValue
                     && CommandParsing.TryGetCommandName(message.Content, identifier, out string token))
                 {
@@ -125,7 +124,7 @@ namespace HambotV2.Commands
                 _logger.LogError(ex, "Command '{commandName}' failed while processing message: {content}", command?.Name ?? responseName ?? "unknown", message.Content);
 
                 // The failure is also posted to the operator notification channel when one is
-                // configured (FR-118); the publisher rate-limits and never throws back.
+                // configured; the publisher rate-limits and never throws back.
                 if (_notificationPublisher is not null)
                 {
                     await _notificationPublisher.PublishAsync(
@@ -145,7 +144,7 @@ namespace HambotV2.Commands
             {
                 // The single audit event per message; message content is deliberately absent
                 // from it (only the failure path above logs the content). A dispatched custom
-                // response logs its name as the CommandName (NFR-11).
+                // response logs its name as the CommandName.
                 _logger.LogInformation(
                     "Command {CommandName} handled with outcome {Outcome} for user {UserId} in guild {GuildId}, channel {ChannelId} within {DurationMs} ms",
                     command?.Name ?? responseName, outcome, message.Author.Id, guildId, message.Channel.Id, stopwatch.Elapsed.TotalMilliseconds);
@@ -176,16 +175,16 @@ namespace HambotV2.Commands
         }
 
         /// <summary>
-        /// Dispatches a custom response when the guild defines one under the given name (FR-54);
+        /// Dispatches a custom response when the guild defines one under the given name;
         /// returns null when it does not (the caller falls through to the "unavailable" reply).
-        /// The invocation goes through the same checks as a built-in, in the same order (FR-55):
+        /// The invocation goes through the same checks as a built-in, in the same order:
         /// the permission check — required tier from the (guild, name) CommandMetaData override,
         /// default 0 — then the cooldown, keyed on the response name so it throttles independently
         /// of any built-in. Denial and throttle replies are the built-in ones.
         /// </summary>
         private async Task<CommandOutcome?> TryDispatchCustomResponseAsync(IMessage message, ulong guildId, TierOverrides overrides, string responseName)
         {
-            // Maintenance mode (FR-98): custom responses touch database state too.
+            // Maintenance mode: custom responses touch database state too.
             if (_maintenanceMode?.IsActive == true)
             {
                 await message.Channel.SendMessageAsync(MaintenanceNotice);
@@ -210,7 +209,7 @@ namespace HambotV2.Commands
                 return CommandOutcome.Throttled;
             }
 
-            // Plain text only (FR-60): the stored content is sent verbatim; the bot uploads no files.
+            // Plain text only: the stored content is sent verbatim; the bot uploads no files.
             await message.Channel.SendMessageAsync(response.Content);
             return CommandOutcome.Executed;
         }

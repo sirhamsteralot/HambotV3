@@ -3,7 +3,7 @@ using Discord;
 namespace HambotV2.Connections
 {
     /// <summary>
-    /// The optional startup configuration (FR-78/FR-113): <c>BotConfiguration:Presence</c>
+    /// The optional startup configuration: <c>BotConfiguration:Presence</c>
     /// (<c>Type</c> + <c>Text</c>) for the initial activity and <c>BotConfiguration:Bio</c> for
     /// the initial bio. Pure so startup fail-fast (naming the offending key) and the service
     /// share one source of truth, and tests run without a host.

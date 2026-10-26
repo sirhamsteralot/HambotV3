@@ -4,7 +4,7 @@ using System.Collections.Concurrent;
 namespace HambotV2.Commands
 {
     /// <summary>
-    /// Per-(guild, user, command) in-memory command cooldown (NFR-12). Singleton: the
+    /// Per-(guild, user, command) in-memory command cooldown. Singleton: the
     /// recorded timestamps are shared across messages while the rest of the handler chain stays
     /// transient. The cooldown window is resolved per guild from the invoking user's effective tier:
     /// the guild's <c>GuildSetting</c> per-tier override if set, otherwise the global per-tier
@@ -12,8 +12,8 @@ namespace HambotV2.Commands
     /// entry). A window of 0 seconds disables throttling for that tier in that scope.
     ///
     /// Tier 4 (bot owner) is never bound by a guild override — it is a global, configuration-only
-    /// role (FR-41), so a single guild's settings must not govern it. Direct messages run in the DM
-    /// scope (FR-25): their key uses the sentinel guild id 0, which matches no real guild, and no
+    /// role, so a single guild's settings must not govern it. Direct messages run in the DM
+    /// scope: their key uses the sentinel guild id 0, which matches no real guild, and no
     /// guild state is read, so DM throttles resolve through the tier-3 window.
     /// </summary>
     internal sealed class CooldownService : ICooldownService

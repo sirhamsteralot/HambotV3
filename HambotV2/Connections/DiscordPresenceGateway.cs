@@ -30,7 +30,7 @@ namespace HambotV2.Connections
 
         public Task SetActivityAsync(ActivityType type, string? text)
         {
-            // SetGameAsync with a null name clears the activity; streaming needs a stream URL (FR-78).
+            // SetGameAsync with a null name clears the activity; streaming needs a stream URL.
             return _client.SetGameAsync(text, null, type);
         }
 

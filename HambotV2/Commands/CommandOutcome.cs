@@ -1,13 +1,13 @@
 namespace HambotV2.Commands
 {
     /// <summary>
-    /// Result of handling one command message, recorded in the structured audit log
-    /// (NFR-11). Exactly one <see cref="CommandOutcome"/> is logged per message that reaches the
+    /// Result of handling one command message, recorded in the structured audit log.
+    /// Exactly one <see cref="CommandOutcome"/> is logged per message that reaches the
     /// command pipeline.
     /// </summary>
     internal enum CommandOutcome
     {
-        /// <summary>The command ran (help text reply, permission tier change, ...).</summary>
+        /// <summary>The command ran (help text reply, permission tier change,...).</summary>
         Executed,
 
         /// <summary>The command was resolved but the user's effective tier was insufficient.</summary>
@@ -25,7 +25,7 @@ namespace HambotV2.Commands
         /// <summary>The pipeline caught an exception; the user got the generic error reply.</summary>
         Failed,
 
-        /// <summary>The command was declined because a backup restore is in progress (FR-98).</summary>
+        /// <summary>The command was declined because a backup restore is in progress.</summary>
         MaintenanceMode,
     }
 }

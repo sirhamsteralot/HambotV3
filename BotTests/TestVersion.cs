@@ -6,17 +6,9 @@ using System.Text.RegularExpressions;
 
 namespace BotTests
 {
-    /// <summary>
-    /// The version feature (FR-76–FR-77, NFR-17): the pure tag→version formatting with its
-    /// fallbacks, the embedded version the provider reads, and the `!version` command —
-    /// registration (lowercase name, help text, default tier 0) and its reply, including in
-    /// direct messages.
-    /// </summary>
     [TestClass]
     public sealed class TestVersion
     {
-        // --- Pure formatting (NFR-17) ---
-
         [TestMethod]
         [DataRow("v1.2.3", "1639324", "1.2.3+1639324")]
         [DataRow("v0.0.1", "abc1234", "0.0.1+abc1234")]
@@ -31,7 +23,6 @@ namespace BotTests
         [DataRow(null, "1639324", "0.0.0+1639324")]
         public void Format_Untagged_Build_Reports_Fallback_Semver_Plus_Hash(string? tag, string commitHash, string expected)
         {
-            // FR-76: no reachable tag -> 0.0.0+<hash>, never a wrong release number.
             Assert.AreEqual(expected, BotVersion.Format(tag, commitHash));
         }
 
@@ -41,7 +32,6 @@ namespace BotTests
         [DataRow("   ", "  ")]
         public void Format_No_Git_Metadata_Reports_The_Unknown_Fallback(string? tag, string? commitHash)
         {
-            // FR-76: builds without git metadata report 0.0.0+unknown.
             Assert.AreEqual("0.0.0+unknown", BotVersion.Format(tag, commitHash));
         }
 
@@ -50,8 +40,7 @@ namespace BotTests
         [DataRow("\tv1.2.3 ", "\t1639324 ", "1.2.3+1639324")]
         public void Format_Trims_MSBuild_Exec_Line_Endings(string tag, string commitHash, string expected)
         {
-            // MSBuild's ConsoleToMSBuild capture can carry trailing CR/LF characters; the
-            // container build passes the values through environment strings of its own.
+            // MSBuild's ConsoleToMSBuild capture can carry trailing CR/LF characters.
             Assert.AreEqual(expected, BotVersion.Format(tag, commitHash));
         }
 
@@ -61,53 +50,26 @@ namespace BotTests
             Assert.AreEqual("0.0.0+1639324", BotVersion.Format("v", "1639324"));
         }
 
-        // --- The embedded version the provider reads (FR-76) ---
-
         [TestMethod]
         public void Current_Reports_The_Build_Embedded_Version_In_Semver_Metadata_Shape()
         {
-            // The test build compiles HambotV2 with the MSBuild target, so the metadata is
-            // real: a machine without git reports the 0.0.0+unknown fallback; a tagged or
-            // untagged checkout reports its tag semver plus the commit hash. The exact value
-            // depends on the checkout, so pin the shape — never a wrong release number shape.
+            // The exact value depends on the checkout, so pin the shape, never a version.
             Assert.IsTrue(
                 Regex.IsMatch(BotVersion.Current, @"^\d+\.\d+\.\d+\+\S+$"),
                 $"'{BotVersion.Current}' must look like <semver>+<commit>");
         }
 
-        // --- !version command: registration (FR-77) ---
-
         [TestMethod]
-        public void Version_Command_Name_Is_Lowercase()
-        {
-            var command = new VersionCommand();
-
-            Assert.AreEqual("version", command.Name);
-            Assert.IsTrue(command.Name == command.Name.ToLower());
-        }
-
-        [TestMethod]
-        public void Version_Command_Provides_Help_Text_And_Defaults_To_Tier_0()
-        {
-            var command = new VersionCommand();
-
-            Assert.IsFalse(string.IsNullOrWhiteSpace(command.Description), "Description is required (FR-39)");
-            Assert.IsFalse(string.IsNullOrWhiteSpace(command.Usage), "Usage is required (FR-39)");
-            Assert.AreEqual(0, command.DefaultPermissionTier, "version must be available to everyone");
-        }
-
-        [TestMethod]
-        public void Version_Command_Is_Registered()
+        public void Version_Command_Is_Registered_And_Available_To_Everyone()
         {
             var commandService = new CommandService();
 
             commandService.RegisterCommands();
 
-            Assert.IsTrue(commandService.TryGetCommand("!version", "!", out ICommand? command), "the command pipeline must resolve !version");
+            Assert.IsTrue(commandService.TryGetCommand("!version", "!", out ICommand? command));
             Assert.IsInstanceOfType(command, typeof(VersionCommand));
+            Assert.AreEqual(0, command.DefaultPermissionTier);
         }
-
-        // --- !version command: the reply (FR-77) ---
 
         [TestMethod]
         public async Task Version_Command_Replies_With_The_Current_Version()
@@ -120,8 +82,7 @@ namespace BotTests
 
             await command.ExecuteCommand(message.Object, context);
 
-            CollectionAssert.AreEqual(new[] { BotVersion.Current }, sentMessages,
-                "the reply is exactly the version string, the same value the startup log line shows");
+            CollectionAssert.AreEqual(new[] { BotVersion.Current }, sentMessages);
         }
 
         [TestMethod]
@@ -134,8 +95,7 @@ namespace BotTests
 
             await command.ExecuteCommand(message.Object, context);
 
-            CollectionAssert.AreEqual(new[] { BotVersion.Current }, sentMessages,
-                "version reads no guild state, so it answers in DMs too (FR-25)");
+            CollectionAssert.AreEqual(new[] { BotVersion.Current }, sentMessages);
         }
     }
 }

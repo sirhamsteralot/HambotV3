@@ -4,12 +4,12 @@ using System.Text.RegularExpressions;
 namespace HambotV2.Commands.ReminderCommands
 {
     /// <summary>
-    /// Parses the leading duration tokens of a <c>remindme</c> invocation (FR-62/FR-63):
+    /// Parses the leading duration tokens of a <c>remindme</c> invocation:
     /// number+unit tokens in compact (<c>10d</c>) and spaced (<c>10 d</c>) form — units
     /// <c>s</c>/<c>m</c>/<c>h</c>/<c>d</c>/<c>w</c> accepted case-insensitively, with common
     /// abbreviations (<c>sec</c>, <c>min</c>, <c>hr</c>, <c>wk</c>, and their plurals) and long
     /// forms (<c>second</c> … <c>week</c>) — with multiple tokens summed. A pure helper with no
-    /// Discord or database surface, so it is directly unit-testable (NFR-13 spirit: one shared
+    /// Discord or database surface, so it is directly unit-testable: one shared
     /// parser instead of per-command parsing).
     /// </summary>
     internal static partial class ReminderDurationParser
@@ -20,8 +20,8 @@ namespace HambotV2.Commands.ReminderCommands
         /// <summary>
         /// Tries to parse the duration from the leading arguments. On success,
         /// <paramref name="consumedTokens"/> is the number of leading arguments that carried the
-        /// duration — the reminder message starts at that index — and the total is positive
-        /// (FR-63). The first argument that is not a duration token ends the duration; anything
+        /// duration — the reminder message starts at that index — and the total is positive.
+        /// The first argument that is not a duration token ends the duration; anything
         /// unparsable at position 0 makes the whole parse fail.
         /// </summary>
         public static bool TryParse(CommandArguments arguments, out TimeSpan duration, out int consumedTokens)
@@ -31,7 +31,7 @@ namespace HambotV2.Commands.ReminderCommands
 
         /// <summary>
         /// Same parse starting at <paramref name="startIndex"/> — the recurring form's interval
-        /// begins after the leading <c>every</c> token (FR-107). <paramref name="consumedTokens"/>
+        /// begins after the leading <c>every</c> token. <paramref name="consumedTokens"/>
         /// counts from the arguments' start, so the message still starts at
         /// <c><paramref name="startIndex"/> + consumedTokens</c>.
         /// </summary>
@@ -48,7 +48,7 @@ namespace HambotV2.Commands.ReminderCommands
                 consumedTokens += tokensConsumed;
             }
 
-            // No maximum by requirement (FR-63) — but the TimeSpan type itself caps at ~29,000
+            // No maximum by requirement — but the TimeSpan type itself caps at ~29,000
             // years; anything beyond that is treated as unparsable instead of overflowing.
             if (consumedTokens == 0 || totalSeconds <= 0 || totalSeconds > TimeSpan.MaxValue.TotalSeconds)
             {

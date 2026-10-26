@@ -1,8 +1,8 @@
 namespace HambotV2.Watchdog
 {
     /// <summary>
-    /// The single component posting operator notifications to the configured channel (FR-118):
-    /// watchdog alerts and recoveries, command execution failures (the FR-15 path), retry-exhausted
+    /// The single component posting operator notifications to the configured channel:
+    /// watchdog alerts and recoveries, command execution failures, retry-exhausted
     /// reminder deliveries, maintenance-mode entry/exit and restore outcomes, and its own delivery
     /// failures (which additionally reach the bot owner by DM — the meta-failure the watchdog then
     /// tracks as "notification channel unreachable"). Posts are rate-limited
@@ -15,7 +15,7 @@ namespace HambotV2.Watchdog
         /// <summary>Posts one operator notification; never throws (a failure is logged and, when possible, DM'd to the owner).</summary>
         Task PublishAsync(string message);
 
-        /// <summary>True while the most recent channel post failed — the watchdog's channel-unreachable condition (FR-106).</summary>
+        /// <summary>True while the most recent channel post failed — the watchdog's channel-unreachable condition.</summary>
         bool ChannelDeliveryFailed { get; }
     }
 
@@ -24,7 +24,7 @@ namespace HambotV2.Watchdog
         /// <summary>The rate-limit window: at most <c>MaxPostsPerMinute</c> posts per rolling minute.</summary>
         private static readonly TimeSpan RateLimitWindow = TimeSpan.FromMinutes(1);
 
-        /// <summary>Default post cap per minute (FR-118).</summary>
+        /// <summary>Default post cap per minute.</summary>
         internal const int DefaultMaxPostsPerMinute = 5;
 
         private readonly INotificationChannelStore _channelStore;
@@ -64,7 +64,7 @@ namespace HambotV2.Watchdog
                 ulong? channelId = await _channelStore.GetChannelIdAsync();
                 if (channelId is null)
                 {
-                    // No channel configured: notifications degrade to logs and owner DMs (FR-118).
+                    // No channel configured: notifications degrade to logs and owner DMs.
                     _logger.LogInformation("Operator notification (no channel configured, log only): {Message}", message);
                     return;
                 }
@@ -82,7 +82,7 @@ namespace HambotV2.Watchdog
             }
             catch (Exception ex)
             {
-                // A failed post is logged and never affects the originating feature (FR-118); the
+                // A failed post is logged and never affects the originating feature; the
                 // meta-failure additionally reaches the bot owner by DM and the watchdog via
                 // ChannelDeliveryFailed.
                 lock (_gate) _channelDeliveryFailed = true;

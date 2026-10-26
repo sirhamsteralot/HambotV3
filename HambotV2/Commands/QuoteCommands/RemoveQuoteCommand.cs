@@ -4,8 +4,8 @@ using HambotV2.Connections;
 namespace HambotV2.Commands.QuoteCommands
 {
     /// <summary>
-    /// Removes a quote of the invoking guild by its number (FR-48); moderator by default.
-    /// Removal never renumbers the remaining quotes (FR-43).
+    /// Removes a quote of the invoking guild by its number; moderator by default.
+    /// Removal never renumbers the remaining quotes.
     /// </summary>
     internal class RemoveQuoteCommand : ICommand
     {
@@ -16,7 +16,7 @@ namespace HambotV2.Commands.QuoteCommands
 
         public async Task ExecuteCommand(IMessage message, ICommandContext context)
         {
-            // Quotes are per-guild state; the DM scope (FR-25/FR-50) has no guild to remove from.
+            // Quotes are per-guild state; the DM scope has no guild to remove from.
             if (context.GuildId is not ulong guildId)
             {
                 await message.Channel.SendMessageAsync("This command manages per-server state and is only available in servers");

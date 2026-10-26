@@ -4,7 +4,7 @@ using HambotV2.Watchdog;
 namespace HambotV2.Commands.SystemCommands
 {
     /// <summary>
-    /// Reports the bot's operational state (FR-105): build version, uptime, gateway state, database
+    /// Reports the bot's operational state: build version, uptime, gateway state, database
     /// reachability, backup and restore-test status, pending reminder count, the configured
     /// notification channel — one in-channel report from the single health snapshot provider
     /// (§3.13). Bot-owner tier by default, usable in direct messages (no guild state is read),

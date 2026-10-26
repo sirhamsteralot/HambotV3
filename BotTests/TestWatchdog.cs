@@ -13,22 +13,12 @@ using Microsoft.Extensions.Time.Testing;
 
 namespace BotTests
 {
-    /// <summary>
-    /// The watchdog, health, and notification features (FR-105–FR-106, FR-117–FR-118, NFR-23):
-    /// threshold detection for each degradation condition, the alert-once/hourly-re-alert/recovery
-    /// cadence, delivery via a recording sender to both the owner DM and the channel, the
-    /// no-owner log fallback, the !health report's fields and tier gate, notification posting per
-    /// event type with the rate limit and identical-message collapse, and !notifychannel's
-    /// show/set/clear behavior with persistence.
-    /// </summary>
     [TestClass]
     public sealed class TestWatchdog
     {
         private const ulong OwnerId = 250;
         private const ulong ChannelId = 777;
         private static readonly DateTimeOffset StartTime = new(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
-
-        // --- Fakes (NFR-23) ---
 
         private sealed class FakeGatewayStatus : IGatewayStatus
         {
@@ -120,8 +110,6 @@ namespace BotTests
             public IReadOnlyList<string> OwnerAlerts => Sender.OwnerDms.Select(entry => entry.Message).ToList();
         }
 
-        // --- Watchdog: condition detection (FR-106) ---
-
         [TestMethod]
         public async Task Gateway_Down_Past_Threshold_Alerts_Realerts_Hourly_And_Announces_Recovery_Once()
         {
@@ -136,7 +124,7 @@ namespace BotTests
             await harness.Service.CheckOnceAsync();
             Assert.AreEqual(1, harness.OwnerAlerts.Count, "Past the threshold the condition alerts on its rising edge");
             StringAssert.Contains(harness.OwnerAlerts[0], "Watchdog alert: the Discord gateway has been disconnected");
-            Assert.AreEqual(1, harness.Publisher.Published.Count, "The alert additionally reaches the notification channel (FR-118)");
+            Assert.AreEqual(1, harness.Publisher.Published.Count, "The alert additionally reaches the notification channel");
 
             // While the condition persists: at most one re-alert per hour.
             harness.Time.Advance(TimeSpan.FromMinutes(30));
@@ -340,7 +328,7 @@ namespace BotTests
 
             await harness.Service.CheckOnceAsync();
 
-            Assert.AreEqual(0, harness.Sender.OwnerDms.Count, "Without an owner there is nobody to DM (FR-106)");
+            Assert.AreEqual(0, harness.Sender.OwnerDms.Count, "Without an owner there is nobody to DM");
             Assert.AreEqual(0, harness.Publisher.Published.Count, "Alerts degrade to logs only");
         }
 
@@ -352,10 +340,8 @@ namespace BotTests
 
             await harness.Service.CheckOnceAsync();
 
-            Assert.AreEqual(0, harness.OwnerAlerts.Count, "A broken detector must not escalate into a false alert or a crash (FR-106)");
+            Assert.AreEqual(0, harness.OwnerAlerts.Count, "A broken detector must not escalate into a false alert or a crash");
         }
-
-        // --- NotificationPublisher (FR-118) ---
 
         private sealed class FakeChannelStore : INotificationChannelStore
         {
@@ -417,7 +403,7 @@ namespace BotTests
 
             await harness.Publisher.PublishAsync("a notification");
 
-            Assert.AreEqual(0, harness.Sender.ChannelPosts.Count, "Without a channel, notifications degrade to logs and owner DMs (FR-118)");
+            Assert.AreEqual(0, harness.Sender.ChannelPosts.Count, "Without a channel, notifications degrade to logs and owner DMs");
         }
 
         [TestMethod]
@@ -429,7 +415,7 @@ namespace BotTests
             for (int i = 1; i <= 7; i++)
                 await harness.Publisher.PublishAsync($"notification {i}");
 
-            Assert.AreEqual(5, harness.Sender.ChannelPosts.Count, "The default cap is 5 posts per rolling minute (FR-118)");
+            Assert.AreEqual(5, harness.Sender.ChannelPosts.Count, "The default cap is 5 posts per rolling minute");
 
             // The window slides: a minute later posts go through again.
             harness.Time.Advance(TimeSpan.FromSeconds(61));
@@ -447,7 +433,7 @@ namespace BotTests
             await harness.Publisher.PublishAsync("Command execution failure: the same error");
             await harness.Publisher.PublishAsync("Command execution failure: a different error");
 
-            Assert.AreEqual(2, harness.Sender.ChannelPosts.Count, "An error storm of identical messages collapses instead of flooding (FR-118)");
+            Assert.AreEqual(2, harness.Sender.ChannelPosts.Count, "An error storm of identical messages collapses instead of flooding");
         }
 
         [TestMethod]
@@ -475,8 +461,8 @@ namespace BotTests
 
             await harness.Publisher.PublishAsync("an important notification");
 
-            Assert.IsTrue(harness.Publisher.ChannelDeliveryFailed, "The watchdog must be able to see the unreachable channel (FR-106)");
-            Assert.AreEqual(1, harness.Sender.OwnerDms.Count, "The meta-failure additionally reaches the bot owner by DM (FR-118)");
+            Assert.IsTrue(harness.Publisher.ChannelDeliveryFailed, "The watchdog must be able to see the unreachable channel");
+            Assert.AreEqual(1, harness.Sender.OwnerDms.Count, "The meta-failure additionally reaches the bot owner by DM");
             StringAssert.Contains(harness.Sender.OwnerDms[0].Message, "could not be posted");
 
             // A later successful post clears the flag.
@@ -484,8 +470,6 @@ namespace BotTests
             await harness.Publisher.PublishAsync("a recovered notification");
             Assert.IsFalse(harness.Publisher.ChannelDeliveryFailed, "The condition clears when the channel is reachable again");
         }
-
-        // --- !health (FR-105) ---
 
         private sealed class FakeHealthProvider : IHealthSnapshotProvider
         {
@@ -543,21 +527,18 @@ namespace BotTests
 
             List<string> replies = await ExecuteHealthCommandAsync(command, directMessage: true);
 
-            Assert.AreEqual(1, replies.Count, "!health reads no guild state and must work in DMs (FR-105)");
+            Assert.AreEqual(1, replies.Count, "!health reads no guild state and must work in DMs");
         }
 
         [TestMethod]
-        public void Health_And_NotifyChannel_Commands_Default_To_Bot_Owner_Tier_With_Help_Text()
+        public void Health_And_NotifyChannel_Commands_Default_To_Bot_Owner_Tier()
         {
             var health = new HealthCommand(new FakeHealthProvider());
             var notifyChannel = new NotifyChannelCommand();
 
             foreach (ICommand command in new ICommand[] { health, notifyChannel })
             {
-                Assert.AreEqual(PermissionTier.BotOwner, command.DefaultPermissionTier, $"{command.Name} is a bot-owner command (FR-41)");
-                Assert.IsFalse(string.IsNullOrWhiteSpace(command.Description));
-                Assert.IsFalse(string.IsNullOrWhiteSpace(command.Usage));
-                Assert.AreEqual(command.Name, command.Name.ToLower());
+                Assert.AreEqual(PermissionTier.BotOwner, command.DefaultPermissionTier, $"{command.Name} is a bot-owner command");
             }
         }
 
@@ -570,8 +551,6 @@ namespace BotTests
             Assert.IsTrue(commandService.Commands.ContainsKey("health"), "!health must be registered");
             Assert.IsTrue(commandService.Commands.ContainsKey("notifychannel"), "!notifychannel must be registered");
         }
-
-        // --- !notifychannel (FR-117) ---
 
         /// <summary>The real <see cref="NotificationChannelStore"/> over a shared in-memory database.</summary>
         private sealed class ChannelStoreHarness : IDisposable
@@ -639,8 +618,7 @@ namespace BotTests
 
             Assert.AreEqual<ulong?>(1234, await harness.Store.GetChannelIdAsync(), "The mention must resolve to the channel id");
 
-            // A fresh store over the same database: the setting survives a restart (FR-117).
-            Assert.AreEqual<ulong?>(1234, await harness.StoreAfterRestart().GetChannelIdAsync(), "The setting must persist across restarts (FR-117)");
+            Assert.AreEqual<ulong?>(1234, await harness.StoreAfterRestart().GetChannelIdAsync(), "The setting must persist across restarts");
         }
 
         [TestMethod]
@@ -692,7 +670,6 @@ namespace BotTests
             await ExecuteNotifyChannelCommandAsync(command, "!notifychannel 5678");
             Assert.AreEqual<ulong?>(5678, await harness.Store.GetChannelIdAsync());
 
-            // ...and clearing it lets the default apply again (FR-117).
             await ExecuteNotifyChannelCommandAsync(command, "!notifychannel clear");
             Assert.AreEqual<ulong?>(999, await harness.Store.GetChannelIdAsync(), "The configuration default applies when no override exists");
         }
@@ -705,7 +682,7 @@ namespace BotTests
 
             List<string> replies = await ExecuteNotifyChannelCommandAsync(command, "!notifychannel 1234", directMessage: true);
 
-            Assert.AreEqual<ulong?>(1234, await harness.Store.GetChannelIdAsync(), "The setting is global and must be adjustable from DMs (FR-117)");
+            Assert.AreEqual<ulong?>(1234, await harness.Store.GetChannelIdAsync(), "The setting is global and must be adjustable from DMs");
             Assert.AreEqual(1, replies.Count);
         }
     }

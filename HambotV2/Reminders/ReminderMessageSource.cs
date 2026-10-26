@@ -8,10 +8,10 @@ namespace HambotV2.Reminders
     /// The reminder persistence behind the generic scheduled-message engine: the earliest
     /// pending due time, the due list, and the delivery outcomes. Delivered one-shot rows are
     /// deleted from the pending set; a delivered recurring row is re-scheduled from the actual
-    /// delivery time (FR-107), so downtime shifts its schedule instead of piling up a burst of
+    /// delivery time, so downtime shifts its schedule instead of piling up a burst of
     /// catch-up deliveries; rows that exhausted the bounded retries are marked
     /// <see cref="DatabaseContext.Reminder.FailedAtUtc"/> and stay for audit — a recurring row
-    /// that keeps failing stops repeating like a one-shot (FR-108). All database work goes
+    /// that keeps failing stops repeating like a one-shot. All database work goes
     /// through fresh <see cref="IServiceScopeFactory"/> scopes, so the singleton never holds a
     /// DbContext.
     /// </summary>
@@ -67,9 +67,9 @@ namespace HambotV2.Reminders
 
             if (stored.RecurrenceInterval is TimeSpan interval)
             {
-                // Recurring row (FR-107): re-schedule from the actual delivery time instead of
+                // Recurring row: re-schedule from the actual delivery time instead of
                 // deleting, so downtime shifts the schedule rather than bursting catch-ups. The
-                // number and row persist, keeping the entry's identity stable (FR-108).
+                // number and row persist, keeping the entry's identity stable.
                 stored.DueAtUtc = _timeProvider.GetUtcNow().Add(interval);
                 await database.SaveChangesAsync(cancellationToken);
 

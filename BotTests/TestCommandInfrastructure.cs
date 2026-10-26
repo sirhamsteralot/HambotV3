@@ -1,6 +1,5 @@
 using HambotV2.Commands;
 using HambotV2.Commands.SystemCommands;
-using System;
 
 namespace BotTests
 {
@@ -13,23 +12,9 @@ namespace BotTests
         }
 
         [TestMethod]
-        public void CommandService_Register_Command_HelloWorld()
-        {
-            ICommandService commandService = CreateService();
-
-            Assert.IsTrue(commandService.Commands.Count == 0);
-
-            commandService.RegisterCommand("hello", new HelloWorld());
-
-            Assert.IsTrue(commandService.Commands.Count > 0);
-        }
-
-        [TestMethod]
         public void CommandService_Register_All_Commands()
         {
             ICommandService commandService = CreateService();
-
-            Assert.IsTrue(commandService.Commands.Count == 0);
 
             commandService.RegisterCommands();
 
@@ -38,15 +23,19 @@ namespace BotTests
         }
 
         [TestMethod]
-        public void CommandService_Register_System_Commands()
+        public void CommandService_All_Registered_Commands_Satisfy_Contract()
         {
             ICommandService commandService = CreateService();
 
-            Assert.IsTrue(commandService.Commands.Count == 0);
+            commandService.RegisterCommands();
 
-            RegisterSystemCommands.RegisterCommands(commandService);
-
-            Assert.IsTrue(commandService.Commands.Count > 0);
+            foreach (ICommand command in commandService.Commands.Values)
+            {
+                Assert.IsFalse(string.IsNullOrWhiteSpace(command.Description), $"{command.Name} must declare a Description");
+                Assert.IsFalse(string.IsNullOrWhiteSpace(command.Usage), $"{command.Name} must declare Usage");
+                Assert.IsTrue(PermissionTier.IsValid(command.DefaultPermissionTier), $"{command.Name} must declare a valid default permission tier");
+                Assert.AreEqual(command.Name.ToLowerInvariant(), command.Name, $"{command.Name} must be lowercase");
+            }
         }
 
         [TestMethod]
@@ -56,40 +45,21 @@ namespace BotTests
 
             commandService.RegisterCommands();
 
-            bool returnValue = commandService.TryGetCommand("!hello", "!", out ICommand? command);
-            Assert.IsTrue(returnValue);
+            Assert.IsTrue(commandService.TryGetCommand("!hello", "!", out ICommand? command));
             Assert.IsNotNull(command);
         }
 
         [TestMethod]
-        public void CommandService_Get_Invalid_Command()
+        public void CommandService_Unknown_And_NonCommand_Content_Is_Not_A_Command()
         {
             ICommandService commandService = CreateService();
 
             commandService.RegisterCommands();
 
-            bool returnValue = commandService.TryGetCommand("!gibberishcommandlaksjf;lsakjdf;laskjdf;alk asdfa", "!", out ICommand? command);
-            Assert.IsFalse(returnValue);
+            Assert.IsFalse(commandService.TryGetCommand("!gibberishcommandlaksjf;lsakjdf;laskjdf;alk asdfa", "!", out ICommand? command));
             Assert.IsNull(command);
-        }
-
-        [TestMethod]
-        public void CommandService_All_Registered_Commands_Satisfy_Contract()
-        {
-            // (FR-39): every command must carry help text, a valid default tier and a
-            // lowercase name; registration itself rejects anything else.
-            ICommandService commandService = CreateService();
-
-            commandService.RegisterCommands();
-
-            Assert.IsTrue(commandService.Commands.Count > 0);
-            foreach (ICommand command in commandService.Commands.Values)
-            {
-                Assert.IsFalse(string.IsNullOrWhiteSpace(command.Description), $"{command.Name} must declare a Description");
-                Assert.IsFalse(string.IsNullOrWhiteSpace(command.Usage), $"{command.Name} must declare Usage");
-                Assert.IsTrue(PermissionTier.IsValid(command.DefaultPermissionTier), $"{command.Name} must declare a valid default permission tier");
-                Assert.AreEqual(command.Name.ToLowerInvariant(), command.Name, $"{command.Name} must be lowercase");
-            }
+            Assert.IsFalse(commandService.TryGetCommand("hello", "!", out _));
+            Assert.IsFalse(commandService.TryGetCommand("", "!", out _));
         }
 
         [TestMethod]
@@ -107,21 +77,13 @@ namespace BotTests
         }
 
         [TestMethod]
-        public void CommandService_IsIdentifierOnlyMessage_True_For_Bare_Identifier()
+        public void CommandService_IsIdentifierOnlyMessage()
         {
             ICommandService commandService = CreateService();
             commandService.RegisterCommands();
 
             Assert.IsTrue(commandService.IsIdentifierOnlyMessage("!", "!"));
             Assert.IsTrue(commandService.IsIdentifierOnlyMessage("  !   ", "!"));
-        }
-
-        [TestMethod]
-        public void CommandService_IsIdentifierOnlyMessage_False_For_Named_Commands()
-        {
-            ICommandService commandService = CreateService();
-            commandService.RegisterCommands();
-
             Assert.IsFalse(commandService.IsIdentifierOnlyMessage("!hello", "!"));
             Assert.IsFalse(commandService.IsIdentifierOnlyMessage("hello", "!"));
             Assert.IsFalse(commandService.IsIdentifierOnlyMessage("", "!"));
@@ -140,16 +102,6 @@ namespace BotTests
 
             Assert.IsTrue(commandService.TryGetCommand(content, "!", out ICommand? command), $"'{content}' must resolve to the hello command");
             Assert.AreEqual("hello", command.Name);
-        }
-
-        [TestMethod]
-        public void CommandService_NonCommandContent_Is_Not_A_Command()
-        {
-            ICommandService commandService = CreateService();
-            commandService.RegisterCommands();
-
-            Assert.IsFalse(commandService.TryGetCommand("hello", "!", out _));
-            Assert.IsFalse(commandService.TryGetCommand("", "!", out _));
         }
 
         [TestMethod]
@@ -180,7 +132,6 @@ namespace BotTests
             ICommandService commandService = CreateService();
 
             var withoutDescription = DiscordTestDoubles.CreateMockCommand("nodesc");
-            // Deliberately violates the ICommand contract: an empty description must be rejected.
             withoutDescription.SetupGet(c => c.Description).Returns(string.Empty);
 
             Assert.ThrowsExactly<ArgumentException>(() => commandService.RegisterCommand("nodesc", withoutDescription.Object));

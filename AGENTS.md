@@ -25,7 +25,7 @@ dotnet test HambotV2.sln
 
 - Building requires the .NET 10 SDK (`10.0.x`).
 
-- Tests run without a database or Discord token; they use Moq and in-memory configuration. All tests are in `BotTests/` (`TestCommandInfrastructure.cs`, `TestCommands.cs`, `TestPermissions.cs`, `TestCommandHandler.cs`, `TestConfigurationValidator.cs`, `TestPermissionCommands.cs`, `TestHelp.cs`, `TestCommandArguments.cs`, `TestGuildSettings.cs`, `TestCooldowns.cs`, `TestQuotes.cs`, `TestCustomResponses.cs`, `TestReminders.cs`, `TestVersion.cs`, `TestBackups.cs`, `TestWatchdog.cs`, plus the shared `DiscordTestDoubles.cs`).
+- Tests run without a database or Discord token; they use Moq and in-memory configuration. All tests are in `BotTests/` (`TestCommandInfrastructure.cs`, `TestCommands.cs`, `TestPermissions.cs`, `TestCommandHandler.cs`, `TestConfigurationValidator.cs`, `TestPermissionCommands.cs`, `TestHelp.cs`, `TestCommandArguments.cs`, `TestGuildSettings.cs`, `TestCooldowns.cs`, `TestQuotes.cs`, `TestCustomResponses.cs`, `TestReminders.cs`, `TestVersion.cs`, `TestBackups.cs`, `TestWatchdog.cs`, `TestPresence.cs`, `TestProfileImages.cs`, plus the shared `DiscordTestDoubles.cs`).
 - The build is warning-free; keep it that way and avoid introducing new warnings.
 
 ## Docker
@@ -57,7 +57,7 @@ docker logs -f hambot-smoke
 
 ## Architecture
 
-Entry point is `HambotV2/Program.cs`: a generic host registers `DatabaseContext` (transient Npgsql), three hosted services (the `DiscordClient` gateway connection, the generic scheduled-message delivery engine in `Scheduling/`, hosted for reminders to deliver them as direct messages, and the `Watchdog/WatchdogService` health-check loop), the command pipeline, and the stability components: `Maintenance/MaintenanceMode` (gates the pipeline and delivery engine during a backup restore), `Backups/` (`IBackupManager` + status-file reader behind the `!backup`/`!backups`/`!restorebackup` commands), and `Watchdog/` (`!health`, `!notifychannel`, the notification publisher). The `backup` compose service (`scripts/backup/`) dumps the database on schedule into the shared `backups` volume and writes the `.backup-status` file that `!health` and the watchdog consume.
+Entry point is `HambotV2/Program.cs`: a generic host registers `DatabaseContext` (transient Npgsql), the hosted services (the `DiscordClient` gateway connection, the generic scheduled-message delivery engine in `Scheduling/`, hosted for reminders to deliver them as direct messages, and the `Watchdog/WatchdogService` health-check loop), the command pipeline, and the stability components: `Maintenance/MaintenanceMode` (gates the pipeline and delivery engine during a backup restore), `Backups/` (`IBackupManager` + status-file reader behind the `!backup`/`!backups`/`!restorebackup` commands), `Watchdog/` (`!health`, `!notifychannel`, the notification publisher), and the bot's Discord identity: `Connections/PresenceService.cs` (singleton `IPresenceService`, the single path for activity/bio/avatar/banner changes, applied on gateway Ready) behind the `Connections/DiscordPresenceGateway.cs` seam, driven by the tier-4 `!presence`/`!bio`/`!avatar`/`!banner` commands with `Commands/SystemCommands/ProfileImages.cs` validation and the `IImageContentDownloader` download abstraction. The `backup` compose service (`scripts/backup/`) dumps the database on schedule into the shared `backups` volume and writes the `.backup-status` file that `!health` and the watchdog consume.
 
 ### Message flow
 
@@ -71,7 +71,7 @@ Entry point is `HambotV2/Program.cs`: a generic host registers `DatabaseContext`
 - `Commands/CommandService.cs` is a singleton holding a `Dictionary<string, ICommand>`, lazily populated on first use via `Commands/RegisterAllCommands.cs`.
 - To add a command: create a class implementing `ICommand` in an appropriate namespace (system commands live in `Commands/SystemCommands/`), then register it in the relevant `Register*Commands` class (e.g. `SystemCommands/RegisterSystemCommands.cs`).
 - **Command names must be lowercase** — lookup lowercases input, and tests assert `Name == Name.ToLower()`.
-- **Every command must provide help text** — implement `Description` (one-line summary shown by `!help`) and `Usage` (argument summary shown by `!help <name>`) on the command implementation. Unit tests enforce non-empty values for all registered commands. See `docs/software-design.md` §3.2 for the help-command design.
+- **Every command must provide help text** — implement `Description` (one-line summary shown by `!help`) and `Usage` (argument summary shown by `!help <name>`) on the command implementation. Registration rejects commands without them, and the registration-contract test enforces it for every registered command — do not re-assert lowercase names, help text, or tier validity per command in tests; assert only what is specific to that command (its expected name, its default tier, its pipeline resolution). See `docs/software-design.md` §3.2 for the help-command design.
 
 ### Permissions
 
@@ -106,4 +106,15 @@ EF Core migrations live in `HambotV2/Migrations/`. Regenerate with `dotnet ef mi
 - Most bot-internal types are `internal` (tests rely on `InternalsVisibleTo`); keep new command implementations `internal` too.
 - DI lifetimes: `CommandService` is a singleton; `CommandHandler`, `PermissionsService`, and `DatabaseContext` are transient. The handler is resolved per message and disposed after use.
 - Container deployment via `HambotV2/Dockerfile` (targets the `HambotV2` project) or `docker-compose.yml` (bot + PostgreSQL + backup sidecar; connection string defaults to the compose `db` service, plain containers use `host.docker.internal:5432`).
-- Docs: `docs/software-design.md` is the system design (marked **(planned)** sections describe future roadmap work — everything else is as-built), `docs/roadmap.md` tracks the backlog, `docs/manual-test-plan.md` is the pre-production test checklist, and `docs/jenkins-cicd.md` covers the deploy pipeline.
+- Docs: `docs/software-design.md` is the system design (marked **(planned)** sections describe future roadmap work — everything else is as-built), `docs/software-requirements.md` holds the numbered requirements (FR/NFR), `docs/roadmap.md` tracks the backlog, `docs/manual-test-plan.md` is the pre-production test checklist, and `docs/jenkins-cicd.md` covers the deploy pipeline.
+
+## Code style
+
+The codebase is deliberately clean, minimalistic, and readable **without** needing comments. For new code:
+
+- **Let the code speak**: prefer descriptive type/method/variable names and small, single-purpose methods over comments that narrate what the next lines do. Do not write comments that restate a method name, a test name, or the code itself.
+- **Comments only for the non-obvious**: a short comment is fine when it records a constraint, a race, a workaround, or a *why* that the code cannot express (see the wake-up-signal snapshot in `Scheduling/ScheduledMessageDeliveryService.cs` or the sentinel-guild-id note in `CooldownService` for the tone and length). Anything longer belongs in `docs/software-design.md`.
+- **No requirement tags in code**: do not sprinkle `FR-xx`/`NFR-xx` references through code, tests, or comments — traceability lives in `docs/software-requirements.md` and the design doc's section references (§) only.
+- **Keep XML docs short**: one- or two-line `<summary>` blocks stating the member's role and its non-obvious contract. No multi-paragraph essays; no `---` section-divider comments.
+- **Merge over fragment**: do not split code into one-line helper methods that are used once and add indirection without clarity. Conversely, keep genuinely shared logic in one place (e.g. `CommandArguments`, `ProfileImageCommandBase`).
+- **Tests assert behavior, once**: name tests for the observable behavior they verify; each behavior gets exactly one home — duplicate assertions of a global contract (command registration, help text) already live in `TestCommandInfrastructure.CommandService_All_Registered_Commands_Satisfy_Contract`. When waiting on asynchronous state in tests, wait for the *persisted* end state, not an intermediate signal (see `TestReminders.WaitUntilAsync` usage).

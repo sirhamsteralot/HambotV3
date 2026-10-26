@@ -7,10 +7,6 @@ using System.Threading.Tasks;
 
 namespace BotTests
 {
-    /// <summary>
-    /// Behavior of !userpermission / !commandpermission against a real (in-memory) database:
-    /// mention parsing, tier validation and escalation guards (FR-36/FR-37).
-    /// </summary>
     [TestClass]
     public sealed class TestPermissionCommands
     {
@@ -287,8 +283,6 @@ namespace BotTests
         [TestMethod]
         public async Task UserPermission_Tier_Is_Scoped_To_The_Invoking_Guild()
         {
-            // (FR-24): a tier set in guild 1 does not show up when the same user is
-            // queried in guild 2.
             var database = DiscordTestDoubles.CreateDatabase();
 
             await ExecuteUserPermission(database, "!userpermission 500 1", authorId: GuildOwner, guildOwnerId: GuildOwner);
@@ -300,8 +294,6 @@ namespace BotTests
         [TestMethod]
         public async Task UserPermission_InDirectMessage_Is_Refused_Without_Writes()
         {
-            // DM scope (FR-25): the command manages per-server state and must decline in direct
-            // messages without touching the database.
             var database = DiscordTestDoubles.CreateDatabase();
 
             var replies = await ExecuteUserPermission(database, "!userpermission 500 1", authorId: RandomUser, guildId: null);
@@ -420,8 +412,6 @@ namespace BotTests
         [TestMethod]
         public async Task CommandPermission_Override_Is_Scoped_To_The_Invoking_Guild()
         {
-            // (FR-24): a tier override set in guild 1 leaves the command at its default
-            // in guild 2.
             var database = DiscordTestDoubles.CreateDatabase();
 
             await ExecuteCommandPermission(database, "!commandpermission hello 3", authorId: BotOwner, botOwnerId: BotOwner);

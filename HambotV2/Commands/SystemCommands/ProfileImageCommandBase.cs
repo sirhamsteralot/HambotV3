@@ -5,7 +5,7 @@ using HambotV2.Connections;
 namespace HambotV2.Commands.SystemCommands
 {
     /// <summary>
-    /// The shared flow of `!avatar` and `!banner` (FR-115/FR-116): no args reply with the current
+    /// The shared flow of `!avatar` and `!banner`: no args reply with the current
     /// image's CDN URL; the new image comes from exactly one attachment or a single image URL,
     /// is downloaded and validated before anything is applied, and the reset keyword removes the
     /// custom image. Tier 4, DM-usable; no startup configuration, nothing persisted.

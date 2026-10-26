@@ -13,14 +13,14 @@ namespace HambotV2.Commands
     {
         /// <summary>
         /// Checks the invocation in the given scope. A null <paramref name="guildId"/> means a direct
-        /// message (FR-25): the user acts at owner tier (bot owner at tier 4), commands require their
+        /// message: the user acts at owner tier (bot owner at tier 4), commands require their
         /// built-in defaults, and no database state is read or written.
         /// </summary>
         Task<PermissionCheckResult> CheckUserPermissions(ulong userDiscordId, ulong? guildId, TierOverrides overrides, ICommand command, IDatabaseContext database);
 
         /// <summary>
         /// Same check for a named command that is not an <see cref="ICommand"/> instance — the
-        /// custom-response dispatch path (FR-55): identical tier semantics to the overload above,
+        /// custom-response dispatch path: identical tier semantics to the overload above,
         /// with the required tier read from the (guild, <paramref name="commandName"/>)
         /// <c>CommandMetaData</c> override and <paramref name="defaultPermissionTier"/> as the
         /// fallback, so a custom response's required tier is adjustable at runtime exactly like a
@@ -28,10 +28,10 @@ namespace HambotV2.Commands
         /// </summary>
         Task<PermissionCheckResult> CheckUserPermissions(ulong userDiscordId, ulong? guildId, TierOverrides overrides, string commandName, int defaultPermissionTier, IDatabaseContext database);
 
-        /// <summary>The user's effective tier in the guild: stored database tier (0 if absent), raised by the bootstrap ids. Null guild: the DM scope tier (FR-25), without a database read.</summary>
+        /// <summary>The user's effective tier in the guild: stored database tier (0 if absent), raised by the bootstrap ids. Null guild: the DM scope tier, without a database read.</summary>
         Task<int> GetUserEffectiveTier(ulong userDiscordId, ulong? guildId, TierOverrides overrides, IDatabaseContext database);
 
-        /// <summary>The command's required tier in the guild: database override if present, otherwise the command's built-in default. Null guild: always the built-in default (FR-25), without a database read.</summary>
+        /// <summary>The command's required tier in the guild: database override if present, otherwise the command's built-in default. Null guild: always the built-in default, without a database read.</summary>
         Task<int> GetCommandRequiredTier(ulong? guildId, ICommand command, IDatabaseContext database);
     }
 }

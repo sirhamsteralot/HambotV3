@@ -4,7 +4,7 @@ using HambotV2.Watchdog;
 
 namespace HambotV2.Commands.BackupCommands
 {
-    /// <summary>Registers the backup-management commands (FR-96–FR-98) in the registration chain (§3.2).</summary>
+    /// <summary>Registers the backup-management commands in the registration chain (§3.2).</summary>
     internal static class RegisterBackupCommands
     {
         public static void RegisterCommands(

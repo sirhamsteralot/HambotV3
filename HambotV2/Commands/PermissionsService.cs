@@ -22,7 +22,7 @@ namespace HambotV2.Commands
         {
             if (guildId is null)
             {
-                // DM scope (FR-25): everyone acts at owner tier, the configured bot owner at bot
+                // DM scope: everyone acts at owner tier, the configured bot owner at bot
                 // owner tier — no per-guild state is read.
                 return Task.FromResult(overrides.EffectiveTierOf(userDiscordId, PermissionTier.Owner));
             }

@@ -13,20 +13,15 @@ using System.Threading.Tasks;
 
 namespace BotTests
 {
-    /// <summary>
-    /// Guild-scoped settings (FR-26): per-guild identifier resolution with global
-    /// fallback, runtime writes with cache refresh, and the !settings command managing them.
-    /// </summary>
     [TestClass]
     public sealed class TestGuildSettings
     {
         private const ulong GuildId = 5;
 
-        /// <summary>
-        /// A real GuildSettingsService over an isolated in-memory store. Each scope gets its own
+        /// <summary>/// A real GuildSettingsService over an isolated in-memory store. Each scope gets its own
         /// context over the same store (like the transient contexts in production), so disposing a
         /// scope never disposes the test-owned context.
-        /// </summary>
+        ///</summary>
         private sealed class SettingsHarness
         {
             public DatabaseContext Database { get; }
@@ -123,7 +118,6 @@ namespace BotTests
         [TestMethod]
         public void Guild_Identifier_Override_Changes_Command_Detection()
         {
-            // FR-26 end to end: the guild's effective identifier decides which messages are commands.
             var harness = new SettingsHarness(globalIdentifier: "!");
             var commandService = new CommandService();
             commandService.RegisterCommands();
@@ -225,8 +219,6 @@ namespace BotTests
         [TestMethod]
         public async Task Settings_InDirectMessage_Is_Refused_Without_Writes()
         {
-            // DM scope (FR-25): guild settings are per-server state; the command must decline in
-            // direct messages without touching the database.
             var harness = new SettingsHarness();
 
             var replies = await ExecuteSettings(harness, "!settings commandidentifier ?", guildId: null);
@@ -274,7 +266,6 @@ namespace BotTests
         [TestMethod]
         public async Task Settings_CooldownTierOutsideScale_IsRejected()
         {
-            // Configurable tiers are 0–3; tier 4 is global and configuration-only (FR-41).
             var harness = new SettingsHarness();
 
             var replies = await ExecuteSettings(harness, "!settings cooldown 4 5", invokerTier: PermissionTier.BotOwner);
@@ -297,8 +288,6 @@ namespace BotTests
         [TestMethod]
         public async Task Settings_CooldownEscalationGuard_RejectsOwnAndHigherTiers()
         {
-            // Mirrors FR-36: an invoker may only configure tiers strictly below their own —
-            // nobody can loosen the throttle that governs their own level.
             var harness = new SettingsHarness();
 
             var replies = await ExecuteSettings(harness, "!settings cooldown 2 5", invokerTier: PermissionTier.Admin);

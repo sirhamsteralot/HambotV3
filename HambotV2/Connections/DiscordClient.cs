@@ -96,7 +96,7 @@ namespace HambotV2.Connections
                 return;
 
             // Each guild's effective identifier decides which messages are command invocations
-            // (FR-26); direct messages use the global default (DM commands run in the DM scope,
+            //; direct messages use the global default (DM commands run in the DM scope,
             // see CommandHandler).
             string identifier = message.Channel is SocketGuildChannel guildChannel
                 ? _guildSettingsService.GetCommandIdentifier(guildChannel.Guild.Id)
