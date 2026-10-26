@@ -1,4 +1,5 @@
 using Discord;
+using HambotV2.SlashCommands;
 
 namespace HambotV2.Commands.SystemCommands
 {
@@ -14,6 +15,13 @@ namespace HambotV2.Commands.SystemCommands
         public string Description => "Show or set the permission tier a command requires (0 everyone, 1 moderator, 2 admin, 3 owner)";
         public string Usage => "commandpermission <commandName> [tier]";
         public int DefaultPermissionTier => PermissionTier.Admin;
+
+        /// <summary>Slash surface: the command name typed, the tier picked as an integer.</summary>
+        public ApplicationCommandDeclaration? ApplicationCommand => new(
+        [
+            new ApplicationCommandOption("command", "The command whose required tier to show or set", ApplicationCommandOptionKind.Text),
+            new ApplicationCommandOption("tier", "The new required tier: 0 everyone, 1 moderator, 2 admin, 3 owner", ApplicationCommandOptionKind.Integer, Required: false),
+        ]);
 
         public async Task ExecuteCommand(IMessage message, ICommandContext context)
         {

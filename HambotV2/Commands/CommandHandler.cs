@@ -48,7 +48,7 @@ namespace HambotV2.Commands
             _notificationPublisher = notificationPublisher;
         }
 
-        public async Task HandleCommand(IMessage message)
+        public async Task<CommandOutcome> HandleCommand(IMessage message)
         {
             ICommand? command = null;
 
@@ -86,17 +86,17 @@ namespace HambotV2.Commands
                     {
                         await message.Channel.SendMessageAsync(MaintenanceNotice);
                         outcome = CommandOutcome.MaintenanceMode;
-                        return;
+                        return outcome;
                     }
 
                     outcome = await ExecuteBuiltInCommandAsync(message, guildId, identifier, overrides, command);
-                    return;
+                    return outcome;
                 }
 
                 // Identifier-only messages (a bare "!") are ignored; only unknown command
                 // names are answered.
                 if (_commandService.IsIdentifierOnlyMessage(message.Content, identifier))
-                    return;
+                    return outcome;
 
                 // Custom-response fallback: before the "unavailable" reply, a guild
                 // message's command token is checked against the invoking guild's custom
@@ -110,12 +110,13 @@ namespace HambotV2.Commands
                     {
                         outcome = responseOutcome.Value;
                         responseName = token;
-                        return;
+                        return outcome;
                     }
                 }
 
                 await message.Channel.SendMessageAsync("The requested command is unavailable");
                 outcome = CommandOutcome.UnknownCommand;
+                return outcome;
             }
             catch (Exception ex)
             {
@@ -139,6 +140,8 @@ namespace HambotV2.Commands
                 {
                     _logger.LogError(replyEx, "Failed to send error reply for message: {content}", message.Content);
                 }
+
+                return outcome;
             }
             finally
             {

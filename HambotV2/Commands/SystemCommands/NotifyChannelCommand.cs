@@ -1,4 +1,5 @@
 using Discord;
+using HambotV2.SlashCommands;
 using HambotV2.Watchdog;
 
 namespace HambotV2.Commands.SystemCommands
@@ -23,6 +24,13 @@ namespace HambotV2.Commands.SystemCommands
         public string Description => "Shows, sets, or clears the channel the bot posts error and failure notifications to";
         public string Usage => "notifychannel [<channel mention or id> | clear]";
         public int DefaultPermissionTier => PermissionTier.BotOwner;
+
+        /// <summary>
+        /// Slash surface: the operation stays free-form so <c>clear</c> and a raw
+        /// channel id parse exactly as on the text surface.
+        /// </summary>
+        public ApplicationCommandDeclaration? ApplicationCommand =>
+            ApplicationCommandDeclaration.FreeForm("Omit to show, a channel mention or id, or clear");
 
         public async Task ExecuteCommand(IMessage message, ICommandContext context)
         {

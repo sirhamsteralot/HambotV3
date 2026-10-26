@@ -1,3 +1,4 @@
+using Discord;
 using HambotV2.Commands;
 using HambotV2.Commands.SystemCommands;
 using HambotV2.Connections;
@@ -39,6 +40,22 @@ namespace BotTests
             return sentMessages[0];
         }
 
+        /// <summary>The full list for the user: every page concatenated, so visibility assertions do not depend on the page size.</summary>
+        private static async Task<string> ExecuteHelpAllPages(CommandService commandService, DatabaseContext database, ulong authorId, ulong? guildOwnerId = null, ulong? botOwnerId = null, ulong? guildId = DiscordTestDoubles.DefaultGuildId)
+        {
+            string page = await ExecuteHelp(commandService, database, "!help", authorId, guildOwnerId, botOwnerId, guildId);
+            string allPages = page;
+
+            if (!page.Contains("page 1 of ", StringComparison.Ordinal))
+                return allPages;
+
+            int pageCount = int.Parse(page.Split("page 1 of ")[1].Split(')')[0]);
+            for (int pageNumber = 2; pageNumber <= pageCount; pageNumber++)
+                allPages += Environment.NewLine + await ExecuteHelp(commandService, database, $"!help {pageNumber}", authorId, guildOwnerId, botOwnerId, guildId);
+
+            return allPages;
+        }
+
         [TestMethod]
         public async Task Help_List_For_Tier0_User_Shows_Only_Everyone_Commands()
         {
@@ -61,7 +78,7 @@ namespace BotTests
             database.Users.Add(new DatabaseContext.User { GuildId = DiscordTestDoubles.DefaultGuildId, DiscordId = AdminUser, PermissionTier = PermissionTier.Admin });
             database.SaveChanges();
 
-            string reply = await ExecuteHelp(commandService, database, "!help", authorId: AdminUser);
+            string reply = await ExecuteHelpAllPages(commandService, database, authorId: AdminUser);
 
             StringAssert.Contains(reply, "!help");
             StringAssert.Contains(reply, "!hello");
@@ -76,7 +93,7 @@ namespace BotTests
             var commandService = CreateRegisteredService();
             var database = DiscordTestDoubles.CreateDatabase();
 
-            string reply = await ExecuteHelp(commandService, database, "!help", authorId: GuildOwner, guildOwnerId: GuildOwner);
+            string reply = await ExecuteHelpAllPages(commandService, database, authorId: GuildOwner, guildOwnerId: GuildOwner);
 
             StringAssert.Contains(reply, "!userpermission");
             StringAssert.Contains(reply, "!commandpermission");
@@ -163,7 +180,7 @@ namespace BotTests
             var commandService = CreateRegisteredService();
             var database = DiscordTestDoubles.CreateDatabase();
 
-            string reply = await ExecuteHelp(commandService, database, "!help", authorId: RandomUser, guildOwnerId: null, guildId: null);
+            string reply = await ExecuteHelpAllPages(commandService, database, authorId: RandomUser, guildOwnerId: null, guildId: null);
 
             StringAssert.Contains(reply, "!hello");
             StringAssert.Contains(reply, "!help");
@@ -249,6 +266,90 @@ namespace BotTests
             string reply = await ExecuteHelp(commandService, database, "!help 0", authorId: RandomUser, guildOwnerId: GuildOwner);
 
             StringAssert.Contains(reply, "There is no page 0");
+        }
+
+        [TestMethod]
+        public async Task Help_MultiPage_List_Attaches_Pagination_Buttons()
+        {
+            // The bot owner sees every command, so the list paginates and carries the button pair.
+            var commandService = CreateRegisteredService();
+            var database = DiscordTestDoubles.CreateDatabase();
+            var sentMessages = new List<string>();
+            var sentComponents = new List<MessageComponent?>();
+
+            var message = DiscordTestDoubles.CreateGuildMessage("!help 2", BotOwnerUser, GuildOwner, sentMessages, sentComponents: sentComponents);
+            var context = DiscordTestDoubles.CreateContext(database, GuildOwner, BotOwnerUser);
+
+            await commandService.Commands["help"].ExecuteCommand(message.Object, context);
+
+            StringAssert.Contains(sentMessages[0], "page 2 of");
+            Assert.IsNotNull(sentComponents[0], "A multi-page list attaches the previous/next buttons");
+        }
+
+        [TestMethod]
+        public async Task Help_SinglePage_List_Has_No_Pagination_Buttons()
+        {
+            var commandService = CreateRegisteredService();
+            var database = DiscordTestDoubles.CreateDatabase();
+            var sentMessages = new List<string>();
+            var sentComponents = new List<MessageComponent?>();
+
+            var message = DiscordTestDoubles.CreateGuildMessage("!help", RandomUser, GuildOwner, sentMessages, sentComponents: sentComponents);
+            var context = DiscordTestDoubles.CreateContext(database, GuildOwner);
+
+            await commandService.Commands["help"].ExecuteCommand(message.Object, context);
+
+            Assert.IsNull(sentComponents[0], "A single-page list has no buttons to attach");
+        }
+
+        [TestMethod]
+        public void Pagination_Buttons_Target_Adjacent_Pages_And_Disable_At_The_Bounds()
+        {
+            var middle = HelpPagination.GetButtons(currentPage: 2, pageCount: 3);
+            Assert.AreEqual("help:page:1", middle!.Value.PreviousId);
+            Assert.IsFalse(middle.Value.PreviousDisabled);
+            Assert.AreEqual("help:page:3", middle.Value.NextId);
+            Assert.IsFalse(middle.Value.NextDisabled);
+
+            var first = HelpPagination.GetButtons(1, 3);
+            Assert.IsTrue(first!.Value.PreviousDisabled, "The previous button is disabled on the first page");
+            Assert.IsFalse(first.Value.NextDisabled);
+
+            var last = HelpPagination.GetButtons(3, 3);
+            Assert.IsFalse(last!.Value.PreviousDisabled);
+            Assert.IsTrue(last.Value.NextDisabled, "The next button is disabled on the last page");
+
+            Assert.IsNotNull(HelpPagination.BuildButtons(2, 3), "A multi-page list builds a button pair");
+        }
+
+        [TestMethod]
+        public void Pagination_SinglePage_List_Has_No_Buttons()
+        {
+            Assert.IsNull(HelpPagination.GetButtons(1, 1));
+            Assert.IsNull(HelpPagination.BuildButtons(1, 1));
+        }
+
+        [TestMethod]
+        public void Pagination_CustomId_Parses_Back_To_The_Target_Page()
+        {
+            Assert.IsTrue(HelpPagination.TryGetTargetPage(HelpPagination.CustomId(7), out int page));
+            Assert.AreEqual(7, page);
+
+            foreach (string foreign in new[] { "", "help:page:", "help:page:zero", "help:page:-1", "other:page:2", "helppage:3" })
+                Assert.IsFalse(HelpPagination.TryGetTargetPage(foreign, out _), $"Foreign custom id '{foreign}' must not parse as a help button");
+        }
+
+        [TestMethod]
+        public void BuildPages_Caps_At_Ten_Commands_Per_Page()
+        {
+            var lines = Enumerable.Range(1, 25).Select(number => $"!command{number} — description").ToList();
+
+            List<string> pages = HelpCommand.BuildPages(lines);
+
+            Assert.AreEqual(3, pages.Count, "25 commands split into 10 + 10 + 5");
+            Assert.AreEqual(10, pages[0].Split(Environment.NewLine).Length);
+            Assert.AreEqual(10, pages[1].Split(Environment.NewLine).Length);
+            Assert.AreEqual(5, pages[2].Split(Environment.NewLine).Length);
         }
 
         [TestMethod]

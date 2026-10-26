@@ -6,6 +6,7 @@ using HambotV2.Connections;
 using HambotV2.Maintenance;
 using HambotV2.Reminders;
 using HambotV2.Scheduling;
+using HambotV2.SlashCommands;
 using HambotV2.Watchdog;
 using Microsoft.EntityFrameworkCore;
 using Serilog;
@@ -79,6 +80,18 @@ namespace HambotV2
             // pre-filter and command parsing.
             builder.Services.AddSingleton<IGuildSettingsService>(serviceProvider =>
                 new GuildSettingsService(serviceProvider, builder.Configuration));
+
+            // Slash surface (design §3.15): the virtual-invocation seam is shared with the planned
+            // MCP run_command tool (§3.11); the slash service registers the definitions after the
+            // gateway connects and executes interactions through the real pipeline. Opt-in via
+            // SlashCommands:Enabled (default false), so Attach() stays a no-op unless enabled.
+            builder.Services.AddSingleton<IVirtualCommandRunner, VirtualCommandRunner>();
+            builder.Services.AddSingleton<SlashCommandService>();
+
+            // Interactive help pagination (design §3.15): handles the previous/next buttons on a
+            // multi-page help list through the same virtual-invocation seam as the slash surface.
+            // Attached unconditionally — the buttons ride on text-surface help messages too.
+            builder.Services.AddSingleton<HelpPaginationService>();
 
             // Singleton so the cooldown timestamps are shared across messages; time comes from
             // an injectable TimeProvider for deterministic tests.

@@ -1,6 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
 using Discord;
 using HambotV2.Connections;
+using HambotV2.SlashCommands;
 
 namespace HambotV2.Commands.SystemCommands
 {
@@ -25,6 +26,12 @@ namespace HambotV2.Commands.SystemCommands
         public abstract string Description { get; }
         public abstract string Usage { get; }
         public int DefaultPermissionTier => PermissionTier.BotOwner;
+
+        /// <summary>
+        /// Slash surface: the argument line stays free-form (attachments are a
+        /// text-surface input; the URL and reset keyword work on both).
+        /// </summary>
+        public abstract ApplicationCommandDeclaration? ApplicationCommand { get; }
 
         /// <summary>The keyword that removes the custom image (avatar: <c>reset</c>, banner: <c>clear</c>).</summary>
         protected abstract string ResetKeyword { get; }

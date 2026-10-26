@@ -1,6 +1,7 @@
 using Discord;
 using HambotV2.Connections;
 using HambotV2.Scheduling;
+using HambotV2.SlashCommands;
 using Microsoft.EntityFrameworkCore;
 
 namespace HambotV2.Commands.ReminderCommands
@@ -37,6 +38,13 @@ namespace HambotV2.Commands.ReminderCommands
         public string Description => "Set a personal reminder the bot sends you as a direct message when it is due";
         public string Usage => "remindme <duration> <message...> | remindme every <duration> <message...> (durations use s/m/h/d/w units, e.g. remindme 1d 12h water the plants, or remindme every 1d take vitamins for a recurring one)";
         public int DefaultPermissionTier => PermissionTier.Everyone;
+
+        /// <summary>
+        /// Slash surface: the argument line stays free-form so the recurring
+        /// <c>every</c> form parses exactly as on the text surface.
+        /// </summary>
+        public ApplicationCommandDeclaration? ApplicationCommand =>
+            ApplicationCommandDeclaration.FreeForm("The reminder arguments, e.g. 1d 12h water the plants, or every 1d take vitamins for a recurring one");
 
         public async Task ExecuteCommand(IMessage message, ICommandContext context)
         {
