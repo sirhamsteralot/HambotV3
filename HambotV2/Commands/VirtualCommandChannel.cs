@@ -7,8 +7,8 @@ namespace HambotV2.Commands
     /// The capturing reply channel of a virtual command invocation (design §3.15/§3.11): it
     /// wraps the origin channel the interaction arrived on (so the pipeline's guild scope and
     /// audit data stay real) and records every reply instead of posting it — the interaction
-    /// handler re-posts the captured replies as the interaction's response, publicly for normal
-    /// command output, ephemerally for denials.
+    /// handler re-posts the captured replies as the interaction's response, ephemerally
+    /// (visible only to the invoker).
     /// </summary>
     internal class VirtualCommandChannel : IMessageChannel
     {

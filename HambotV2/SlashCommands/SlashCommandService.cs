@@ -11,6 +11,8 @@ namespace HambotV2.SlashCommands
     /// command (a bulk global overwrite, idempotent on every boot), and executes invocations
     /// through the real command pipeline via the shared virtual-invocation seam — so permission
     /// tiers, cooldown keys, audit events, and error semantics are identical to the text surface.
+    /// Every reply is posted ephemeral: a slash invocation and its outcome are visible only to
+    /// the invoker, while the text surface remains the public one.
     /// </summary>
     internal sealed class SlashCommandService
     {
@@ -40,15 +42,6 @@ namespace HambotV2.SlashCommands
         {
             _client.Ready += OnReadyAsync;
             _client.SlashCommandExecuted += OnSlashCommandExecutedAsync;
-        }
-
-        /// <summary>
-        /// The command's normal output is public, while the pipeline's denials —
-        /// permission, cooldown, maintenance, and the generic error — are visible only to the invoker.
-        /// </summary>
-        internal static bool IsEphemeralReply(CommandOutcome outcome)
-        {
-            return outcome != CommandOutcome.Executed;
         }
 
         private async Task OnReadyAsync()
@@ -137,7 +130,7 @@ namespace HambotV2.SlashCommands
             {
                 // Acknowledge immediately: the pipeline may take a moment, and the
                 // deferred state resolves into the followups below.
-                await command.DeferAsync();
+                await command.DeferAsync(ephemeral: true);
 
                 if (!_commandService.Commands.TryGetValue(command.Data.Name, out ICommand? serviceCommand)
                     || serviceCommand.ApplicationCommand is not { } declaration)
@@ -156,9 +149,10 @@ namespace HambotV2.SlashCommands
                 var invocation = new VirtualCommandInvocation(command.User, command.Channel, commandLine, command.CreatedAt);
                 VirtualCommandResult result = await _virtualCommandRunner.RunAsync(invocation);
 
-                bool ephemeral = IsEphemeralReply(result.Outcome);
+                // Every reply is visible only to the invoker (FR-112): the slash surface is a
+                // private conversation with the bot, the text surface stays the public one.
                 foreach (VirtualCommandReply reply in result.Replies)
-                    await command.FollowupAsync(reply.Text, components: reply.Components, ephemeral: ephemeral);
+                    await command.FollowupAsync(reply.Text, components: reply.Components, ephemeral: true);
             }
             catch (Exception ex)
             {

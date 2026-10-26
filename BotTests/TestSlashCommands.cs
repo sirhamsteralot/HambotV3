@@ -16,8 +16,8 @@ namespace BotTests
     /// <summary>
     /// The slash surface (design §3.15): the interaction→command-line
     /// mapping, the virtual invocation through the real pipeline (shared tiers, cooldowns,
-    /// audit outcomes, DM scope), denial ephemerality vs. public output, and the registration
-    /// contract (every slash-eligible command yields a valid definition, ineligible ones none).
+    /// audit outcomes, DM scope), and the registration contract (every slash-eligible command
+    /// yields a valid definition, ineligible ones none).
     /// </summary>
     [TestClass]
     public sealed class TestSlashCommands
@@ -529,40 +529,6 @@ namespace BotTests
             using var reader = pipeline.CreateDatabaseReader();
             DatabaseContext.Reminder reminder = reader.Reminders.Single();
             Assert.AreEqual(invocationTime.UtcDateTime.AddHours(1), reminder.DueAtUtc, "The reminder is scheduled from the invocation timestamp.");
-        }
-
-        // Reply ephemerality
-
-        [TestMethod]
-        public void Ephemerality_NormalOutputIsPublic()
-        {
-            Assert.IsFalse(SlashCommandService.IsEphemeralReply(CommandOutcome.Executed));
-        }
-
-        [TestMethod]
-        public void Ephemerality_PipelineDenialsAreEphemeral()
-        {
-            Assert.IsTrue(SlashCommandService.IsEphemeralReply(CommandOutcome.DeniedPermission));
-            Assert.IsTrue(SlashCommandService.IsEphemeralReply(CommandOutcome.Throttled));
-            Assert.IsTrue(SlashCommandService.IsEphemeralReply(CommandOutcome.MaintenanceMode));
-            Assert.IsTrue(SlashCommandService.IsEphemeralReply(CommandOutcome.Failed));
-            Assert.IsTrue(SlashCommandService.IsEphemeralReply(CommandOutcome.UnknownCommand));
-        }
-
-        [TestMethod]
-        public async Task Ephemerality_DeniedInvocationMapsToEphemeralCapturedDenial()
-        {
-            var pipeline = new VirtualPipeline();
-            pipeline.Permissions
-                .Setup(p => p.CheckUserPermissions(It.IsAny<ulong>(), It.IsAny<ulong?>(), It.IsAny<TierOverrides>(), It.IsAny<ICommand>(), It.IsAny<IDatabaseContext>()))
-                .ReturnsAsync(new PermissionCheckResult(IsAllowed: false, UserEffectiveTier: PermissionTier.Everyone));
-
-            VirtualCommandResult result = await RunAsync(pipeline, pipeline.CreateGuildChannel(), "backup");
-
-            // The two inputs of the interaction handler's reply decision, asserted together:
-            // the captured denial text plus the ephemeral outcome mapping.
-            Assert.IsTrue(SlashCommandService.IsEphemeralReply(result.Outcome));
-            Assert.AreEqual("You are not permitted to use that command", result.Replies.Single().Text);
         }
 
         // Configuration
