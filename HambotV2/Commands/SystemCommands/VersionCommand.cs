@@ -5,7 +5,7 @@ namespace HambotV2.Commands.SystemCommands
     /// <summary>
     /// Replies in-channel with the bot's version: the release tag's semver plus the
     /// build commit's short hash (e.g. <c>1.2.3+1639324</c>), from the same single source as
-    /// the startup log line — the <see cref="BotVersion"/> provider (§3.9). No guild state is
+    /// the startup log line — the <see cref="BotVersion"/> provider. No guild state is
     /// read, so it works in direct messages.
     /// </summary>
     internal class VersionCommand : ICommand

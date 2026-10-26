@@ -8,7 +8,7 @@ namespace HambotV2.Commands.QuoteCommands
     /// <summary>
     /// Imports the old bot's quotes into the invoking guild: the configured bot
     /// owner attaches the old `quoteSettings.json` to the invocation message. Tier 4 by default —
-    /// reachable only through configuration and effectively immutable at runtime (see §3.6) — so
+    /// reachable only through configuration and effectively immutable at runtime — so
     /// only the bot owner can ever run it.
     /// </summary>
     internal class ImportQuotesCommand : ICommand
@@ -87,7 +87,7 @@ namespace HambotV2.Commands.QuoteCommands
             }
 
             // Storage: appended in file order, continuing the per-guild numbering,
-            // 0-based like the old bot's index list — an empty guild imports starting at #0); the
+            // 0-based like the old bot's index list — an empty guild imports starting at #0 — the
             // legacy date survives the migration, falling back to the import message.
             int nextNumber = (await context.DbContext.Quotes
                 .Where(item => item.GuildId == guildId)

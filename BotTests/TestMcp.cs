@@ -13,7 +13,7 @@ using Moq;
 namespace BotTests
 {
     /// <summary>
-    /// The MCP surface (design §3.11): the endpoint's opt-in configuration, the
+    /// The MCP surface: the endpoint's opt-in configuration, the
     /// bearer-key gate, each tool over fakes, and run_command's reply capture, tier-4
     /// authority, cooldown throttling, and audit semantics — without a live transport,
     /// database, or Discord connection.
@@ -39,7 +39,7 @@ namespace BotTests
             Assert.IsTrue(enabledWithoutKey.Enabled);
             Assert.IsFalse(enabledWithoutKey.IsActive);
 
-            // Invalid values fall back to the default (§3.4 treatment).
+            // Invalid values fall back to the default.
             Assert.IsFalse(McpConfiguration.Parse(CreateConfiguration(("Mcp:Enabled", "junk"))).Enabled);
         }
 

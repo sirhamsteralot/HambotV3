@@ -6,7 +6,7 @@ using HambotV2.Commands.SystemCommands;
 namespace HambotV2.SlashCommands
 {
     /// <summary>
-    /// Interactive help pagination (design §3.15): a button click on a multi-page help list
+    /// Interactive help pagination: a button click on a multi-page help list
     /// becomes a normal <c>help &lt;page&gt;</c> invocation through the same virtual-invocation
     /// seam the slash surface uses — so paging shares the command pipeline's permission, cooldown,
     /// and audit semantics — and the paginated message is then updated in place with the new page.

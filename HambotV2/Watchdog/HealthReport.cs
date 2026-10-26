@@ -25,7 +25,7 @@ namespace HambotV2.Watchdog
     }
 
     /// <summary>
-    /// Aggregates the health snapshot from the existing components (§3.13) — nothing is re-probed
+    /// Aggregates the health snapshot from the existing components — nothing is re-probed
     /// ad hoc by the command. Two consumers share it: `!health` and (indirectly, via the
     /// same status file) the watchdog.
     /// </summary>
@@ -66,8 +66,8 @@ namespace HambotV2.Watchdog
 
         public async Task<HealthSnapshot> CaptureAsync(CancellationToken cancellationToken = default)
         {
-            // The LLM (§3.12) and presence (§3.10) fields are omitted until those phases land —
-            // the report shows only what is actually running today.
+            // The report shows only what is actually running today; dormant surfaces are
+            // omitted until they land.
             return new HealthSnapshot
             {
                 Version = BotVersion.Current,

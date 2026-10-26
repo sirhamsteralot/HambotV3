@@ -14,7 +14,7 @@ using System.Threading.Tasks;
 namespace BotTests
 {
     /// <summary>
-    /// The per-guild operator-agent tier (design §3.11): the `!agenttier` command over
+    /// The per-guild operator-agent tier: the `!agenttier` command over
     /// the real guild-settings service, and the cached tier resolution the pipeline's
     /// run_command cap consumes — without a live database or Discord connection.
     /// </summary>

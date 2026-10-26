@@ -21,7 +21,7 @@ namespace HambotV2.Commands
         /// Slash-surface declaration: null — the default — keeps the command text-only;
         /// an instance opts the command into the Discord application-command surface. Only
         /// administrative/configuration commands and commands acting solely on the invoking user's
-        /// own state declare one (design §3.15).
+        /// own state declare one.
         /// </summary>
         ApplicationCommandDeclaration? ApplicationCommand => null;
 

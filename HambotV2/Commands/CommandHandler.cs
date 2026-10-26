@@ -80,7 +80,7 @@ namespace HambotV2.Commands
 
                 // The MCP run_command invocation is the operator's agent: its virtual user
                 // acts at the guild's operator-agent tier — the lowest tier unless the guild
-                // raised it (design §3.11).
+                // raised it.
                 if (message is VirtualCommandMessage { OperatorAgentUserId: { } operatorAgentUserId })
                 {
                     overrides = overrides with

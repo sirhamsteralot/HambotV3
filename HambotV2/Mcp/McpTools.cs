@@ -6,11 +6,11 @@ using HambotV2.Watchdog;
 namespace HambotV2.Mcp
 {
     /// <summary>
-    /// The MCP tool implementations (design §3.11): thin wrappers over the existing components —
+    /// The MCP tool implementations: thin wrappers over the existing components —
     /// the shared client's status and guild cache, the presence service, the REST message surface,
     /// and the virtual invocation seam — so nothing re-implements command or data logic. Every
-    /// call logs one structured event with the tool name and outcome, without message content
-    /// call; failures are contained and returned as error results.
+    /// call logs one structured event with the tool name and outcome, without message content;
+    /// failures are contained and returned as error results.
     /// </summary>
     internal sealed class McpTools : IMcpTools
     {

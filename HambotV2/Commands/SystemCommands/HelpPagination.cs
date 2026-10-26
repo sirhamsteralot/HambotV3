@@ -3,7 +3,7 @@ using Discord;
 namespace HambotV2.Commands.SystemCommands
 {
     /// <summary>
-    /// The interactive pagination of the multi-page help list (design §3.2/§3.15): the help
+    /// The interactive pagination of the multi-page help list: the help
     /// command attaches a previous/next button pair to a multi-page list — on text messages and
     /// interaction replies alike — and each button's custom id encodes the page it requests.
     /// The button handler runs that page as a normal help invocation through the virtual-invocation

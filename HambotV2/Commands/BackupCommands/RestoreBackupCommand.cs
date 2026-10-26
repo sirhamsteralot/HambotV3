@@ -13,7 +13,7 @@ namespace HambotV2.Commands.BackupCommands
     /// `confirm` suffix; only `!restorebackup &lt;name&gt; confirm` executes. While the restore runs the
     /// bot is in maintenance mode (other commands decline, scheduled deliveries defer), pooled
     /// database connections are cleared, and afterwards the guild-settings cache is invalidated.
-    /// Bot-owner tier by default, usable in direct messages, with help text. The scripted procedure
+    /// Bot-owner tier by default, usable in direct messages. The scripted procedure
     /// (scripts/restore-backup.sh) remains the authoritative recovery path when the bot itself is
     /// unavailable.
     /// </summary>
@@ -93,7 +93,7 @@ namespace HambotV2.Commands.BackupCommands
             try
             {
                 // The pipeline's pooled connections point at the database being replaced; clearing
-                // them lets pg_restore drop and recreate the objects (design §5.2).
+                // them lets pg_restore drop and recreate the objects.
                 NpgsqlConnection.ClearAllPools();
 
                 await backupManager.RestoreBackupAsync(name);

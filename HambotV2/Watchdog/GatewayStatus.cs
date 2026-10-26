@@ -3,7 +3,7 @@ using Discord.WebSocket;
 namespace HambotV2.Watchdog
 {
     /// <summary>
-    /// The gateway connection state as seen by the health report and the watchdog (§3.13) — a
+    /// The gateway connection state as seen by the health report and the watchdog — a
     /// narrow read-only view over the shared client so both consumers are unit-testable without
     /// a live gateway.
     /// </summary>

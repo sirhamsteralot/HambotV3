@@ -4,7 +4,7 @@ namespace HambotV2.Mcp
     /// The MCP endpoint's configuration: <c>Mcp:Enabled</c> (default false),
     /// <c>Mcp:ListenUri</c> (default <see cref="DefaultListenUri"/>), and the secret
     /// <c>Mcp:ApiKey</c>. The endpoint is active only when enabled with a key set;
-    /// an absent or invalid value falls back to the default, §3.4 treatment.
+    /// an absent or invalid value falls back to the default.
     /// </summary>
     internal sealed record McpConfiguration
     {

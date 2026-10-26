@@ -5,7 +5,7 @@ using ModelContextProtocol.Server;
 namespace HambotV2.Mcp
 {
     /// <summary>
-    /// The SDK-discovered MCP tool wrappers (design §3.11): one public method per tool over
+    /// The SDK-discovered MCP tool wrappers: one public method per tool over
     /// <see cref="IMcpTools"/>, with the argument and result shapes the protocol carries.
     /// Public and attribute-driven because the ModelContextProtocol SDK discovers and
     /// activates tool types through public constructors; all logic lives behind the interface.

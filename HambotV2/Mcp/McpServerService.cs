@@ -7,7 +7,7 @@ using Microsoft.Extensions.Hosting;
 namespace HambotV2.Mcp
 {
     /// <summary>
-    /// Hosts the MCP endpoint in-process over streamable HTTP (design §3.11): a Kestrel web
+    /// Hosts the MCP endpoint in-process over streamable HTTP: a Kestrel web
     /// app started by this worker at <c>Mcp:ListenUri</c> with the session endpoint mapped at
     /// <see cref="EndpointPath"/>, the bearer-key check in front of everything, and
     /// the tools resolved from this host's <see cref="IMcpTools"/> instance. The endpoint runs

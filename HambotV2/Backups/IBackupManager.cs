@@ -7,9 +7,9 @@ namespace HambotV2.Backups
     internal sealed record BackupInfo(string Name, DateTimeOffset Timestamp, long SizeBytes);
 
     /// <summary>
-    /// Backup management over the shared backup volume (design §5.2): the scheduled
-    /// sidecar and the in-bot commands operate on the same directory, so on-demand dumps land
-    /// next to the scheduled ones and both are visible to `!backups`. The process boundary keeps
+    /// Backup management over the shared backup volume: the scheduled sidecar and the
+    /// in-bot commands operate on the same directory, so on-demand dumps land next to the
+    /// scheduled ones and both are visible to `!backups`. The process boundary keeps
     /// the commands pure orchestration — the implementation shells out to pg_dump/pg_restore,
     /// so unit tests fake this interface.
     /// </summary>
@@ -34,8 +34,8 @@ namespace HambotV2.Backups
     }
 
     /// <summary>
-    /// Runs pg_dump/pg_restore in-process against the shared backup volume (design §5.2). The
-    /// runtime image installs postgresql-client and compose mounts the sidecar's `backups`
+    /// Runs pg_dump/pg_restore in-process against the shared backup volume. The runtime
+    /// image installs postgresql-client and compose mounts the sidecar's `backups`
     /// volume into the bot, so this reaches the same files the scheduled loop produces.
     /// </summary>
     internal sealed class ProcessBackupManager : IBackupManager
@@ -180,8 +180,8 @@ namespace HambotV2.Backups
 
             if (process.ExitCode != 0)
             {
-                // The commands reply generically: no exception details in Discord.
-                // so this line is where the actual pg tool error lands.
+                // The commands reply generically (no exception details in Discord), so this
+                // log line is where the actual pg tool error lands.
                 _logger.LogError("{Tool} failed with exit code {ExitCode}: {Error}", fileName, process.ExitCode, stderr.Trim());
                 throw new InvalidOperationException($"{fileName} failed (exit {process.ExitCode}): {stderr.Trim()}");
             }

@@ -31,7 +31,7 @@ namespace HambotV2.Connections
             modelBuilder.Entity<Quote>().HasKey(quote => new { quote.GuildId, quote.Number });
             modelBuilder.Entity<CustomResponse>().HasKey(response => new { response.GuildId, response.Name });
             modelBuilder.Entity<Reminder>().HasKey(reminder => new { reminder.OwnerDiscordId, reminder.Number });
-            // Global key-value settings (§3.13): the global analog of GuildSetting.
+            // Global key-value settings: the global analog of GuildSetting.
             modelBuilder.Entity<BotSetting>().HasKey(setting => setting.Key);
         }
 
@@ -56,7 +56,7 @@ namespace HambotV2.Connections
             /// <summary>The guild's command identifier override; null means the global default applies.</summary>
             public string? CommandIdentifier { get; set; }
 
-            /// <summary>The tier the MCP operator agent acts at in this guild (design §3.11); null = the lowest-tier default.</summary>
+            /// <summary>The tier the MCP operator agent acts at in this guild; null = the lowest-tier default.</summary>
             public int? OperatorAgentTier { get; set; }
 
             /// <summary>Per-tier cooldown overrides in seconds; null = inherit the global default.</summary>
@@ -133,7 +133,7 @@ namespace HambotV2.Connections
             /// <summary>Per-owner sequential number: MAX(Number) + 1 at creation; never renumbered on cancellation.</summary>
             public int Number { get; set; }
 
-            /// <summary>The reminder text (1–500 characters,.</summary>
+            /// <summary>The reminder text (1–500 characters).</summary>
             public string Message { get; set; } = string.Empty;
 
             /// <summary>Due time, always UTC.</summary>
@@ -152,7 +152,7 @@ namespace HambotV2.Connections
         }
 
         /// <summary>
-        /// A global key-value setting (§3.13): bot-owner-scope state that is not guild- or user-scoped,
+        /// A global key-value setting: bot-owner-scope state that is not guild- or user-scoped,
         /// persisted across restarts. First key: the operator notification channel id.
         /// </summary>
         public class BotSetting

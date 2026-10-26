@@ -14,7 +14,7 @@ using System.Threading.Tasks;
 namespace BotTests
 {
     /// <summary>
-    /// The slash surface (design §3.15): the interaction→command-line
+    /// The slash surface: the interaction→command-line
     /// mapping, the virtual invocation through the real pipeline (shared tiers, cooldowns,
     /// audit outcomes, DM scope), and the registration contract (every slash-eligible command
     /// yields a valid definition, ineligible ones none).
@@ -457,8 +457,8 @@ namespace BotTests
         {
             var pipeline = new VirtualPipeline();
 
-            // A DM origin channel is not a guild channel, so userpermission hits its guild guard
-            // : the DM scope reply is captured exactly as for a text DM.
+            // A DM origin channel is not a guild channel, so userpermission hits its guild
+            // guard: the DM scope reply is captured exactly as for a text DM.
             VirtualCommandResult result = await RunAsync(pipeline, pipeline.CreateDirectMessageChannel(), "userpermission <@42> 1");
 
             Assert.AreEqual(CommandOutcome.Executed, result.Outcome);

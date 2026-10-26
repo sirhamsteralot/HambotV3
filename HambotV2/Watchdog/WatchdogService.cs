@@ -10,8 +10,8 @@ namespace HambotV2.Watchdog
     /// notification channel being unreachable — and alerts the bot owner by DM, additionally
     /// posting to the configured notification channel. Each condition alerts once on its rising
     /// edge, re-alerts at most once per re-alert interval while it persists, and announces recovery
-    /// once. Without a configured bot owner the alerts degrade to logs. The LLM conditions
-    /// (§3.12) are dormant until that phase lands. A failing check is logged, never propagated.
+    /// once. Without a configured bot owner the alerts degrade to logs. A failing check is
+    /// logged, never propagated.
     /// </summary>
     internal sealed class WatchdogService : BackgroundService
     {
@@ -257,7 +257,7 @@ namespace HambotV2.Watchdog
             return _timeProvider.GetUtcNow() > test.Timestamp + TimeSpan.FromSeconds(intervalSeconds) + OverdueGraceInterval;
         }
 
-        // --- Configuration (defaults in code; overridable via Watchdog:* keys) ---
+        // Configuration (defaults in code; overridable via Watchdog:* keys)
 
         private int CheckIntervalMinutes => ReadPositiveMinutes("Watchdog:CheckIntervalMinutes", DefaultCheckIntervalMinutes);
         private TimeSpan GatewayDownAlertInterval => TimeSpan.FromMinutes(ReadPositiveMinutes("Watchdog:GatewayDownAlertMinutes", DefaultGatewayDownAlertMinutes));

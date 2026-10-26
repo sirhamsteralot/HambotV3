@@ -264,7 +264,7 @@ namespace BotTests
 
             bool deferred = await service.ApplyActivityAsync(ActivityType.Competing, "deferred request");
 
-            Assert.IsTrue(deferred, "a deferred request is accepted, not failed (design §3.10)");
+            Assert.IsTrue(deferred, "a deferred request is accepted, not failed");
             Assert.AreEqual(0, gateway.ActivityCalls.Count, "nothing is sent before the gateway is ready");
             Assert.AreEqual(ActivityType.Competing, service.CurrentActivity!.Type, "Current reflects the recorded request");
 

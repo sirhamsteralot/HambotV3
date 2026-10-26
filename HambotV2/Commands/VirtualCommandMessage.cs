@@ -3,10 +3,10 @@ using Discord;
 namespace HambotV2.Commands
 {
     /// <summary>
-    /// The virtual <see cref="IMessage"/> of a non-gateway invocation (design §3.15/§3.11): it
-    /// carries the invoking user, origin channel, timestamp, and the equivalent text command
-    /// line, so the real command pipeline runs unchanged — tiers, cooldowns, audit, and errors
-    /// included. Everything the pipeline and commands do not use is absent: no attachments, no
+    /// The virtual <see cref="IMessage"/> of a non-gateway invocation: it carries the invoking
+    /// user, origin channel, timestamp, and the equivalent text command line, so the real
+    /// command pipeline runs unchanged — tiers, cooldowns, audit, and errors included.
+    /// Everything the pipeline and commands do not use is absent: no attachments, no
     /// reactions, no embeds.
     /// </summary>
     internal sealed class VirtualCommandMessage : IMessage

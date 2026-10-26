@@ -1,12 +1,12 @@
 namespace HambotV2.Commands.ReminderCommands
 {
     /// <summary>
-    /// The recurring-reminder limits from the optional <c>Reminders</c> configuration section
-    /// (§3.14): the minimum recurrence interval (<c>Reminders:MinRecurrenceMinutes</c>, default
+    /// The recurring-reminder limits from the optional <c>Reminders</c> configuration section:
+    /// the minimum recurrence interval (<c>Reminders:MinRecurrenceMinutes</c>, default
     /// 10) and the separate per-user cap on pending recurring reminders
     /// (<c>Reminders:MaxRecurring</c>, default 5). A null or invalid entry falls back to the
     /// default, so a typo in configuration degrades to the shipped value instead of breaking
-    /// the command — the same treatment the per-tier cooldown windows get (§3.4).
+    /// the command — the same treatment the per-tier cooldown windows get.
     /// </summary>
     internal sealed record ReminderSettings
     {

@@ -39,12 +39,12 @@ namespace HambotV2.Connections
             _client.Disconnected += OnDisconnected;
             _client.MessageReceived += OnMessageReceived;
 
-            // Slash surface (design §3.15): subscribing before the first connect means the
+            // Slash surface: subscribing before the first connect means the
             // registration pass runs as soon as the gateway is ready; disabled by default.
             if (_slashCommandService.Enabled)
                 _slashCommandService.Attach();
 
-            // Help pagination (design §3.15): attached unconditionally — the previous/next
+            // Help pagination: attached unconditionally — the previous/next
             // buttons ride on text-surface help messages too, not only interaction replies.
             _helpPaginationService.Attach();
 
@@ -109,8 +109,8 @@ namespace HambotV2.Connections
             if (message.Author.IsBot || message.Author.IsWebhook)
                 return;
 
-            // Each guild's effective identifier decides which messages are command invocations
-            //; direct messages use the global default (DM commands run in the DM scope,
+            // Each guild's effective identifier decides which messages are command invocations;
+            // direct messages use the global default (DM commands run in the DM scope,
             // see CommandHandler).
             string identifier = message.Channel is SocketGuildChannel guildChannel
                 ? _guildSettingsService.GetCommandIdentifier(guildChannel.Guild.Id)

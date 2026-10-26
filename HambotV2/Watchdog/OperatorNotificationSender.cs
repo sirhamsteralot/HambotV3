@@ -4,7 +4,7 @@ using Discord.WebSocket;
 namespace HambotV2.Watchdog
 {
     /// <summary>
-    /// The transport for operator notifications (§3.13): one component posting to the configured
+    /// The transport for operator notifications: one component posting to the configured
     /// channel and DMing the bot owner over the shared gateway client, behind an interface so the
     /// publisher and watchdog are unit-testable with a mocked sender.
     /// </summary>
@@ -29,7 +29,7 @@ namespace HambotV2.Watchdog
         public async Task SendToChannelAsync(ulong channelId, string message)
         {
             // The gateway cache first, the REST client as fallback — the same resolution order the
-            // reminder DMs use (§3.8): the cache does not know a channel right after a restart.
+            // reminder DMs use: the cache does not know a channel right after a restart.
             IMessageChannel? channel = _client.GetChannel(channelId) as IMessageChannel;
             if (channel is null)
                 channel = await _client.Rest.GetChannelAsync(channelId) as IMessageChannel;

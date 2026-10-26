@@ -22,7 +22,7 @@ namespace HambotV2.Commands
         void SetCommandIdentifier(ulong guildId, string? identifier, IDatabaseContext database);
 
         /// <summary>
-        /// The effective tier the MCP operator agent acts at in the guild (design §3.11): its
+        /// The effective tier the MCP operator agent acts at in the guild: its
         /// <c>GuildSetting.OperatorAgentTier</c> override if set, otherwise the lowest tier.
         /// Results are cached per guild.
         /// </summary>

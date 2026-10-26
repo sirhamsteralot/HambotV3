@@ -3,10 +3,10 @@ using Discord;
 namespace HambotV2.Commands
 {
     /// <summary>
-    /// One non-gateway invocation to run through the real command pipeline (design §3.15/§3.11):
-    /// the invoking user, the channel it arrived on (a guild channel carries the guild scope,
-    /// anything else runs in the DM scope), the timestamp (commands schedule from it),
-    /// and the equivalent text command line — command name plus arguments, identifier excluded.
+    /// One non-gateway invocation to run through the real command pipeline: the invoking
+    /// user, the channel it arrived on (a guild channel carries the guild scope, anything
+    /// else runs in the DM scope), the timestamp (commands schedule from it), and the
+    /// equivalent text command line — command name plus arguments, identifier excluded.
     /// </summary>
     /// <param name="Author">The invoking user, as reported by the origin surface.</param>
     /// <param name="OriginChannel">The origin channel; guild data and audit ids flow through, replies are captured.</param>
@@ -40,7 +40,7 @@ namespace HambotV2.Commands
     /// from the container exactly like the gateway path (one per invocation, disposed after
     /// use), prefixes the guild's effective identifier so the pipeline resolves the command
     /// exactly as for a text message, and captures the replies instead of posting them.
-    /// The slash surface (§3.15) consumes it today; the MCP <c>run_command</c> tool reuses it.
+    /// The slash surface consumes it today; the MCP <c>run_command</c> tool reuses it.
     /// </summary>
     internal sealed class VirtualCommandRunner : IVirtualCommandRunner
     {

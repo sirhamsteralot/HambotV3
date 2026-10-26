@@ -8,8 +8,8 @@ namespace HambotV2.Commands.SystemCommands
     /// Reports the bot's operational state: build version, uptime, gateway state, database
     /// reachability, backup and restore-test status, pending reminder count, the configured
     /// notification channel, and the MCP endpoint state — one in-channel report from the single
-    /// health snapshot provider (§3.13). Bot-owner tier by default, usable in direct messages
-    /// (no guild state is read), with help text.
+    /// health snapshot provider. Bot-owner tier by default, usable in direct messages
+    /// (no guild state is read).
     /// </summary>
     internal sealed class HealthCommand : ICommand
     {

@@ -6,8 +6,8 @@ namespace HambotV2
     /// The bot's version: the raw release tag and commit hash embedded at build time
     /// by the MSBuild target in <c>HambotV2.csproj</c>, formatted into the reported version
     /// string by <see cref="Format"/> — pure string logic, separately unit-tested.
-    /// It is the single source for the <c>!version</c> command and the startup log line
-    /// (§3.9), so the two can never disagree. The metadata lives in this assembly (not the
+    /// It is the single source for the <c>!version</c> command and the startup log line,
+    /// so the two can never disagree. The metadata lives in this assembly (not the
     /// entry assembly), so the value is correct however the bot is hosted.
     /// </summary>
     internal static class BotVersion

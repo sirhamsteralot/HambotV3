@@ -16,8 +16,7 @@ namespace HambotV2.Maintenance
     /// The singleton maintenance-mode flag, set around an in-bot backup restore. While
     /// active the command pipeline replies with a maintenance notice (except the restore command
     /// itself) and the scheduled delivery engine skips its passes entirely, so a restore can
-    /// never exhaust a reminder's retry budget and mark it failed. MCP tools that touch database
-    /// state defer as well once that surface exists (§3.11).
+    /// never exhaust a reminder's retry budget and mark it failed.
     /// </summary>
     internal sealed class MaintenanceMode : IMaintenanceMode
     {

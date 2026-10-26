@@ -61,7 +61,7 @@ namespace HambotV2.SlashCommands
             catch (Exception ex)
             {
                 // A failed registration disables the slash surface but never the bot: the text
-                // surface keeps working .
+                // surface keeps working.
                 _logger.LogCritical(ex, "Registering the application commands with Discord failed; the slash surface stays unavailable this boot.");
             }
         }
@@ -149,7 +149,7 @@ namespace HambotV2.SlashCommands
                 var invocation = new VirtualCommandInvocation(command.User, command.Channel, commandLine, command.CreatedAt);
                 VirtualCommandResult result = await _virtualCommandRunner.RunAsync(invocation);
 
-                // Every reply is visible only to the invoker (FR-112): the slash surface is a
+                // Every reply is visible only to the invoker: the slash surface is a
                 // private conversation with the bot, the text surface stays the public one.
                 foreach (VirtualCommandReply reply in result.Replies)
                     await command.FollowupAsync(reply.Text, components: reply.Components, ephemeral: true);
@@ -172,7 +172,7 @@ namespace HambotV2.SlashCommands
             }
         }
 
-        /// <summary>§3.4 treatment: an absent or invalid value falls back to the default (false).</summary>
+        /// <summary>An absent or invalid value falls back to the default (false).</summary>
         private static bool ParseEnabled(string? configuredValue)
         {
             return bool.TryParse(configuredValue, out bool enabled) && enabled;

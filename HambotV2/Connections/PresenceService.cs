@@ -221,7 +221,7 @@ namespace HambotV2.Connections
             }
         }
 
-        /// <summary>: failures are logged, never thrown; the false return surfaces as the command's in-channel error.</summary>
+        /// <summary>Failures are logged, never thrown; the false return surfaces as the command's in-channel error.</summary>
         private async Task<bool> TryApplyAsync(Func<Task> apply, string description)
         {
             try

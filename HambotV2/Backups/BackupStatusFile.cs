@@ -12,8 +12,8 @@ namespace HambotV2.Backups
     internal sealed record RestoreTestResult(DateTimeOffset Timestamp, bool Succeeded, string Detail);
 
     /// <summary>
-    /// The backup sidecar's status file (<c>backups/.backup-status</c>, design §5.2/§3.13): the single
-    /// channel through which the in-bot health surface sees the backup machinery — written by
+    /// The backup sidecar's status file (<c>backups/.backup-status</c>): the single channel
+    /// through which the in-bot health surface sees the backup machinery — written by
     /// <c>scripts/backup/run-backup.sh</c> after every pass, read here for `!health` and the
     /// watchdog. The interval fields carry the sidecar's own schedule so the watchdog can
     /// decide "overdue" without duplicating the compose configuration.

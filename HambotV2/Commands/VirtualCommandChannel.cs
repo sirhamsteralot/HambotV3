@@ -4,10 +4,10 @@ using Discord.Rest;
 namespace HambotV2.Commands
 {
     /// <summary>
-    /// The capturing reply channel of a virtual command invocation (design §3.15/§3.11): it
-    /// wraps the origin channel the interaction arrived on (so the pipeline's guild scope and
-    /// audit data stay real) and records every reply instead of posting it — the interaction
-    /// handler re-posts the captured replies as the interaction's response, ephemerally
+    /// The capturing reply channel of a virtual command invocation: it wraps the origin
+    /// channel the interaction arrived on (so the pipeline's guild scope and audit data
+    /// stay real) and records every reply instead of posting it — the interaction handler
+    /// re-posts the captured replies as the interaction's response, ephemerally
     /// (visible only to the invoker).
     /// </summary>
     internal class VirtualCommandChannel : IMessageChannel

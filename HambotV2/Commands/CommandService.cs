@@ -13,19 +13,19 @@ namespace HambotV2.Commands
         /// <summary>Shared with the scheduled-message commands and the delivery loops; production DI supplies the one singleton.</summary>
         private readonly IScheduledDeliverySignal _deliverySignal;
 
-        /// <summary>Backup & stability dependencies (§3.13/§5.2), resolved by production DI and passed through the registration chain.</summary>
+        /// <summary>Backup & stability dependencies, resolved by production DI and passed through the registration chain.</summary>
         private readonly IBackupManager? _backupManager;
         private readonly IMaintenanceMode? _maintenanceMode;
         private readonly INotificationPublisher? _notificationPublisher;
         private readonly INotificationChannelStore? _notificationChannelStore;
         private readonly IHealthSnapshotProvider? _healthSnapshotProvider;
 
-        /// <summary>Presence & profile identity dependencies (§3.10), same treatment as the backup & stability set.</summary>
+        /// <summary>Presence & profile identity dependencies, same treatment as the backup & stability set.</summary>
         private readonly IPresenceService? _presenceService;
         private readonly IImageContentDownloader? _imageContentDownloader;
 
         /// <summary>
-        /// The recurring-reminder limits (§3.14), parsed from the optional <c>Reminders</c>
+        /// The recurring-reminder limits, parsed from the optional <c>Reminders</c>
         /// configuration section; defaults apply when no configuration is supplied (tests).
         /// </summary>
         private readonly ReminderSettings _reminderSettings;

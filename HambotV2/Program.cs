@@ -38,9 +38,8 @@ namespace HambotV2
             builder.Services.AddTransient<IPermissionsService, PermissionsService>();
             builder.Services.AddSingleton<ICommandService, CommandService>();
 
-            // Presence & profile identity (design §3.10): the gateway seam wraps the shared
-            // client; the presence service is the single path for activity, bio, avatar, and
-            // banner changes.
+            // Presence & profile identity: the gateway seam wraps the shared client; the
+            // presence service is the single path for activity, bio, avatar, and banner changes.
             builder.Services.AddSingleton<IPresenceGateway>(serviceProvider =>
                 new DiscordPresenceGateway(serviceProvider.GetRequiredService<DiscordSocketClient>()));
             builder.Services.AddSingleton<IPresenceService>(serviceProvider => new PresenceService(
@@ -60,11 +59,9 @@ namespace HambotV2
                 GatewayIntents = GatewayIntents.Guilds | GatewayIntents.GuildMessages | GatewayIntents.DirectMessages | GatewayIntents.MessageContent
             }));
 
-            // Scheduled message delivery (§3.8): the generic engine is wired to one message kind
-            // at a time — reminders today. The commands (registered through CommandService) and
-            // the delivery loop share one wake-up signal, so a schedule change re-schedules
-            // immediately; a future scheduled-message kind plugs in with its own source and
-            // sender plus another hosted engine on the same signal.
+            // Scheduled message delivery: the generic engine is wired to one message kind at a
+            // time — reminders today. The commands and the delivery loop share one wake-up
+            // signal, so a schedule change re-schedules immediately.
             builder.Services.AddSingleton<IScheduledDeliverySignal, ScheduledDeliverySignal>();
             builder.Services.AddSingleton<IScheduledMessageSource<ScheduledReminderMessage>, ReminderMessageSource>();
             builder.Services.AddSingleton<IScheduledMessageSender<ScheduledReminderMessage>, ReminderDmSender>();
@@ -82,15 +79,15 @@ namespace HambotV2
             builder.Services.AddSingleton<IGuildSettingsService>(serviceProvider =>
                 new GuildSettingsService(serviceProvider, builder.Configuration));
 
-            // Slash surface (design §3.15): the virtual-invocation seam is shared with the MCP
-            // run_command tool (§3.11); the slash service registers the definitions after the
-            // gateway connects and executes interactions through the real pipeline. Opt-in via
+            // Slash surface: the virtual-invocation seam is shared with the MCP run_command
+            // tool; the slash service registers the definitions after the gateway connects and
+            // executes interactions through the real pipeline. Opt-in via
             // SlashCommands:Enabled (default false), so Attach() stays a no-op unless enabled.
             builder.Services.AddSingleton<IVirtualCommandRunner, VirtualCommandRunner>();
             builder.Services.AddSingleton<SlashCommandService>();
 
-            // Interactive help pagination (design §3.15): handles the previous/next buttons on a
-            // multi-page help list through the same virtual-invocation seam as the slash surface.
+            // Interactive help pagination: handles the previous/next buttons on a multi-page
+            // help list through the same virtual-invocation seam as the slash surface.
             // Attached unconditionally — the buttons ride on text-surface help messages too.
             builder.Services.AddSingleton<HelpPaginationService>();
 
@@ -99,11 +96,10 @@ namespace HambotV2
             builder.Services.AddSingleton(TimeProvider.System);
             builder.Services.AddSingleton<ICooldownService, CooldownService>();
 
-            // Backups & stability (design §5.2/§3.13):
-            // maintenance mode gates the pipeline and the delivery engine during a restore;
-            // the backup manager runs pg_dump/pg_restore over the shared backups volume;
-            // the notification channel, publisher, health snapshot, and watchdog make
-            // degradation loud. All singletons: shared across messages and hosted loops.
+            // Backups & stability: maintenance mode gates the pipeline and the delivery engine
+            // during a restore; the backup manager runs pg_dump/pg_restore over the shared
+            // backups volume; the notification channel, publisher, health snapshot, and watchdog
+            // make degradation loud. All singletons: shared across messages and hosted loops.
             builder.Services.AddSingleton<IMaintenanceMode, MaintenanceMode>();
             builder.Services.AddSingleton<IBackupManager, ProcessBackupManager>();
             builder.Services.AddSingleton<IBackupStatusReader, BackupStatusFileReader>();
@@ -114,9 +110,9 @@ namespace HambotV2
             builder.Services.AddSingleton<IHealthSnapshotProvider, HealthReport>();
             builder.Services.AddHostedService<WatchdogService>();
 
-            // MCP endpoint (design §3.11): the operator-agent tool surface, opt-in via
-            // Mcp:Enabled + Mcp:ApiKey. The narrow Discord seam keeps the tools unit-testable
-            // without a live connection; the hosted service starts Kestrel only when active.
+            // MCP endpoint: the operator-agent tool surface, opt-in via Mcp:Enabled +
+            // Mcp:ApiKey. The narrow Discord seam keeps the tools unit-testable without a
+            // live connection; the hosted service starts Kestrel only when active.
             builder.Services.AddSingleton<IMcpDiscordClient>(serviceProvider =>
                 new DiscordSocketMcpClient(serviceProvider.GetRequiredService<DiscordSocketClient>()));
             builder.Services.AddSingleton<IMcpTools>(serviceProvider => new McpTools(
@@ -144,7 +140,7 @@ namespace HambotV2
 
             using var host = builder.Build();
 
-            // The version line is what the deploy verification matches (§3.9): it logs before
+            // The version line is what the deploy verification matches: it logs before
             // validation so every start, even a misconfigured one, identifies the exact build.
             host.Services.GetRequiredService<ILogger<Program>>()
                 .LogInformation("Bot version: {Version}", BotVersion.Current);

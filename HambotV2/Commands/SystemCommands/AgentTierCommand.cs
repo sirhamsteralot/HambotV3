@@ -4,7 +4,7 @@ using HambotV2.SlashCommands;
 namespace HambotV2.Commands.SystemCommands
 {
     /// <summary>
-    /// Manages the tier the operator agent (the MCP endpoint, design §3.11) acts at in this
+    /// Manages the tier the operator agent (the MCP endpoint) acts at in this
     /// guild: no args report it, <c>&lt;tier 0-4&gt;</c> raises it, <c>clear</c> resets it to the
     /// lowest-tier default. Owner tier by default — the guild owner or the bot owner — and the
     /// agent itself can never change the ceiling that governs it.
