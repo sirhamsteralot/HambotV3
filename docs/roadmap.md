@@ -31,6 +31,7 @@ The remaining backlog is specified ahead of implementation and organised into ph
 
 - **Phase #2: LLM Integration** — LLM-driven presence and bio updates (FR-92–FR-95, FR-99, FR-102–FR-104, FR-114 / NFR-21, NFR-25; design §3.12), then LLM conversation participation & memory (a deliberately unspecced placeholder; design it after everything above is in production). The LLM-related watchdog conditions (design §3.13) activate when this phase lands.
 - **Phase #3: Extra features** — the automated hall of fame (per-guild reaction tracking and a scheduled digest of the community's best messages; FRs and design section to be authored when scheduled), the user bot-ban moderation feature (temporary or permanent; FRs and design section to be authored when scheduled), with room for further community-facing extras as they are proposed.
+- **Phase #4: Pipeline & security** — a weekly Jenkins build that generates an SBOM and a CVE report for the deployed dependency tree (FRs/NFRs and design section to be authored when scheduled).
 
 ## Phase #2: LLM Integration
 
@@ -100,4 +101,21 @@ The remaining backlog is specified ahead of implementation and organised into ph
     **Problem**: community-facing extras beyond the hall of fame are expected over time, but none is specified yet.
 
     **Plan notes**: candidates get their own entry here (Problem / Steps / Acceptance criteria) once proposed and agreed; each is fully specified in [`software-requirements.md`](software-requirements.md) and designed in [`software-design.md`](software-design.md) before implementation starts, per this file's rules.
+
+## Phase #4: Pipeline & security
+
+- [ ] **Weekly dependency security scan — a scheduled Jenkins build that generates an SBOM and a CVE list (FRs/NFRs and design section to be authored when this task is scheduled)**
+
+    **Problem**: the bot runs on a dependency tree (Discord.Net, EF Core/Npgsql, the MCP SDK, framework references) that drifts out of date silently: a CVE disclosed in any transitive package is invisible until something breaks or someone happens to look. The Jenkins pipeline builds, tests, and deploys, but produces no inventory of what is actually deployed, so there is no way to answer "are we vulnerable to X?" without manually auditing the lockfile by hand on each machine.
+
+    **Steps** (initial plan; the full FR/NFR set and design section are authored as the first step once this task is scheduled):
+
+    1. Add a weekly **scheduled** Jenkins job (cron trigger, e.g. Sundays) — a separate pipeline or a parameterized mode of the existing [`Jenkinsfile`](../Jenkinsfile) — that checks out `master`, restores, and builds the solution like the normal Build stage (no deploy; this job never deploys anything).
+    2. Generate an **SBOM** from the restored dependency graph (CycloneDX format, e.g. the `dotnet CycloneDX` tool over both `HambotV2` and `BotTests` projects), covering the deployed image's actual package set — decide when authoring the FRs whether the SBOM should also capture the Docker base image layers (the ASP.NET runtime base + `postgresql-client-17`), since those carry CVEs the NuGet graph does not.
+    3. Scan the SBOM (or the dependency graph) for **known CVEs** and produce a machine-readable report (candidate tools: Trivy or Grype against the CycloneDX file; pick one and document the choice — the agent must be able to run the tool non-interactively).
+    4. Archive both artifacts per build in Jenkins (SBOM + CVE report) with a retention policy, so the history shows when a vulnerability entered or left the tree.
+    5. Decide and document the **notification policy** when authoring the FRs: whether the job is informational only, whether it fails/unstables on new high/critical findings, and how the operator learns about them (Jenkins email/plugin, or a message through the existing operator notification path used by `!notifychannel`/the watchdog — the pipeline deliberately has no bot credentials, so a bot-side route would need a different mechanism).
+    6. Document the job in [`docs/jenkins-cicd.md`](jenkins-cicd.md) (setup, schedule, artifact locations) and the design/requirements docs once the FRs are authored; no unit tests in `BotTests` are expected (pipeline-only change), so verification is a live run of the job against the repo.
+
+    **Acceptance criteria**: none yet — specifying this task (FRs/NFRs, design section) is the first step once it is scheduled; after that, the criteria mirror the requirement set: the job runs weekly without operator action, produces an SBOM and a CVE report covering the deployed dependency tree, archives them with the build, notifies (or visibly flags) findings per the chosen policy, and never deploys or touches the running stack.
 
