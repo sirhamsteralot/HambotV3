@@ -6,9 +6,8 @@
 //     timezone; FR-121 says 04:00 UTC — run the controller on UTC or adjust),
 //   - needs the .NET 10 SDK on its PATH (same install as the main pipeline),
 //   - needs Docker on the agent (build + save the deployment image for scanning),
-//   - needs jq on the agent (report summarizing and the result policy),
 //   - needs outbound network access (NuGet, GitHub releases, the Trivy
-//     vulnerability DB on ghcr.io),
+//     vulnerability DB registry),
 //   - never deploys anything and deliberately holds no deploy or bot credentials.
 //
 // Schedule and tools are pinned in the environment block below; bump versions
@@ -28,6 +27,7 @@ pipeline {
 
         CYCLONEDX_VERSION = '6.3.1'
         TRIVY_VERSION = '0.73.0'
+        JQ_VERSION = '1.7.1'
 
         SCAN_TAG = "hambotv2-scan:${env.BUILD_NUMBER}"
     }
@@ -56,10 +56,13 @@ pipeline {
         stage('SBOM') {
             steps {
                 // Workspace-local tool installs: pinned, non-interactive, no
-                // global agent state, cleaned with the workspace.
+                // global agent state, cleaned with the workspace. jq is the
+                // official static binary, so the Report stage needs nothing
+                // installed in the Jenkins container.
                 sh '''
                     dotnet tool install CycloneDX --version "$CYCLONEDX_VERSION" --tool-path "$WORKSPACE/.tools"
                     curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b "$WORKSPACE/.tools" "v$TRIVY_VERSION"
+                    curl -sfL -o "$WORKSPACE/.tools/jq" "https://github.com/jqlang/jq/releases/download/jq-$JQ_VERSION/jq-linux-amd64" && chmod +x "$WORKSPACE/.tools/jq"
                     mkdir -p security/hambotv2 security/bottests
                     "$WORKSPACE/.tools/dotnet-CycloneDX" HambotV2/HambotV2.csproj --json -o security/hambotv2
                     "$WORKSPACE/.tools/dotnet-CycloneDX" BotTests/BotTests.csproj --json -o security/bottests
