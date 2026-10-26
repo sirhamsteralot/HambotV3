@@ -4,8 +4,8 @@ using Discord.WebSocket;
 namespace HambotV2.Connections
 {
     /// <summary>
-    /// <see cref="IPresenceGateway"/> over the shared gateway client. The roadmap spike confirmed
-    /// Discord.Net 3.20.2 supports the profile routes natively: the per-guild member route is
+    /// <see cref="IPresenceGateway"/> over the shared gateway client. Discord.Net 3.20.2 supports the
+    /// profile routes natively: the per-guild member route is
     /// <c>IGuild.ModifyCurrentUserAsync</c> (<c>SelfGuildUserProperties.Bio/Avatar/Banner</c>, all
     /// clearable as specified-null), and the global avatar route is <c>ISelfUser.ModifyAsync</c>.
     /// There is no global banner route for bots, so banners apply per guild only.

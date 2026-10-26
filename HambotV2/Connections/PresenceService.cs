@@ -162,7 +162,7 @@ namespace HambotV2.Connections
                 if (!_gateway.IsReady)
                     return true;
 
-                // No global banner route for bots (roadmap spike).
+                // No global banner route for bots.
                 return await ApplyPerGuildAsync("the profile banner", guildId => _gateway.SetGuildBannerAsync(guildId, imageData));
             }
             finally

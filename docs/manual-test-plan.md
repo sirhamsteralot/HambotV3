@@ -120,7 +120,7 @@ Watchdog DMs go to `BOT_OWNER_DISCORD_ID` **and** post to the notification chann
 
 ## 8. Operator restore drill (FR-83 / NFR-19) — the scripted path
 
-This is the roadmap's outstanding operator action; run it once here and record the outcome. It proves recovery when the *bot itself* is broken.
+This is the outstanding operator action; run it once here and record the outcome. It proves recovery when the *bot itself* is broken.
 
 1. Note a dump from `!backups` and copy it out of the volume:
    ```bash
@@ -134,7 +134,7 @@ This is the roadmap's outstanding operator action; run it once here and record t
 4. Expected: the script validates the dump, stops the bot, drops/recreates the database, restores, restarts, and prints success after matching the known startup lines (`Bot version:`, `Database migrations applied successfully`, `Initializing Discord connection...`, gateway ready).
 5. Verify data: the restored marker quote from §3 is present again; `!health` reports `reachable`.
 
-**Record the outcome** (date, dump, both §3 and §8 results) — with that, the roadmap's restore-drill item (NFR-19) is satisfied for this build.
+**Record the outcome** (date, dump, both §3 and §8 results) — with that, the restore drill (NFR-19) is satisfied for this build.
 
 ## 9. Regression pass — pre-existing features
 
