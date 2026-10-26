@@ -1,7 +1,7 @@
 namespace HambotV2.SlashCommands
 {
     /// <summary>
-    /// The input type of a typed application-command option (FR-110). Text and Integer map to
+    /// The input type of a typed application-command option. Text and Integer map to
     /// their text-surface tokens verbatim; User and Channel map to the mention forms the
     /// pipeline's argument parsers already accept (<c>&lt;@id&gt;</c>, <c>&lt;#id&gt;</c>).
     /// </summary>
@@ -21,7 +21,7 @@ namespace HambotV2.SlashCommands
     }
 
     /// <summary>
-    /// One typed application-command option (FR-110): the name is the slash option's name, the
+    /// One typed application-command option: the name is the slash option's name, the
     /// value maps to the command's equivalent text-surface token.
     /// </summary>
     /// <param name="Name">The option name shown in Discord's UI (lowercase, 1–32 characters).</param>
@@ -30,7 +30,7 @@ namespace HambotV2.SlashCommands
     /// <param name="Required">True when Discord requires the option before invoking.</param>
     internal sealed record ApplicationCommandOption(string Name, string Description, ApplicationCommandOptionKind Kind, bool Required = true)
     {
-        /// <summary>The name of the single free-form option commands without typed metadata register (FR-110).</summary>
+        /// <summary>The name of the single free-form option commands without typed metadata register.</summary>
         internal const string FreeFormOptionName = "arguments";
 
         /// <summary>
@@ -44,7 +44,7 @@ namespace HambotV2.SlashCommands
     }
 
     /// <summary>
-    /// A command's slash-surface declaration (FR-110). An instance on a command opts it into the
+    /// A command's slash-surface declaration. An instance on a command opts it into the
     /// slash surface; the option list tells the registration pass what to build and the
     /// interaction handler how to map an invocation back to its text command line:
     /// typed options join in declaration order, and the single free-form option (if declared)
@@ -55,7 +55,7 @@ namespace HambotV2.SlashCommands
         /// <summary>For commands that take no arguments (e.g. backup, health): no options at all.</summary>
         public static ApplicationCommandDeclaration NoArguments { get; } = new([]);
 
-        /// <summary>For commands whose invocation stays a free-form argument line (the FR-110 fallback).</summary>
+        /// <summary>For commands whose invocation stays a free-form argument line .</summary>
         public static ApplicationCommandDeclaration FreeForm(string optionDescription)
         {
             return new([ApplicationCommandOption.FreeForm(optionDescription)]);

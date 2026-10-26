@@ -14,7 +14,7 @@ using System.Threading.Tasks;
 namespace BotTests
 {
     /// <summary>
-    /// The slash surface (design §3.15, FR-110–FR-112 / NFR-26): the interaction→command-line
+    /// The slash surface (design §3.15): the interaction→command-line
     /// mapping, the virtual invocation through the real pipeline (shared tiers, cooldowns,
     /// audit outcomes, DM scope), denial ephemerality vs. public output, and the registration
     /// contract (every slash-eligible command yields a valid definition, ineligible ones none).
@@ -46,9 +46,7 @@ namespace BotTests
             return commandService;
         }
 
-        // ---------------------------------------------------------------
-        // Registration contract (FR-110, NFR-26)
-        // ---------------------------------------------------------------
+        // Registration contract
 
         [TestMethod]
         public void RegistrationContract_EveryEligibleCommandYieldsAValidDefinition()
@@ -88,7 +86,7 @@ namespace BotTests
                 seen.Add(name);
             }
 
-            CollectionAssert.AreEquivalent((System.Collections.ICollection)eligible.OrderBy(name => name).ToList(), (System.Collections.ICollection)seen.OrderBy(name => name).ToList(), "The slash-eligible set must be exactly the administrative/configuration and user-scoped commands (FR-110).");
+            CollectionAssert.AreEquivalent((System.Collections.ICollection)eligible.OrderBy(name => name).ToList(), (System.Collections.ICollection)seen.OrderBy(name => name).ToList(), "The slash-eligible set must be exactly the administrative/configuration and user-scoped commands.");
         }
 
         [TestMethod]
@@ -99,7 +97,7 @@ namespace BotTests
             foreach (string name in ExpectedTextOnly)
             {
                 Assert.IsTrue(commandService.Commands.TryGetValue(name, out ICommand? command), $"Command '{name}' should be registered.");
-                Assert.IsNull(command!.ApplicationCommand, $"Community-facing command '{name}' must stay text-only (FR-110).");
+                Assert.IsNull(command!.ApplicationCommand, $"Community-facing command '{name}' must stay text-only.");
             }
         }
 
@@ -127,7 +125,7 @@ namespace BotTests
             Assert.IsNotNull(reminders.ApplicationCommand);
             Assert.AreEqual(0, reminders.ApplicationCommand!.Options.Count, "A no-argument command registers without options.");
 
-            // The free-form fallback (FR-110): one optional 'arguments' string option.
+            // The free-form fallback: one optional 'arguments' string option.
             var remindMe = (ICommand)commandService.Commands["remindme"];
             ApplicationCommandOption freeForm = remindMe.ApplicationCommand!.Options.Single();
             Assert.AreEqual(ApplicationCommandOption.FreeFormOptionName, freeForm.Name);
@@ -165,9 +163,7 @@ namespace BotTests
             return ApplicationCommandDefinitionFactory.TryCreate(command, out definition, out error);
         }
 
-        // ---------------------------------------------------------------
-        // Interaction → command-line mapping (FR-110/FR-111, NFR-26)
-        // ---------------------------------------------------------------
+        // Interaction → command-line mapping
 
         [TestMethod]
         public void CommandLine_TypedOptionsJoinInDeclarationOrder()
@@ -251,9 +247,7 @@ namespace BotTests
             Assert.AreEqual("notifychannel <#77>", commandLine);
         }
 
-        // ---------------------------------------------------------------
-        // Virtual invocation through the real pipeline (FR-111, NFR-26)
-        // ---------------------------------------------------------------
+        // Virtual invocation through the real pipeline
 
         /// <summary>Wires a real CommandHandler behind a VirtualCommandRunner, like the production container does per invocation.</summary>
         private sealed class VirtualPipeline
@@ -297,7 +291,7 @@ namespace BotTests
                 return new VirtualCommandRunner(GuildSettings.Object, provider);
             }
 
-            /// <summary>A DM origin channel: not a guild channel, so the pipeline runs in the DM scope (FR-25).</summary>
+            /// <summary>A DM origin channel: not a guild channel, so the pipeline runs in the DM scope.</summary>
             public IMessageChannel CreateDirectMessageChannel()
             {
                 return new Mock<IMessageChannel>().Object;
@@ -350,7 +344,7 @@ namespace BotTests
             pipeline.GuildSettings.Setup(service => service.GetCommandIdentifier(GuildId)).Returns("?");
 
             // The runner prefixes the guild's effective identifier, so the command line still
-            // resolves — a text message with that identifier would work the same way (FR-26).
+            // resolves — a text message with that identifier would work the same way.
             VirtualCommandResult result = await RunAsync(pipeline, pipeline.CreateGuildChannel(), "reminders");
 
             Assert.AreEqual(CommandOutcome.Executed, result.Outcome);
@@ -415,7 +409,7 @@ namespace BotTests
             var pipeline = new VirtualPipeline();
 
             // A DM origin channel is not a guild channel, so userpermission hits its guild guard
-            // (FR-25/FR-50 style): the DM scope reply is captured exactly as for a text DM.
+            // : the DM scope reply is captured exactly as for a text DM.
             VirtualCommandResult result = await RunAsync(pipeline, pipeline.CreateDirectMessageChannel(), "userpermission <@42> 1");
 
             Assert.AreEqual(CommandOutcome.Executed, result.Outcome);
@@ -485,12 +479,10 @@ namespace BotTests
             // store survives, so the reminder is read back through a fresh context.
             using var reader = pipeline.CreateDatabaseReader();
             DatabaseContext.Reminder reminder = reader.Reminders.Single();
-            Assert.AreEqual(invocationTime.UtcDateTime.AddHours(1), reminder.DueAtUtc, "The reminder is scheduled from the invocation timestamp (FR-61).");
+            Assert.AreEqual(invocationTime.UtcDateTime.AddHours(1), reminder.DueAtUtc, "The reminder is scheduled from the invocation timestamp.");
         }
 
-        // ---------------------------------------------------------------
-        // Reply ephemerality (FR-112, NFR-26)
-        // ---------------------------------------------------------------
+        // Reply ephemerality
 
         [TestMethod]
         public void Ephemerality_NormalOutputIsPublic()
@@ -519,14 +511,12 @@ namespace BotTests
             VirtualCommandResult result = await RunAsync(pipeline, pipeline.CreateGuildChannel(), "backup");
 
             // The two inputs of the interaction handler's reply decision, asserted together:
-            // the captured denial text plus the ephemeral outcome mapping (FR-112).
+            // the captured denial text plus the ephemeral outcome mapping.
             Assert.IsTrue(SlashCommandService.IsEphemeralReply(result.Outcome));
             Assert.AreEqual("You are not permitted to use that command", result.Replies.Single());
         }
 
-        // ---------------------------------------------------------------
-        // Configuration (FR-110)
-        // ---------------------------------------------------------------
+        // Configuration
 
         [TestMethod]
         public void Enabled_IsOffByDefaultAndForInvalidValues()
@@ -553,9 +543,7 @@ namespace BotTests
                 Mock.Of<ILogger<SlashCommandService>>());
         }
 
-        // ---------------------------------------------------------------
         // Stubs
-        // ---------------------------------------------------------------
 
         private sealed class StubCommand : ICommand
         {

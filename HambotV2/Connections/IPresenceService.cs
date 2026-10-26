@@ -2,17 +2,17 @@ using Discord;
 
 namespace HambotV2.Connections
 {
-    /// <summary>The bot's activity (FR-78): one of the four supported types plus its status text.</summary>
+    /// <summary>The bot's activity: one of the four supported types plus its status text.</summary>
     internal sealed record PresenceActivity(ActivityType Type, string Text);
 
-    /// <summary>The limits of the identity surfaces (FR-78/FR-113), shared by startup validation, the commands, and tests.</summary>
+    /// <summary>The limits of the identity surfaces, shared by startup validation, the commands, and tests.</summary>
     internal static class ProfileLimits
     {
         public const int MaxActivityTextLength = 128;
         public const int MaxBioLength = 190;
     }
 
-    /// <summary>The four supported activity types (FR-78); streaming is out of scope (it needs a stream URL).</summary>
+    /// <summary>The four supported activity types; streaming is out of scope (it needs a stream URL).</summary>
     internal static class PresenceActivityTypes
     {
         public static readonly string[] SupportedNames = ["playing", "watching", "listening", "competing"];
@@ -55,7 +55,7 @@ namespace HambotV2.Connections
     /// configuration, the profile commands, and later the LLM job and MCP tools all converge
     /// here. Applies are single-flight with last-write-wins; requests before the gateway is
     /// ready are deferred to its Ready event; a failed apply is logged and returned as false,
-    /// never thrown (FR-80).
+    /// never thrown.
     /// </summary>
     internal interface IPresenceService
     {

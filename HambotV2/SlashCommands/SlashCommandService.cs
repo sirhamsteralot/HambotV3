@@ -6,7 +6,7 @@ using Microsoft.Extensions.Configuration;
 namespace HambotV2.SlashCommands
 {
     /// <summary>
-    /// The slash surface (design §3.15, FR-110–FR-112): opt-in via <c>SlashCommands:Enabled</c>.
+    /// The slash surface (design §3.15): opt-in via <c>SlashCommands:Enabled</c>.
     /// After the gateway connects it pushes one application-command definition per slash-eligible
     /// command (a bulk global overwrite, idempotent on every boot), and executes invocations
     /// through the real command pipeline via the shared virtual-invocation seam — so permission
@@ -14,7 +14,7 @@ namespace HambotV2.SlashCommands
     /// </summary>
     internal sealed class SlashCommandService
     {
-        /// <summary>The generic error reply shared with the text pipeline (FR-15): no exception details.</summary>
+        /// <summary>The generic error reply shared with the text pipeline: no exception details.</summary>
         internal const string GenericErrorReply = "An unexpected error occurred while executing the command. Please try again later.";
 
         private readonly DiscordSocketClient _client;
@@ -32,7 +32,7 @@ namespace HambotV2.SlashCommands
             Enabled = ParseEnabled(configuration["SlashCommands:Enabled"]);
         }
 
-        /// <summary>False (the default) keeps the slash surface off: nothing registers, nothing executes (FR-110).</summary>
+        /// <summary>False (the default) keeps the slash surface off: nothing registers, nothing executes.</summary>
         public bool Enabled { get; }
 
         /// <summary>Subscribes the registration pass and the interaction handler to the shared gateway client.</summary>
@@ -43,7 +43,7 @@ namespace HambotV2.SlashCommands
         }
 
         /// <summary>
-        /// FR-112: the command's normal output is public, while the pipeline's denials —
+        /// The command's normal output is public, while the pipeline's denials —
         /// permission, cooldown, maintenance, and the generic error — are visible only to the invoker.
         /// </summary>
         internal static bool IsEphemeralReply(CommandOutcome outcome)
@@ -68,7 +68,7 @@ namespace HambotV2.SlashCommands
             catch (Exception ex)
             {
                 // A failed registration disables the slash surface but never the bot: the text
-                // surface keeps working (FR-112 coexistence).
+                // surface keeps working .
                 _logger.LogCritical(ex, "Registering the application commands with Discord failed; the slash surface stays unavailable this boot.");
             }
         }
@@ -82,7 +82,7 @@ namespace HambotV2.SlashCommands
             var properties = new List<ApplicationCommandProperties>();
             foreach (ICommand command in _commandService.Commands.Values.OrderBy(command => command.Name, StringComparer.Ordinal))
             {
-                // Only the declared commands register (FR-110): administrative/configuration and
+                // Only the declared commands register: administrative/configuration and
                 // user-scoped commands; the rest stay text-only.
                 if (command.ApplicationCommand is null)
                     continue;
@@ -135,7 +135,7 @@ namespace HambotV2.SlashCommands
         {
             try
             {
-                // Acknowledge immediately (FR-112): the pipeline may take a moment, and the
+                // Acknowledge immediately: the pipeline may take a moment, and the
                 // deferred state resolves into the followups below.
                 await command.DeferAsync();
 

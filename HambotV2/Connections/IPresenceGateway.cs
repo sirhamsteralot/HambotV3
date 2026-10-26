@@ -4,7 +4,7 @@ namespace HambotV2.Connections
 {
     /// <summary>
     /// The slice of the gateway client the presence service needs — a seam so the service is
-    /// unit-testable against a mock (NFR-18). Production implementation:
+    /// unit-testable against a mock. Production implementation:
     /// <see cref="DiscordPresenceGateway"/>.
     /// </summary>
     internal interface IPresenceGateway

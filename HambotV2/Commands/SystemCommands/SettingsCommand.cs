@@ -5,9 +5,9 @@ using HambotV2.SlashCommands;
 namespace HambotV2.Commands.SystemCommands
 {
     /// <summary>
-    /// Manages the invoking guild's bot settings (FR-26). Guild overrides fall back to
+    /// Manages the invoking guild's bot settings. Guild overrides fall back to
     /// the global defaults from appsettings.json when unset. Admin-only by default, mirroring the
-    /// permission-management commands (FR-35); the bot owner can manage any guild by running the
+    /// permission-management commands; the bot owner can manage any guild by running the
     /// command there.
     /// </summary>
     internal class SettingsCommand : ICommand
@@ -20,7 +20,7 @@ namespace HambotV2.Commands.SystemCommands
         public int DefaultPermissionTier => PermissionTier.Admin;
 
         /// <summary>
-        /// Slash surface (FR-110): the operation stays free-form — the subcommands
+        /// Slash surface: the operation stays free-form — the subcommands
         /// (<c>commandidentifier</c>, <c>cooldown</c>) parse exactly as on the text surface.
         /// </summary>
         public ApplicationCommandDeclaration? ApplicationCommand =>
@@ -28,7 +28,7 @@ namespace HambotV2.Commands.SystemCommands
 
         public async Task ExecuteCommand(IMessage message, ICommandContext context)
         {
-            // Guild settings are per-guild state; the DM scope (FR-25) has no guild to manage.
+            // Guild settings are per-guild state; the DM scope has no guild to manage.
             if (context.GuildId is not ulong guildId)
             {
                 await message.Channel.SendMessageAsync("This command manages per-server settings and is only available in servers");
@@ -86,7 +86,7 @@ namespace HambotV2.Commands.SystemCommands
 
         /// <summary>
         /// Manages the guild's per-tier cooldown override. The escalation guard mirrors
-        /// FR-36: an invoker may only configure tiers strictly below their own, so nobody can
+        ///: an invoker may only configure tiers strictly below their own, so nobody can
         /// loosen the throttle that governs their own level; the bot owner (tier 4, never bound
         /// by a guild override) may configure any tier.
         /// </summary>

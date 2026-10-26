@@ -31,6 +31,7 @@ The remaining backlog is specified ahead of implementation and organised into ph
 - **Phase #1: Rich Presence, Recurring reminders, Slash Commands** — Discord presence & profile identity (FR-78–FR-80, FR-113, FR-115–FR-116 / NFR-18; design §3.10), recurring reminders (FR-107–FR-109 / NFR-24; design §3.14), and slash commands (FR-110–FR-112 / NFR-26; design §3.15) — **all three shipped**. The slash-command handler's virtual invocation built the shared run-through-`CommandHandler` mechanism specified in design §3.11 (`IVirtualCommandRunner`), so Phase #2's `run_command` tool consumes it rather than re-inventing it.
 - **Phase #2: MCP** — the MCP server for Odysseus (FR-86–FR-91 / NFR-20; design §3.11).
 - **Phase #3: LLM Integration** — LLM-driven presence and bio updates (FR-92–FR-95, FR-99, FR-102–FR-104, FR-114 / NFR-21, NFR-25; design §3.12), then LLM conversation participation & memory (a deliberately unspecced placeholder; design it after everything above is in production). The LLM-related watchdog conditions (design §3.13) activate when this phase lands.
+- **Phase #4: Extra features** — the automated hall of fame (per-guild reaction tracking and a scheduled digest of the community's best messages; FRs and design section to be authored when scheduled), with room for further community-facing extras as they are proposed.
 
 ## Phase #1: Rich Presence, Recurring reminders, Slash Commands
 
@@ -128,3 +129,27 @@ The remaining backlog is specified ahead of implementation and organised into ph
     - **Odysseus vs. raw key**: the two integration paths are complementary, not exclusive. The bot's built-in features (the LLM and slash/backlog tasks above) use the raw Mistral API key directly; Odysseus can additionally drive the bot through the MCP endpoint (`send_message`, `run_command`), which already exists by then. Phase B/C should decide per feature which path fits — built-in autonomy via the LLM client, agent-driven behavior via MCP.
 
     **Acceptance criteria**: none yet — specifying this task (FRs, design section, test NFR) is the first step once it is scheduled.
+
+## Phase #4: Extra features
+
+- [ ] **Automated hall of fame — reaction tracking and a scheduled digest of a guild's best messages (FRs and design section to be authored when this task is scheduled)**
+
+    **Problem**: the best moments of a server — the messages the community reacted to hardest or found funniest — scroll away and are forgotten. There is no record of them and no way to resurface them: quotes capture only what someone manually saves, and nothing tracks what the community itself actually upvoted with reactions.
+
+    **Steps** (initial plan; the full FR set and design section are authored as the first step once this task is scheduled — after Phase #3, whose LLM foundations could later enrich the digest):
+
+    1. Add reaction tracking: request the `MessageReactions` gateway intent explicitly (keeping the minimal-intent rule in design §3.1), and record reaction adds/removes in a new per-guild table (message id, channel id, author, content snapshot, reacting user, reaction emoji, timestamps). Bots reacting and self-reactions do not score.
+    2. Add the scoring model: a message's score is the count of distinct non-bot, non-author reactions (per emoji), within a rolling window configurable via `HallOfFame:WindowDays` (default 7); a message qualifies only above `HallOfFame:MinScore` (default 3).
+    3. Add the scheduled digest: a hosted loop (the `Scheduling/` engine pattern) posts, per opted-in guild on the configured cadence (`HallOfFame:DigestCron`, default weekly), the top `HallOfFame:DigestSize` (default 5) qualifying messages into the guild's configured channel — original message link plus content snapshot, ranked by score, deduplicated so a message is never featured twice.
+    4. Add per-guild opt-in and configuration via a new `GuildSetting` flag plus admin commands: `!hallconfigure` (set/clear the target channel, show current settings) and `!halloffame` (show the current top of the board on demand, same ranking, no digest side effects); server-scoped, tier-appropriate defaults, help text, in-channel validation errors.
+    5. Wire configuration defaults into `appsettings.json`, document in design §4, and cover with unit tests (NFR to be assigned): score computation (distinct users, bot/self exclusion, window and floor boundaries), digest selection and dedup, per-guild opt-in gating, command behavior and validation — all without a live Discord connection (mocked client, in-memory database).
+    6. Decide and document the interaction with quotes when specifying the FRs (e.g. a one-command promote-to-quote from the digest) so the two features complement rather than duplicate each other.
+
+    **Acceptance criteria**: none yet — specifying this task (FRs, design section, test NFR) is the first step once it is scheduled; after that, the criteria mirror the requirement set: with a guild opted in, the digest appears on schedule with the right messages ranked by community reactions, a message is never repeated, non-opted-in guilds see nothing, and the build stays warning-free with tests green.
+
+- [ ] **Further extra features — placeholder (not yet specified)**
+
+    **Problem**: community-facing extras beyond the hall of fame are expected over time, but none is specified yet.
+
+    **Plan notes**: candidates get their own entry here (Problem / Steps / Acceptance criteria) once proposed and agreed; each is fully specified in [`software-requirements.md`](software-requirements.md) and designed in [`software-design.md`](software-design.md) before implementation starts, per this file's rules.
+

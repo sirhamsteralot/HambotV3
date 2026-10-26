@@ -25,7 +25,7 @@ namespace BotTests
                 => throw new InvalidOperationException("kaboom");
         }
 
-        /// <summary>DbContext double that records disposal; in-memory backed, because the unknown-command path reads the custom responses (FR-54).</summary>
+        /// <summary>DbContext double that records disposal; in-memory backed, because the unknown-command path reads the custom responses.</summary>
         private sealed class RecordingDatabaseContext : DatabaseContext
         {
             public bool WasDisposed { get; private set; }
@@ -130,10 +130,9 @@ namespace BotTests
                 Times.Once);
         }
 
-        /// <summary>
-        /// Verifies the structured command audit event: exactly one Information-level
+        /// <summary>/// Verifies the structured command audit event: exactly one Information-level
         /// log whose rendered state matches the predicate — the single audit line per handled message.
-        /// </summary>
+        ///</summary>
         private static void VerifyAuditEvent(Mock<ILogger<CommandHandler>> logger, Func<string, bool> statePredicate, Func<Times> times)
         {
             logger.Verify(l => l.Log(
@@ -217,7 +216,7 @@ namespace BotTests
         }
 
         [TestMethod]
-        public async Task HandleCommand_CommandThrows_LogsFailedAuditEvent()
+        public async Task HandleCommand_CommandThrows_RepliesGenericError_LogsFailedAuditAndError()
         {
             var pipeline = new TestPipeline("!boom");
             pipeline.CommandService.RegisterCommand("boom", new ThrowingCommand());
@@ -225,6 +224,9 @@ namespace BotTests
 
             await pipeline.CreateHandler().HandleCommand(pipeline.Message.Object);
 
+            Assert.AreEqual(1, pipeline.SentMessages.Count);
+            StringAssert.Contains(pipeline.SentMessages[0], "unexpected error");
+            Assert.IsFalse(pipeline.SentMessages[0].Contains("kaboom"), "Exception details must not leak to Discord");
             VerifyAuditEvent(pipeline.Logger,
                 state => state.Contains("outcome Failed", StringComparison.Ordinal),
                 Times.Once);
@@ -234,8 +236,6 @@ namespace BotTests
         [TestMethod]
         public async Task HandleCommand_DirectMessage_ExecutesCommand()
         {
-            // DM scope (FR-25): direct messages run commands (owner-tier user, built-in
-            // default command tiers) instead of being rejected.
             var pipeline = new TestPipeline("!greet", directMessage: true);
             var command = DiscordTestDoubles.CreateMockCommand("greet");
             pipeline.CommandService.RegisterCommand("greet", command.Object);
@@ -247,36 +247,6 @@ namespace BotTests
             pipeline.Permissions.Verify(
                 p => p.CheckUserPermissions(It.IsAny<ulong>(), null, It.IsAny<TierOverrides>(), It.IsAny<ICommand>(), It.IsAny<IDatabaseContext>()),
                 Times.Once, "The DM permission check must run with a null guild id");
-        }
-
-        [TestMethod]
-        public async Task HandleCommand_DirectMessage_LogsExecutedAuditEvent()
-        {
-            var pipeline = new TestPipeline("!greet", directMessage: true);
-            var command = DiscordTestDoubles.CreateMockCommand("greet");
-            pipeline.CommandService.RegisterCommand("greet", command.Object);
-            pipeline.AllowPermissions();
-
-            await pipeline.CreateHandler().HandleCommand(pipeline.Message.Object);
-
-            VerifyAuditEvent(pipeline.Logger,
-                state => state.Contains("outcome Executed", StringComparison.Ordinal),
-                Times.Once);
-        }
-
-        [TestMethod]
-        public async Task HandleCommand_CommandThrows_RepliesWithGenericErrorWithoutExceptionDetails()
-        {
-            var pipeline = new TestPipeline("!boom");
-            pipeline.CommandService.RegisterCommand("boom", new ThrowingCommand());
-            pipeline.AllowPermissions();
-
-            await pipeline.CreateHandler().HandleCommand(pipeline.Message.Object);
-
-            Assert.AreEqual(1, pipeline.SentMessages.Count);
-            StringAssert.Contains(pipeline.SentMessages[0], "unexpected error");
-            Assert.IsFalse(pipeline.SentMessages[0].Contains("kaboom"), "Exception details must not leak to Discord");
-            VerifyErrorLoggedOnce(pipeline.Logger);
         }
 
         [TestMethod]
@@ -345,26 +315,18 @@ namespace BotTests
         }
 
         [TestMethod]
-        public async Task HandleCommand_BareIdentifier_IsIgnoredSilently()
+        [DataRow("!")]
+        [DataRow("!    ")]
+        public async Task HandleCommand_BareIdentifier_IsIgnoredSilently(string content)
         {
-            var pipeline = new TestPipeline("!");
+            var pipeline = new TestPipeline(content);
 
             await pipeline.CreateHandler().HandleCommand(pipeline.Message.Object);
 
-            Assert.AreEqual(0, pipeline.SentMessages.Count, "A bare identifier message must not be answered");
+            Assert.AreEqual(0, pipeline.SentMessages.Count, "An identifier-only message must not be answered");
             pipeline.Permissions.Verify(
                 p => p.CheckUserPermissions(It.IsAny<ulong>(), It.IsAny<ulong?>(), It.IsAny<TierOverrides>(), It.IsAny<ICommand>(), It.IsAny<IDatabaseContext>()),
                 Times.Never);
-        }
-
-        [TestMethod]
-        public async Task HandleCommand_IdentifierWithWhitespaceOnly_IsIgnoredSilently()
-        {
-            var pipeline = new TestPipeline("!    ");
-
-            await pipeline.CreateHandler().HandleCommand(pipeline.Message.Object);
-
-            Assert.AreEqual(0, pipeline.SentMessages.Count, "An identifier-plus-whitespace message must not be answered");
         }
 
         [TestMethod]

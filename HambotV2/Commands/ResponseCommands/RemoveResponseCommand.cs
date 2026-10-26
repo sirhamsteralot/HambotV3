@@ -4,8 +4,8 @@ using HambotV2.Connections;
 namespace HambotV2.Commands.ResponseCommands
 {
     /// <summary>
-    /// Removes a custom response of the invoking guild by name (FR-57); moderator by default,
-    /// declining in direct messages (FR-59). An unknown name produces an in-channel error.
+    /// Removes a custom response of the invoking guild by name; moderator by default,
+    /// declining in direct messages. An unknown name produces an in-channel error.
     /// </summary>
     internal class RemoveResponseCommand : ICommand
     {
@@ -16,7 +16,7 @@ namespace HambotV2.Commands.ResponseCommands
 
         public async Task ExecuteCommand(IMessage message, ICommandContext context)
         {
-            // Responses are per-guild state; the DM scope (FR-25/FR-59) has no guild to remove from.
+            // Responses are per-guild state; the DM scope has no guild to remove from.
             if (context.GuildId is not ulong guildId)
             {
                 await message.Channel.SendMessageAsync("This command manages per-server state and is only available in servers");

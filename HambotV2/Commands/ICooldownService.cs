@@ -5,8 +5,8 @@ namespace HambotV2.Commands
     internal interface ICooldownService
     {
         /// <summary>
-        /// Decides whether the invocation may run and, if so, records its timestamp
-        /// (NFR-12). The window is resolved from the invoking user's effective tier — the guarded tier
+        /// Decides whether the invocation may run and, if so, records its timestamp.
+        /// The window is resolved from the invoking user's effective tier — the guarded tier
         /// from the permission check, so the throttle cannot be bypassed via permission lookups.
         /// A null <paramref name="guildId"/> means a direct message: the throttle key uses the
         /// sentinel guild id 0, which matches no real guild, so DM throttles never collide with any

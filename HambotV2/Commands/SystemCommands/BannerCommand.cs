@@ -4,7 +4,7 @@ using HambotV2.SlashCommands;
 namespace HambotV2.Commands.SystemCommands
 {
     /// <summary>
-    /// Manages the bot's profile banner (FR-116) with the same shape as `!avatar`, but per guild
+    /// Manages the bot's profile banner with the same shape as `!avatar`, but per guild
     /// only (bots have no global banner). Tier 4, DM-usable, not persisted.
     /// </summary>
     internal sealed class BannerCommand : ProfileImageCommandBase

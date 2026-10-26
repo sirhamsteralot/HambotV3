@@ -1,7 +1,7 @@
 namespace HambotV2.Commands
 {
     /// <summary>
-    /// Shared argument parsing for command implementations (NFR-13): a command
+    /// Shared argument parsing for command implementations: a command
     /// receives the message as typed values instead of hand-rolled Split/TryParse code.
     ///
     /// Parsing follows the pipeline's rules (see <see cref="CommandParsing"/>): the message is
@@ -50,7 +50,7 @@ namespace HambotV2.Commands
 
         /// <summary>
         /// The raw argument text from the first argument onward — the free-form text of commands
-        /// whose content may span lines (e.g. the bio, FR-113). Unlike <see cref="GetJoined"/>,
+        /// whose content may span lines (e.g. the bio). Unlike <see cref="GetJoined"/>,
         /// internal whitespace runs and line breaks are preserved verbatim; the text is trimmed
         /// at both ends. Null when the message has no arguments.
         /// </summary>

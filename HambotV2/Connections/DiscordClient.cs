@@ -38,7 +38,7 @@ namespace HambotV2.Connections
             _client.MessageReceived += OnMessageReceived;
 
             // Slash surface (design §3.15): subscribing before the first connect means the
-            // registration pass runs as soon as the gateway is ready; disabled by default (FR-110).
+            // registration pass runs as soon as the gateway is ready; disabled by default.
             if (_slashCommandService.Enabled)
                 _slashCommandService.Attach();
 
@@ -104,7 +104,7 @@ namespace HambotV2.Connections
                 return;
 
             // Each guild's effective identifier decides which messages are command invocations
-            // (FR-26); direct messages use the global default (DM commands run in the DM scope,
+            //; direct messages use the global default (DM commands run in the DM scope,
             // see CommandHandler).
             string identifier = message.Channel is SocketGuildChannel guildChannel
                 ? _guildSettingsService.GetCommandIdentifier(guildChannel.Guild.Id)

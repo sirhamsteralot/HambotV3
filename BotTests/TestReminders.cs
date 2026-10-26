@@ -18,12 +18,6 @@ using System.Threading.Tasks;
 
 namespace BotTests
 {
-    /// <summary>
-    /// The reminders feature (FR-61–FR-71, NFR-16): duration parsing across all forms, message
-    /// validation, confirmation, per-user isolation and caps, list/cancel, and the delivery
-    /// loop — due-vs-not-due as the (fake) clock advances, re-scheduling on earlier reminders,
-    /// restart recovery, and the bounded-failure path.
-    /// </summary>
     [TestClass]
     public sealed class TestReminders
     {
@@ -33,8 +27,6 @@ namespace BotTests
         private const ulong GuildOwnerId = 999;
 
         private static readonly DateTimeOffset BaseTimestamp = new(2026, 1, 2, 3, 4, 5, TimeSpan.Zero);
-
-        // --- Duration parsing (FR-62/FR-63) ---
 
         [TestMethod]
         [DataRow("10s", 10.0, 1)]
@@ -69,7 +61,6 @@ namespace BotTests
         [DataRow("200000 h")]
         public void DurationParsing_Has_No_Maximum_Multi_Year_Durations_Accepted(string arguments)
         {
-            // FR-63: no minimum or maximum — durations of years are accepted.
             bool parsed = ReminderDurationParser.TryParse(CommandArguments.Parse("!remindme " + arguments), out TimeSpan duration, out int _);
 
             Assert.IsTrue(parsed, $"'{arguments}' (a multi-year duration) should parse");
@@ -95,8 +86,6 @@ namespace BotTests
             Assert.AreEqual(TimeSpan.Zero, duration);
             Assert.AreEqual(0, consumedTokens, "Nothing may be consumed from unparsable input");
         }
-
-        // --- remindme: persistence, validation, confirmation (FR-61–FR-64, FR-70) ---
 
         private sealed class ReminderHarness
         {
@@ -140,7 +129,6 @@ namespace BotTests
             StringAssert.Contains(replies[0], "water the plants");
             StringAssert.Contains(replies[0], BaseTimestamp.Add(TimeSpan.FromHours(36)).ToString("yyyy-MM-dd HH:mm"));
 
-            // The new reminder may be the earliest pending one: the delivery signal must be notified (FR-65).
             harness.Signal.Verify(signal => signal.NotifyPendingSetChanged(), Times.Once);
         }
 
@@ -153,7 +141,7 @@ namespace BotTests
             await harness.Execute(command, "!remindme 10m stretch", guildId: null, timestamp: BaseTimestamp);
 
             var reminder = harness.Database.Reminders.Single();
-            Assert.IsNull(reminder.GuildId, "A reminder created in a direct message records no guild (FR-61)");
+            Assert.IsNull(reminder.GuildId, "A reminder created in a direct message records no guild");
         }
 
         [TestMethod]
@@ -223,7 +211,6 @@ namespace BotTests
             for (int i = 0; i < RemindMeCommand.MaxPendingReminders; i++)
                 await harness.Execute(remindMe, $"!remindme 10m reminder {i}");
 
-            // The invoking user is at the cap: the eleventh is rejected and nothing is stored (FR-70).
             List<string> rejected = await harness.Execute(remindMe, "!remindme 10m one too many");
             Assert.AreEqual(RemindMeCommand.MaxPendingReminders, harness.Database.Reminders.Count());
             StringAssert.Contains(rejected.Single(), "10 pending reminders");
@@ -239,8 +226,6 @@ namespace BotTests
             StringAssert.Contains(accepted.Single(), "Reminder #");
             Assert.AreEqual(RemindMeCommand.MaxPendingReminders, harness.Database.Reminders.Count(reminder => reminder.OwnerDiscordId == AuthorId));
         }
-
-        // --- reminders list (FR-68) ---
 
         [TestMethod]
         public async Task Reminders_Lists_Soonest_First_And_Excludes_Failed()
@@ -262,7 +247,7 @@ namespace BotTests
             StringAssert.Contains(reply, "#1");
             StringAssert.Contains(reply, "later");
             Assert.IsFalse(reply.Contains("failed"), "Failed reminders are not pending");
-            Assert.IsFalse(reply.Contains("foreign"), "Users never see other users' reminders (FR-69)");
+            Assert.IsFalse(reply.Contains("foreign"), "Users never see other users' reminders");
             Assert.IsTrue(reply.IndexOf("sooner") < reply.IndexOf("later"), "Reminders are listed soonest first");
         }
 
@@ -288,13 +273,10 @@ namespace BotTests
 
             List<string> replies = await harness.Execute(new RemindersCommand(), "!reminders");
 
-            // Ten listed lines: the ten soonest; the later five are cut off (FR-68).
             Assert.AreEqual(10, replies[0].Split('\n').Length - 1);
             StringAssert.Contains(replies[0], "reminder 9");
             Assert.IsFalse(replies[0].Contains("reminder 10"), "The list is capped at 10 entries");
         }
-
-        // --- cancelreminder (FR-69) ---
 
         [TestMethod]
         public async Task CancelReminder_Cancels_Confirms_And_Notifies_The_Scheduler()
@@ -310,7 +292,7 @@ namespace BotTests
             Assert.AreEqual(0, harness.Database.Reminders.Count(), "The cancelled reminder must be removed");
             Assert.AreEqual(1, replies.Count);
             StringAssert.Contains(replies[0], "Cancelled reminder #3");
-            scheduler.Verify(s => s.NotifyPendingSetChanged(), Times.Once, "Cancelling may change the earliest due time (FR-65)");
+            scheduler.Verify(s => s.NotifyPendingSetChanged(), Times.Once, "Cancelling may change the earliest due time");
         }
 
         [TestMethod]
@@ -369,11 +351,9 @@ namespace BotTests
             foreach (string name in names)
             {
                 Assert.IsTrue(commandService.Commands.TryGetValue(name, out ICommand? command), $"!{name} must be registered");
-                Assert.AreEqual(PermissionTier.Everyone, command.DefaultPermissionTier, "All reminder commands default to tier 0 (FR-71)");
+                Assert.AreEqual(PermissionTier.Everyone, command.DefaultPermissionTier, "All reminder commands default to tier 0");
             }
         }
-
-        // --- Recurring reminders: creation, floor, caps, list, cancellation (FR-107–FR-109, NFR-24) ---
 
         [TestMethod]
         public async Task RecurringRemindMe_Persists_The_Interval_And_Confirms_The_Recurrence()
@@ -384,7 +364,7 @@ namespace BotTests
             List<string> replies = await harness.Execute(command, "!remindme every 1d 12h water the plants", timestamp: BaseTimestamp);
 
             var reminder = harness.Database.Reminders.Single();
-            Assert.AreEqual(TimeSpan.FromHours(36), reminder.RecurrenceInterval, "The row is recurring and carries the interval (FR-107)");
+            Assert.AreEqual(TimeSpan.FromHours(36), reminder.RecurrenceInterval, "The row is recurring and carries the interval");
             Assert.AreEqual(BaseTimestamp.Add(TimeSpan.FromHours(36)), reminder.DueAtUtc, "The first due time is now + interval");
             Assert.IsNull(reminder.FailedAtUtc, "A new recurring reminder is pending");
 
@@ -394,7 +374,6 @@ namespace BotTests
             StringAssert.Contains(replies[0], "water the plants");
             StringAssert.Contains(replies[0], BaseTimestamp.Add(TimeSpan.FromHours(36)).ToString("yyyy-MM-dd HH:mm"));
 
-            // Like a one-shot, the new row may be the earliest pending one (FR-65).
             harness.Signal.Verify(signal => signal.NotifyPendingSetChanged(), Times.Once);
         }
 
@@ -414,7 +393,7 @@ namespace BotTests
             List<string> replies = await harness.Execute(command, $"!remindme {duration} stretch", timestamp: BaseTimestamp);
 
             var reminder = harness.Database.Reminders.Single();
-            Assert.AreEqual(TimeSpan.FromSeconds(expectedSeconds), reminder.RecurrenceInterval, $"'{duration}' must parse with the shared duration parser (FR-107)");
+            Assert.AreEqual(TimeSpan.FromSeconds(expectedSeconds), reminder.RecurrenceInterval, $"'{duration}' must parse with the shared duration parser");
             Assert.AreEqual(1, replies.Count);
         }
 
@@ -427,7 +406,7 @@ namespace BotTests
             List<string> rejected = await harness.Execute(command, "!remindme every 9m too soon", timestamp: BaseTimestamp);
             List<string> accepted = await harness.Execute(command, "!remindme every 10m on the floor", timestamp: BaseTimestamp);
 
-            Assert.AreEqual(1, harness.Database.Reminders.Count(), "Only the on-the-floor reminder is stored (FR-107)");
+            Assert.AreEqual(1, harness.Database.Reminders.Count(), "Only the on-the-floor reminder is stored");
             StringAssert.Contains(rejected.Single(), "at least 10m");
             StringAssert.Contains(accepted.Single(), "Recurring reminder #");
         }
@@ -470,7 +449,6 @@ namespace BotTests
             var harness = Harness();
             var remindMe = new RemindMeCommand(harness.Signal.Object);
 
-            // A full one-shot roster (FR-70) must not block recurring rows (FR-109)...
             for (int i = 0; i < RemindMeCommand.MaxPendingReminders; i++)
                 await harness.Execute(remindMe, $"!remindme 1h one-shot {i}");
 
@@ -580,13 +558,10 @@ namespace BotTests
                 .Build();
         }
 
-        // --- Delivery (FR-65–FR-67) ---
-
-        /// <summary>
-        /// The delivery engine over a shared in-memory store: the real wake-up signal and reminder
+        /// <summary>/// The delivery engine over a shared in-memory store: the real wake-up signal and reminder
         /// source, a fake clock, and a DM-sender double that records deliveries (and optionally
         /// simulates closed DMs for one owner).
-        /// </summary>
+        ///</summary>
         private sealed class DeliveryHarness : IDisposable
         {
             public FakeTimeProvider Time { get; } = new(new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero));
@@ -594,7 +569,7 @@ namespace BotTests
             public Mock<IScheduledMessageSender<ScheduledReminderMessage>> DmSender { get; } = new();
             public List<(ulong Owner, string Message)> DeliveredMessages { get; } = new();
 
-            /// <summary>When set, direct messages to this owner fail — simulating closed DMs (FR-67).</summary>
+            /// <summary>When set, direct messages to this owner fail — simulating closed DMs.</summary>
             public ulong? FailingOwnerId { get; set; }
 
             private readonly string _storeName = Guid.NewGuid().ToString();
@@ -691,11 +666,10 @@ namespace BotTests
             }
         }
 
-        /// <summary>
-        /// Polls until the condition holds. Between polls the fake clock is nudged forward one
+        /// <summary>/// Polls until the condition holds. Between polls the fake clock is nudged forward one
         /// second so timer-chained waits (the fallback poll, the retry backoff) keep making
         /// progress even while the loop is between awaits on the thread pool.
-        /// </summary>
+        ///</summary>
         private static async Task WaitUntilAsync(Func<bool> condition, FakeTimeProvider time, int timeoutMilliseconds = 10_000)
         {
             for (int attempt = 0; attempt < timeoutMilliseconds / 25 && !condition(); attempt++)
@@ -720,7 +694,6 @@ namespace BotTests
             await harness.SeedReminderAsync(AuthorId, 1, "call the doctor", TimeSpan.FromHours(1));
             await harness.StartAsync();
 
-            // One second before the due time nothing is delivered (FR-65: second-accurate).
             harness.Time.Advance(TimeSpan.FromMinutes(5) - TimeSpan.FromSeconds(1));
             Assert.AreEqual(0, harness.DeliveredMessages.Count, "A reminder must not be delivered before its due time");
 
@@ -775,7 +748,6 @@ namespace BotTests
         {
             using var harness = new DeliveryHarness();
 
-            // A reminder that became due while the bot was down (FR-66): persisted and overdue.
             await harness.SeedReminderAsync(AuthorId, 0, "missed while offline", TimeSpan.FromMinutes(-30));
             await harness.StartAsync();
 
@@ -804,7 +776,6 @@ namespace BotTests
                 && harness.CreateDatabase().Reminders.Any(reminder => reminder.OwnerDiscordId == 300 && reminder.FailedAtUtc != null),
                 harness.Time);
 
-            // Bounded retries (FR-67): exactly three attempts, then the row is marked failed.
             harness.DmSender.Verify(
                 sender => sender.SendAsync(
                     It.Is<ScheduledReminderMessage>(message => message.OwnerDiscordId == 300 && message.Message == "into closed DMs"),
@@ -823,7 +794,6 @@ namespace BotTests
             using var harness = new DeliveryHarness();
             var remindMe = new RemindMeCommand(harness.Signal);
 
-            // Nothing pending: the loop waits for the wake-up signal instead of polling (FR-65).
             await harness.StartAsync();
             Assert.AreEqual(0, harness.DeliveredMessages.Count);
 
@@ -838,8 +808,6 @@ namespace BotTests
             Assert.AreEqual(0, harness.CreateDatabase().Reminders.Count());
         }
 
-        // --- Recurring delivery (FR-107/FR-108, NFR-24) ---
-
         [TestMethod]
         public async Task Delivery_Redelivers_A_Recurring_Reminder_Each_Interval_From_The_Delivery_Time()
         {
@@ -847,11 +815,11 @@ namespace BotTests
             await harness.SeedReminderAsync(AuthorId, 0, "water the plants", TimeSpan.FromMinutes(10), TimeSpan.FromMinutes(10));
             await harness.StartAsync();
 
-            // First occurrence.
+            // First occurrence; the recurring row is re-scheduled, not deleted, and keeps its number.
             harness.Time.Advance(TimeSpan.FromMinutes(10));
-            await WaitUntilAsync(() => ContainsMessage(harness.DeliveredMessages, "water the plants"), harness.Time);
+            await WaitUntilAsync(() => ContainsMessage(harness.DeliveredMessages, "water the plants")
+                && harness.CreateDatabase().Reminders.Single().DueAtUtc > harness.Time.GetUtcNow(), harness.Time);
 
-            // The row persists — re-scheduled, not deleted — and keeps its number (FR-108).
             var database = harness.CreateDatabase();
             var stored = database.Reminders.Single();
             Assert.AreEqual(0, stored.Number, "The recurring row keeps its number across deliveries");
@@ -882,7 +850,8 @@ namespace BotTests
             await harness.SeedReminderAsync(AuthorId, 0, "medication", TimeSpan.FromMinutes(-30), TimeSpan.FromMinutes(10));
             await harness.StartAsync();
 
-            await WaitUntilAsync(() => ContainsMessage(harness.DeliveredMessages, "medication"), harness.Time);
+            await WaitUntilAsync(() => ContainsMessage(harness.DeliveredMessages, "medication")
+                && harness.CreateDatabase().Reminders.Single().DueAtUtc > harness.Time.GetUtcNow(), harness.Time);
 
             Assert.AreEqual(1, harness.DeliveredMessages.Count(entry => entry.Message == "medication"),
                 "An overdue recurring reminder delivers once — downtime shifts the schedule, it never bursts catch-ups");
@@ -905,8 +874,6 @@ namespace BotTests
                 harness.CreateDatabase().Reminders.Any(reminder => reminder.OwnerDiscordId == 300 && reminder.FailedAtUtc != null),
                 harness.Time);
 
-            // Bounded retries (FR-67/FR-108): exactly three attempts, then the recurring row is
-            // marked failed and never re-scheduled.
             harness.DmSender.Verify(
                 sender => sender.SendAsync(
                     It.Is<ScheduledReminderMessage>(message => message.OwnerDiscordId == 300),

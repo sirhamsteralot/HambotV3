@@ -12,11 +12,9 @@ namespace HambotV2.Scheduling
     /// persistence lives behind <see cref="IScheduledMessageSource{TMessage}"/>, transport
     /// behind <see cref="IScheduledMessageSender{TMessage}"/>, and all time comes from the
     /// injected <see cref="TimeProvider"/> (tests advance it via FakeTimeProvider).
-    ///
-    /// While maintenance mode is active (a backup restore is replacing the database, FR-98) the
-    /// whole delivery pass is skipped, so a restore can never exhaust a retry budget and mark a
-    /// message failed; a message that does exhaust its retries is additionally posted to the
-    /// operator notification channel (FR-118).
+    /// While maintenance mode is active (a backup restore is replacing the database) the whole
+    /// delivery pass is skipped, so a restore can never exhaust a retry budget; a message that
+    /// does exhaust its retries is additionally posted to the operator notification channel.
     /// </summary>
     internal sealed class ScheduledMessageDeliveryService<TMessage> : BackgroundService
         where TMessage : IScheduledMessage
@@ -67,8 +65,8 @@ namespace HambotV2.Scheduling
             {
                 try
                 {
-                    // Maintenance mode (FR-98): the pass is skipped entirely — deliveries defer
-                    // until the restore is done, and nothing gets marked failed meanwhile.
+                    // Maintenance mode: the pass is skipped entirely — deliveries defer until the
+                    // restore is done, and nothing gets marked failed meanwhile.
                     if (_maintenanceMode?.IsActive == true)
                     {
                         await TryDelayAsync(FallbackPollInterval, stoppingToken);
@@ -180,7 +178,7 @@ namespace HambotV2.Scheduling
                     _logger.LogError("Delivery of {MessageIdentity} failed after {MaxAttempts} attempts; marked as failed.",
                         message.LogIdentity, MaxDeliveryAttempts);
 
-                    // Retry-exhausted deliveries reach the operator notification channel (FR-118);
+                    // Retry-exhausted deliveries reach the operator notification channel;
                     // the publisher rate-limits, collapses, and never throws back.
                     if (_notificationPublisher is not null)
                         await _notificationPublisher.PublishAsync(

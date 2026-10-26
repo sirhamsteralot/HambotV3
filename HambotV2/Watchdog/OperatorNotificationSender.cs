@@ -6,7 +6,7 @@ namespace HambotV2.Watchdog
     /// <summary>
     /// The transport for operator notifications (§3.13): one component posting to the configured
     /// channel and DMing the bot owner over the shared gateway client, behind an interface so the
-    /// publisher and watchdog are unit-testable with a mocked sender (NFR-23).
+    /// publisher and watchdog are unit-testable with a mocked sender.
     /// </summary>
     internal interface IOperatorNotificationSender
     {

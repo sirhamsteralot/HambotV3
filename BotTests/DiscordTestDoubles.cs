@@ -9,10 +9,9 @@ using System.Threading.Tasks;
 
 namespace BotTests
 {
-    /// <summary>
-    /// Shared Moq doubles for the Discord message surface plus an in-memory database, so command
+    /// <summary>/// Shared Moq doubles for the Discord message surface plus an in-memory database, so command
     /// and permission tests run without Discord or PostgreSQL.
-    /// </summary>
+    ///</summary>
     internal static class DiscordTestDoubles
     {
         /// <summary>The guild id used by the doubles unless a test needs multiple guilds.</summary>

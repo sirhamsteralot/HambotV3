@@ -5,7 +5,7 @@ using HambotV2.SlashCommands;
 namespace HambotV2.Commands.SystemCommands
 {
     /// <summary>
-    /// Manages the bot's activity (FR-79): no args report it, `<type> <text...>` applies it, `clear`
+    /// Manages the bot's activity: no args report it, `<type> <text...>` applies it, `clear`
     /// removes it. Tier 4, DM-usable; runtime changes are not persisted — a restart reapplies the
     /// startup configuration.
     /// </summary>
@@ -24,7 +24,7 @@ namespace HambotV2.Commands.SystemCommands
         public int DefaultPermissionTier => PermissionTier.BotOwner;
 
         /// <summary>
-        /// Slash surface (FR-110): the activity argument line stays free-form so
+        /// Slash surface: the activity argument line stays free-form so
         /// <c>&lt;type&gt; &lt;text...&gt;</c> and <c>clear</c> parse exactly as on the text surface.
         /// </summary>
         public ApplicationCommandDeclaration? ApplicationCommand =>

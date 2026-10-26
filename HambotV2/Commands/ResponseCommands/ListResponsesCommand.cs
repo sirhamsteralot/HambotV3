@@ -5,8 +5,8 @@ using Microsoft.EntityFrameworkCore;
 namespace HambotV2.Commands.ResponseCommands
 {
     /// <summary>
-    /// Lists the invoking guild's custom response names alphabetically (FR-58); everyone by
-    /// default, declining in direct messages (FR-59).
+    /// Lists the invoking guild's custom response names alphabetically; everyone by
+    /// default, declining in direct messages.
     /// </summary>
     internal class ListResponsesCommand : ICommand
     {
@@ -17,7 +17,7 @@ namespace HambotV2.Commands.ResponseCommands
 
         public async Task ExecuteCommand(IMessage message, ICommandContext context)
         {
-            // Responses are per-guild state; the DM scope (FR-25/FR-59) has no guild to list.
+            // Responses are per-guild state; the DM scope has no guild to list.
             if (context.GuildId is not ulong guildId)
             {
                 await message.Channel.SendMessageAsync("This command manages per-server state and is only available in servers");

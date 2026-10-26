@@ -6,7 +6,7 @@ namespace HambotV2.Connections
     /// <summary>
     /// The <see cref="IPresenceService"/> implementation (design §3.10): the single path for
     /// activity, bio, avatar, and banner changes over the gateway. All applies run under one
-    /// single-flight lock — the last request wins (FR-80); requests before the gateway is ready
+    /// single-flight lock — the last request wins; requests before the gateway is ready
     /// are recorded and applied on its Ready event together with the startup configuration;
     /// apply failures are logged and returned as false, never thrown.
     /// </summary>
@@ -122,7 +122,7 @@ namespace HambotV2.Connections
                 if (!_gateway.IsReady)
                     return true;
 
-                // The bio is per-guild state (FR-113): one identity, expressed in every member guild.
+                // The bio is per-guild state: one identity, expressed in every member guild.
                 return await ApplyPerGuildAsync("the profile bio", guildId => _gateway.SetGuildBioAsync(guildId, bio));
             }
             finally
@@ -221,7 +221,7 @@ namespace HambotV2.Connections
             }
         }
 
-        /// <summary>FR-80: failures are logged, never thrown; the false return surfaces as the command's in-channel error.</summary>
+        /// <summary>: failures are logged, never thrown; the false return surfaces as the command's in-channel error.</summary>
         private async Task<bool> TryApplyAsync(Func<Task> apply, string description)
         {
             try

@@ -4,15 +4,15 @@ using HambotV2.Commands;
 
 namespace HambotV2.SlashCommands
 {
-    /// <summary>The application-command definition pushed to Discord — bot-owned DTO, kept free of Discord.Net types so the registration contract is unit-testable (NFR-26).</summary>
+    /// <summary>The application-command definition pushed to Discord — bot-owned DTO, kept free of Discord.Net types so the registration contract is unit-testable.</summary>
     /// <param name="Name">The command name; shared with the text-surface registry key.</param>
-    /// <param name="Description">The description shown in Discord's command picker; from the command's help text (FR-39).</param>
+    /// <param name="Description">The description shown in Discord's command picker; from the command's help text.</param>
     /// <param name="Options">The ordered options (typed, or the single free-form fallback).</param>
     internal sealed record ApplicationCommandDefinition(string Name, string Description, IReadOnlyList<ApplicationCommandOption> Options);
 
     /// <summary>
     /// Builds one application-command definition per slash-eligible command from the same
-    /// registry entries as the text surface (FR-110): name and description from <see cref="ICommand"/>,
+    /// registry entries as the text surface: name and description from <see cref="ICommand"/>,
     /// options from the command's <see cref="ICommand.ApplicationCommand"/> declaration.
     /// Also the single chokepoint for Discord's registration limits (name, description, and
     /// option lengths), so an invalid command fails loudly at registration time, never silently.

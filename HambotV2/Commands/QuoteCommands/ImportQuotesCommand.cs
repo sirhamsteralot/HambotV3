@@ -6,7 +6,7 @@ using System.Text.Json;
 namespace HambotV2.Commands.QuoteCommands
 {
     /// <summary>
-    /// Imports the old bot's quotes into the invoking guild (FR-72–FR-75): the configured bot
+    /// Imports the old bot's quotes into the invoking guild: the configured bot
     /// owner attaches the old `quoteSettings.json` to the invocation message. Tier 4 by default —
     /// reachable only through configuration and effectively immutable at runtime (see §3.6) — so
     /// only the bot owner can ever run it.
@@ -27,7 +27,7 @@ namespace HambotV2.Commands.QuoteCommands
 
         public async Task ExecuteCommand(IMessage message, ICommandContext context)
         {
-            // Quotes are per-guild state; the DM scope (FR-25/FR-50) has no guild to import into.
+            // Quotes are per-guild state; the DM scope has no guild to import into.
             if (context.GuildId is not ulong guildId)
             {
                 await message.Channel.SendMessageAsync("This command manages per-server state and is only available in servers");
@@ -68,7 +68,7 @@ namespace HambotV2.Commands.QuoteCommands
                 return;
             }
 
-            // All-or-nothing validation (FR-74): the whole file is checked before anything is
+            // All-or-nothing validation: the whole file is checked before anything is
             // stored, so a failed import leaves the guild's quotes untouched.
             for (int index = 0; index < entries.Count; index++)
             {
@@ -86,7 +86,7 @@ namespace HambotV2.Commands.QuoteCommands
                 }
             }
 
-            // Storage (FR-73): appended in file order, continuing the per-guild numbering (FR-43,
+            // Storage: appended in file order, continuing the per-guild numbering,
             // 0-based like the old bot's index list — an empty guild imports starting at #0); the
             // legacy date survives the migration, falling back to the import message.
             int nextNumber = (await context.DbContext.Quotes

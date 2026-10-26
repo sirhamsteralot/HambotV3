@@ -14,11 +14,6 @@ using System.Threading.Tasks;
 
 namespace BotTests
 {
-    /// <summary>
-    /// The custom command responses feature (FR-51–FR-60, NFR-15): per-guild storage, name and
-    /// content validation, built-in precedence, create-vs-update management, removal, dispatch
-    /// order and gating, attachment rejection, and DM behavior.
-    /// </summary>
     [TestClass]
     public sealed class TestCustomResponses
     {
@@ -58,15 +53,13 @@ namespace BotTests
             }
         }
 
-        /// <summary>
-        /// A full CommandHandler pipeline over an isolated in-memory store: the real command
+        /// <summary>/// A full CommandHandler pipeline over an isolated in-memory store: the real command
         /// registry (with one built-in test command), the real permission and cooldown services,
         /// and a fake clock, so dispatch order and gating are tested end to end.
-        /// </summary>
+        ///</summary>
         private sealed class PipelineHarness
         {
             private readonly string _storeName = Guid.NewGuid().ToString();
-
 
             public CommandService CommandService { get; } = new();
             public PermissionsService Permissions { get; } = new();
@@ -82,7 +75,6 @@ namespace BotTests
                 GuildSettings = guildSettings;
 
                 // The one registered built-in doubles as the dispatch-order probe: a custom
-                // response under the same name must never shadow it (FR-53).
                 ExecutedBuiltIn = DiscordTestDoubles.CreateMockCommand("greet");
                 CommandService.RegisterCommand("greet", ExecutedBuiltIn.Object);
 
@@ -127,8 +119,6 @@ namespace BotTests
         }
 
         private static ResponseHarness Harness() => new();
-
-        // --- Name validation (FR-52, NFR-15) ---
 
         [TestMethod]
         [DataRow("UPPER")]
@@ -188,8 +178,6 @@ namespace BotTests
             Assert.AreEqual(0, harness.Database.CustomResponses.Count());
         }
 
-        // --- Content validation (FR-56, NFR-15) ---
-
         [TestMethod]
         public async Task AddResponse_Rejects_EmptyContent()
         {
@@ -219,8 +207,6 @@ namespace BotTests
             Assert.AreEqual(1, harness.Database.CustomResponses.Count(), "The over-limit response must not be stored");
         }
 
-        // --- Built-in collision rejection (FR-53, NFR-15) ---
-
         [TestMethod]
         public async Task AddResponse_Rejects_BuiltInCommandNames()
         {
@@ -238,8 +224,6 @@ namespace BotTests
             Assert.AreEqual(0, harness.Database.CustomResponses.Count(), "No response may take a built-in's name");
         }
 
-        // --- Create vs update (FR-51/FR-56, NFR-15) ---
-
         [TestMethod]
         public async Task AddResponse_Creates_Then_Updates_WithDistinctRepliesAndFields()
         {
@@ -256,12 +240,10 @@ namespace BotTests
 
             var response = harness.Database.CustomResponses.Single();
             Assert.AreEqual("second version", response.Content);
-            Assert.AreEqual(200UL, response.LastModifiedByDiscordId, "The last modifier's Discord id must be recorded (FR-51)");
+            Assert.AreEqual(200UL, response.LastModifiedByDiscordId, "The last modifier's Discord id must be recorded");
             Assert.AreEqual(created.UtcDateTime, response.CreatedAt, "An update must keep the original creation time");
             Assert.AreEqual(updated.UtcDateTime, response.UpdatedAt, "The updated timestamp must reflect the update");
         }
-
-        // --- Removal (FR-57, NFR-15) ---
 
         [TestMethod]
         public async Task RemoveResponse_Removes_Confirms_AndErrorsOnUnknownName()
@@ -281,8 +263,6 @@ namespace BotTests
 
             StringAssert.Contains((await harness.Execute(remove, "!removeresponse"))[0], "Usage: !removeresponse");
         }
-
-        // --- Per-guild isolation (FR-51, NFR-15) ---
 
         [TestMethod]
         public async Task Responses_Are_Isolated_PerGuild()
@@ -305,8 +285,6 @@ namespace BotTests
                 await harness.Execute(list, "!listresponses", guildId: OtherGuildId));
         }
 
-        // --- listresponses (FR-58, NFR-15) ---
-
         [TestMethod]
         public async Task ListResponses_ListsAlphabetically_AndReportsEmptyGuilds()
         {
@@ -326,8 +304,6 @@ namespace BotTests
                 await harness.Execute(list, "!listresponses"));
         }
 
-        // --- Attachment rejection (FR-60, NFR-15) ---
-
         [TestMethod]
         public async Task AddResponse_Rejects_Attachments_AndStoresNothing()
         {
@@ -338,10 +314,8 @@ namespace BotTests
 
             Assert.AreEqual(1, replies.Count);
             StringAssert.Contains(replies[0], "text only");
-            Assert.AreEqual(0, harness.Database.CustomResponses.Count(), "An invocation with an attachment must store nothing (FR-60)");
+            Assert.AreEqual(0, harness.Database.CustomResponses.Count(), "An invocation with an attachment must store nothing");
         }
-
-        // --- DM behavior (FR-59, NFR-15) ---
 
         [TestMethod]
         public async Task ManagementCommands_DeclineInDirectMessages()
@@ -361,8 +335,6 @@ namespace BotTests
             Assert.AreEqual(0, harness.Database.CustomResponses.Count(), "A DM invocation must store nothing");
         }
 
-        // --- Dispatch order (FR-53/FR-54, NFR-15) ---
-
         [TestMethod]
         public async Task Dispatch_BuiltInCommand_WinsOverCustomResponse()
         {
@@ -375,7 +347,7 @@ namespace BotTests
             var replies = await pipeline.Handle("!greet");
 
             pipeline.ExecutedBuiltIn.Verify(c => c.ExecuteCommand(It.IsAny<IMessage>(), It.IsAny<ICommandContext>()), Times.Once,
-                "The built-in must win dispatch (FR-53)");
+                "The built-in must win dispatch");
             Assert.AreEqual(0, replies.Count, "The built-in mock sends no reply; the custom response content must not be sent");
         }
 
@@ -400,8 +372,6 @@ namespace BotTests
             CollectionAssert.AreEqual(new List<string> { "The requested command is unavailable" }, await pipeline.Handle("!poke", guildId: OtherGuildId));
         }
 
-        // --- DM dispatch (FR-59, NFR-15) ---
-
         [TestMethod]
         public async Task Dispatch_InDirectMessages_KeepsUnavailableReply()
         {
@@ -410,8 +380,6 @@ namespace BotTests
 
             CollectionAssert.AreEqual(new List<string> { "The requested command is unavailable" }, await pipeline.Handle("!poke", guildId: null));
         }
-
-        // --- Permission gating of dispatch (FR-55, NFR-15) ---
 
         [TestMethod]
         public async Task Dispatch_DefaultsToTier0_AndHonorsRuntimeCommandMetaDataOverride()
@@ -431,8 +399,6 @@ namespace BotTests
             CollectionAssert.AreEqual(new List<string> { "You are not permitted to use that command" }, await pipeline.Handle("!poke"));
         }
 
-        // --- Cooldown gating of dispatch (FR-55, NFR-15) ---
-
         [TestMethod]
         public async Task Dispatch_IsThrottledPerResponseName()
         {
@@ -444,7 +410,7 @@ namespace BotTests
 
             var throttled = await pipeline.Handle("!poke");
             Assert.AreEqual(1, throttled.Count);
-            StringAssert.Contains(throttled[0], "too quickly", "A second invocation inside the window must be throttled (NFR-12)");
+            StringAssert.Contains(throttled[0], "too quickly", "A second invocation inside the window must be throttled");
 
             // The throttle keys on the response name, so an unrelated token is unaffected...
             CollectionAssert.AreEqual(new List<string> { "The requested command is unavailable" }, await pipeline.Handle("!undefined"));
@@ -453,8 +419,6 @@ namespace BotTests
             pipeline.Time.Advance(TimeSpan.FromSeconds(3));
             CollectionAssert.AreEqual(new List<string> { "go away" }, await pipeline.Handle("!poke"));
         }
-
-        // --- Default tiers of the management commands (FR-56–FR-58, NFR-15) ---
 
         [TestMethod]
         public async Task ManagementCommands_HaveConfiguredDefaultTiers()
@@ -467,7 +431,6 @@ namespace BotTests
 
             var permissions = new PermissionsService();
 
-            // addresponse and removeresponse default to moderator (FR-56/FR-57)...
             Assert.IsFalse((await permissions.CheckUserPermissions(100, GuildId, TierOverrides.None, harness.CreateAddResponseCommand(), database)).IsAllowed,
                 "A tier-0 user must not manage responses");
             Assert.IsTrue((await permissions.CheckUserPermissions(101, GuildId, TierOverrides.None, harness.CreateAddResponseCommand(), database)).IsAllowed,
@@ -475,11 +438,8 @@ namespace BotTests
             Assert.IsFalse((await permissions.CheckUserPermissions(100, GuildId, TierOverrides.None, new RemoveResponseCommand(), database)).IsAllowed);
             Assert.IsTrue((await permissions.CheckUserPermissions(101, GuildId, TierOverrides.None, new RemoveResponseCommand(), database)).IsAllowed);
 
-            // ...while listresponses defaults to everyone (FR-58).
             Assert.IsTrue((await permissions.CheckUserPermissions(100, GuildId, TierOverrides.None, new ListResponsesCommand(), database)).IsAllowed);
         }
-
-        // --- Name rule helper (FR-52) ---
 
         [TestMethod]
         public void CustomResponseNames_Validates_TheSharedPattern()

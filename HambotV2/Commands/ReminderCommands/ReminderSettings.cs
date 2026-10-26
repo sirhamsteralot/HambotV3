@@ -13,10 +13,10 @@ namespace HambotV2.Commands.ReminderCommands
         internal const int DefaultMinRecurrenceMinutes = 10;
         internal const int DefaultMaxRecurring = 5;
 
-        /// <summary>Shortest accepted recurrence interval (FR-107).</summary>
+        /// <summary>Shortest accepted recurrence interval.</summary>
         public TimeSpan MinRecurrenceInterval { get; init; } = TimeSpan.FromMinutes(DefaultMinRecurrenceMinutes);
 
-        /// <summary>Maximum pending recurring reminders per user (FR-109); 0 disables recurring reminders.</summary>
+        /// <summary>Maximum pending recurring reminders per user; 0 disables recurring reminders.</summary>
         public int MaxRecurring { get; init; } = DefaultMaxRecurring;
 
         public static ReminderSettings FromConfiguration(IConfiguration? configuration)
@@ -38,7 +38,7 @@ namespace HambotV2.Commands.ReminderCommands
     }
 
     /// <summary>
-    /// Human-readable recurrence intervals for replies and lists (FR-107/FR-108): the non-zero
+    /// Human-readable recurrence intervals for replies and lists: the non-zero
     /// day/hour/minute/second components of the interval, largest first — e.g.
     /// <c>1d 12h</c>, <c>10m</c>. The parser-built intervals are sums of whole units, so this
     /// form always echoes what the user typed.

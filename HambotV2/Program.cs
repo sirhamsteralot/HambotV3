@@ -144,7 +144,7 @@ namespace HambotV2
             var configuration = host.Services.GetRequiredService<IConfiguration>();
             var missingKeys = ConfigurationValidator.GetMissingKeys(configuration);
 
-            // Optional sections validate their own values (FR-32 style): an invalid configured
+            // Optional sections validate their own values; an invalid configured
             // presence or bio fails startup naming the offending key.
             PresenceStartupConfiguration.TryParse(configuration, out _, out List<string> configurationErrors);
 

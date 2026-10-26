@@ -2,18 +2,18 @@ namespace HambotV2.Maintenance
 {
     internal interface IMaintenanceMode
     {
-        /// <summary>True while a backup restore is replacing the live database (FR-98): commands decline, scheduled deliveries defer.</summary>
+        /// <summary>True while a backup restore is replacing the live database: commands decline, scheduled deliveries defer.</summary>
         bool IsActive { get; }
 
-        /// <summary>Activates maintenance mode (the restore command; FR-98).</summary>
+        /// <summary>Activates maintenance mode (the restore command).</summary>
         void Enter();
 
-        /// <summary>Ends maintenance mode (the restore command; FR-98).</summary>
+        /// <summary>Ends maintenance mode (the restore command).</summary>
         void Exit();
     }
 
     /// <summary>
-    /// The singleton maintenance-mode flag (FR-98), set around an in-bot backup restore. While
+    /// The singleton maintenance-mode flag, set around an in-bot backup restore. While
     /// active the command pipeline replies with a maintenance notice (except the restore command
     /// itself) and the scheduled delivery engine skips its passes entirely, so a restore can
     /// never exhaust a reminder's retry budget and mark it failed. MCP tools that touch database

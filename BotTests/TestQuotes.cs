@@ -10,10 +10,6 @@ using System.Threading.Tasks;
 
 namespace BotTests
 {
-    /// <summary>
-    /// The quotes feature (FR-42–FR-50, NFR-14): per-guild storage with sequential numbering,
-    /// random/by-number/add-by-text fetching, search, removal, and pipeline behavior.
-    /// </summary>
     [TestClass]
     public sealed class TestQuotes
     {
@@ -42,7 +38,7 @@ namespace BotTests
             }
         }
 
-        /// <summary>Downloader double for !importquotes: returns canned content or throws (FR-72).</summary>
+        /// <summary>Downloader double for !importquotes: returns canned content or throws.</summary>
         private sealed class FakeAttachmentDownloader : IAttachmentContentDownloader
         {
             public string? Content { get; set; }
@@ -57,8 +53,6 @@ namespace BotTests
         }
 
         private static QuoteHarness Harness() => new();
-
-        // --- Lifecycle & sequential numbering (FR-43, NFR-14) ---
 
         [TestMethod]
         public async Task Add_Assigns_Sequential_Numbers_And_Records_Adder_And_Timestamp()
@@ -75,8 +69,8 @@ namespace BotTests
             Assert.AreEqual(("first", 0), (quotes[0].Text, quotes[0].Number));
             Assert.AreEqual(("second", 1), (quotes[1].Text, quotes[1].Number));
             Assert.AreEqual(("third", 2), (quotes[2].Text, quotes[2].Number));
-            Assert.AreEqual(AuthorId, quotes[0].AddedByDiscordId, "The adder's Discord id must be recorded (FR-42)");
-            Assert.AreEqual(timestamp.UtcDateTime, quotes[0].CreatedAt, "The adding message's timestamp must be recorded (FR-42)");
+            Assert.AreEqual(AuthorId, quotes[0].AddedByDiscordId, "The adder's Discord id must be recorded");
+            Assert.AreEqual(timestamp.UtcDateTime, quotes[0].CreatedAt, "The adding message's timestamp must be recorded");
         }
 
         [TestMethod]
@@ -89,7 +83,6 @@ namespace BotTests
             foreach (string text in new[] { "one", "two", "three" })
                 await harness.Execute(quote, $"!quote {text}");
 
-            // Removing a middle quote keeps the remaining numbers (FR-43)...
             CollectionAssert.AreEqual(new List<string> { "Removed quote #1" }, await harness.Execute(remove, "!removequote 1"));
             CollectionAssert.AreEqual(new[] { 0, 2 }, harness.Database.Quotes.OrderBy(item => item.Number).Select(item => item.Number).ToList());
 
@@ -103,8 +96,6 @@ namespace BotTests
             Assert.AreEqual("fresh", last.Text);
             Assert.AreEqual(3, last.Number);
         }
-
-        // --- Per-guild isolation (FR-42, NFR-14) ---
 
         [TestMethod]
         public async Task Quotes_Are_Isolated_Per_Guild()
@@ -134,8 +125,6 @@ namespace BotTests
                 await harness.Execute(quote, "!quote 0", guildId: GuildId));
         }
 
-        // --- Random fetch and the empty-guild message (FR-44, NFR-14) ---
-
         [TestMethod]
         public async Task Random_Fetch_Empty_Guild_Gets_Friendly_Message()
         {
@@ -154,7 +143,6 @@ namespace BotTests
             foreach (string text in new[] { "one", "two", "three" })
                 await harness.Execute(new QuoteCommand(), $"!quote {text}");
 
-            // NFR-14 asserts "a quote from the guild", not a specific one.
             var replies = await harness.Execute(new QuoteCommand(), "!quote");
 
             Assert.AreEqual(1, replies.Count);
@@ -162,8 +150,6 @@ namespace BotTests
                 replies[0] == "#0: one" || replies[0] == "#1: two" || replies[0] == "#2: three",
                 $"Expected a number-prefixed quote of the guild, got '{replies[0]}'");
         }
-
-        // --- Fetch by number (FR-45, NFR-14) ---
 
         [TestMethod]
         public async Task Fetch_By_Number_Returns_That_Quote()
@@ -199,8 +185,6 @@ namespace BotTests
             Assert.AreEqual(0, harness.Database.Quotes.Count(), "Nothing must be stored");
         }
 
-        // --- Add by text (FR-47, NFR-14) ---
-
         [TestMethod]
         public async Task Add_By_Text_Stores_The_Remaining_Text_And_Replies_With_The_Number()
         {
@@ -229,7 +213,6 @@ namespace BotTests
             string boundary = new string('a', 2000);
             string overLimit = new string('b', 2001);
 
-            // 2000 is Discord's message limit (FR-47) — the exact boundary is accepted...
             CollectionAssert.AreEqual(new List<string> { "Added quote #0" }, await harness.Execute(new QuoteCommand(), $"!quote {boundary}"));
             Assert.AreEqual(boundary, harness.Database.Quotes.Single().Text);
 
@@ -237,7 +220,7 @@ namespace BotTests
             var replies = await harness.Execute(new QuoteCommand(), $"!quote {overLimit}");
             Assert.AreEqual(1, replies.Count);
             StringAssert.Contains(replies[0], "at most 2000 characters");
-            Assert.AreEqual(1, harness.Database.Quotes.Count(), "The over-long text must not be stored (FR-47)");
+            Assert.AreEqual(1, harness.Database.Quotes.Count(), "The over-long text must not be stored");
         }
 
         [TestMethod]
@@ -256,8 +239,6 @@ namespace BotTests
             Assert.IsTrue(replies[0].StartsWith("#0: "), "The number prefix must be kept");
             Assert.IsTrue(replies[0].EndsWith("…"), "A trimmed reply must end with an ellipsis");
         }
-
-        // --- Search (FR-46, NFR-14) ---
 
         [TestMethod]
         public async Task Search_Is_Case_Insensitive_Number_Prefixed_And_Ordered()
@@ -294,7 +275,7 @@ namespace BotTests
             var replies = await harness.Execute(new SearchQuotesCommand(), "!searchquotes common");
 
             Assert.AreEqual(1, replies.Count);
-            Assert.AreEqual(10, replies[0].Split('\n').Length, "The result list must be capped at 10 (FR-46)");
+            Assert.AreEqual(10, replies[0].Split('\n').Length, "The result list must be capped at 10");
             StringAssert.Contains(replies[0], "#9: common text 10", "Results keep the number order up to the cap");
             Assert.IsFalse(replies[0].Contains("#10"), "Quotes past the cap must not be sent");
         }
@@ -332,8 +313,6 @@ namespace BotTests
             StringAssert.Contains(empty[0], "search text is missing");
         }
 
-        // --- Removal (FR-48, NFR-14) ---
-
         [TestMethod]
         public async Task Remove_Unknown_Or_Malformed_Number_Produces_In_Channel_Errors()
         {
@@ -347,8 +326,6 @@ namespace BotTests
 
             Assert.AreEqual(0, harness.Database.Quotes.Count());
         }
-
-        // --- Permission gating (FR-48/FR-49, NFR-14) ---
 
         [TestMethod]
         public void Default_Tiers_Are_Everyone_For_Quote_And_Search_Moderator_For_Remove()
@@ -368,8 +345,8 @@ namespace BotTests
             var removeCheck = await permissionsService.CheckUserPermissions(user.Id, GuildId, TierOverrides.None, new RemoveQuoteCommand(), database);
             var quoteCheck = await permissionsService.CheckUserPermissions(user.Id, GuildId, TierOverrides.None, new QuoteCommand(), database);
 
-            Assert.IsFalse(removeCheck.IsAllowed, "removequote defaults to moderator (FR-48)");
-            Assert.IsTrue(quoteCheck.IsAllowed, "quote defaults to everyone (FR-48)");
+            Assert.IsFalse(removeCheck.IsAllowed, "removequote defaults to moderator");
+            Assert.IsTrue(quoteCheck.IsAllowed, "quote defaults to everyone");
         }
 
         [TestMethod]
@@ -378,16 +355,12 @@ namespace BotTests
             var database = DiscordTestDoubles.CreateDatabase();
             var permissionsService = new PermissionsService();
 
-            // The runtime adjustment (FR-49) is just CommandMetaData: lowering it to everyone
-            // lets a fresh-guild user run the command.
             database.Commands.Add(new DatabaseContext.CommandMetaData { GuildId = GuildId, CommandName = "removequote", PermissionTier = PermissionTier.Everyone });
             database.SaveChanges();
 
             var check = await permissionsService.CheckUserPermissions(AuthorId, GuildId, TierOverrides.None, new RemoveQuoteCommand(), database);
-            Assert.IsTrue(check.IsAllowed, "A CommandMetaData override must adjust the required tier (FR-49)");
+            Assert.IsTrue(check.IsAllowed, "A CommandMetaData override must adjust the required tier");
         }
-
-        // --- DM declines (FR-50, NFR-14) ---
 
         [TestMethod]
         public async Task All_Quote_Commands_Decline_In_Direct_Messages()
@@ -404,8 +377,6 @@ namespace BotTests
 
             Assert.AreEqual(0, harness.Database.Quotes.Count(), "No quotes may be stored from a DM");
         }
-
-        // --- Legacy import (FR-72–FR-75, NFR-14) ---
 
         [TestMethod]
         public async Task Import_Appends_In_File_Order_With_Continued_Numbering_And_Legacy_Dates()
@@ -432,16 +403,15 @@ namespace BotTests
             Assert.AreEqual(("one", 0), (quotes[0].Text, quotes[0].Number));
             Assert.AreEqual(("legacy a", 1), (quotes[1].Text, quotes[1].Number));
             Assert.AreEqual(("legacy b", 2), (quotes[2].Text, quotes[2].Number));
-            Assert.AreEqual(AuthorId, quotes[1].AddedByDiscordId, "The importing user is recorded as the adder (FR-73)");
-            Assert.AreEqual(new DateTime(2020, 5, 6, 7, 8, 9, DateTimeKind.Utc), quotes[1].CreatedAt, "The legacy date must survive the migration (FR-73)");
-            Assert.AreEqual(importTimestamp.UtcDateTime, quotes[2].CreatedAt, "An entry without a date falls back to the import message's timestamp (FR-73)");
+            Assert.AreEqual(AuthorId, quotes[1].AddedByDiscordId, "The importing user is recorded as the adder");
+            Assert.AreEqual(new DateTime(2020, 5, 6, 7, 8, 9, DateTimeKind.Utc), quotes[1].CreatedAt, "The legacy date must survive the migration");
+            Assert.AreEqual(importTimestamp.UtcDateTime, quotes[2].CreatedAt, "An entry without a date falls back to the import message's timestamp");
         }
 
         [TestMethod]
         public async Task Import_Failures_Produce_In_Channel_Errors_And_Store_Nothing()
         {
             // (name, attachment, downloader, expected fragment) — each failure path must reply
-            // in-channel and leave the database untouched (all-or-nothing, FR-74).
             var cases = new (string Name, IAttachment? Attachment, FakeAttachmentDownloader Downloader, string Expected)[]
             {
                 ("no attachment", null, new FakeAttachmentDownloader { Content = "{\"quotes\":[{\"quote\":\"a\"}]}" }, "Attach the old bot's quoteSettings.json"),
@@ -471,7 +441,6 @@ namespace BotTests
             string boundaryText = new string('y', 2000);
             var downloader = new FakeAttachmentDownloader { Content = $"{{\"quotes\":[{{\"quote\":\"{boundaryText}\"}}]}}" };
 
-            // Entries at the 2000-char quote limit (FR-47) import fine.
             var replies = await harness.Execute(new ImportQuotesCommand(downloader), "!importquotes", attachment: DiscordTestDoubles.CreateAttachment());
 
             CollectionAssert.AreEqual(new List<string> { "Imported 1 quotes, assigned numbers #0 to #0" }, replies);
@@ -495,7 +464,6 @@ namespace BotTests
             var guildOwnerOverrides = new TierOverrides { GuildOwnerId = 999 };
             Assert.IsFalse((await permissionsService.CheckUserPermissions(999, GuildId, guildOwnerOverrides, command, database)).IsAllowed, "A guild owner (tier 3) must not run the import");
 
-            // Only the configured bot owner reaches tier 4 (FR-37).
             var botOwnerOverrides = new TierOverrides { BotOwnerId = 250 };
             Assert.IsTrue((await permissionsService.CheckUserPermissions(250, GuildId, botOwnerOverrides, command, database)).IsAllowed, "The configured bot owner must be allowed");
         }

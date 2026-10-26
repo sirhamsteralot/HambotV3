@@ -7,28 +7,28 @@ namespace HambotV2.Backups
     internal sealed record BackupInfo(string Name, DateTimeOffset Timestamp, long SizeBytes);
 
     /// <summary>
-    /// Backup management over the shared backup volume (FR-96–FR-98, design §5.2): the scheduled
+    /// Backup management over the shared backup volume (design §5.2): the scheduled
     /// sidecar and the in-bot commands operate on the same directory, so on-demand dumps land
     /// next to the scheduled ones and both are visible to `!backups`. The process boundary keeps
     /// the commands pure orchestration — the implementation shells out to pg_dump/pg_restore,
-    /// so unit tests fake this interface (NFR-22).
+    /// so unit tests fake this interface.
     /// </summary>
     internal interface IBackupManager
     {
         /// <summary>
         /// Creates a timestamped compressed custom-format dump (<c>pg_dump -Fc</c>) in the shared
-        /// directory — the same format and location as the scheduled backups (FR-96) — validates it
-        /// like the sidecar does (FR-100: restore-catalog listing + size floor) and returns its
-        /// name and size. Throws on any failure; an invalid dump is removed again.
+        /// directory — the same format and location as the scheduled backups — validates it like
+        /// the sidecar does (restore-catalog listing + size floor) and returns its name and size.
+        /// Throws on any failure; an invalid dump is removed again.
         /// </summary>
         Task<BackupInfo> CreateBackupAsync(CancellationToken cancellationToken = default);
 
-        /// <summary>The dump files in the shared directory, newest first (FR-97).</summary>
+        /// <summary>The dump files in the shared directory, newest first.</summary>
         IReadOnlyList<BackupInfo> ListBackups();
 
         /// <summary>
         /// Restores the named dump into the live database (<c>pg_restore --clean --if-exists</c>,
-        /// dropping and recreating existing objects, FR-98). Throws on any failure.
+        /// dropping and recreating existing objects). Throws on any failure.
         /// </summary>
         Task RestoreBackupAsync(string name, CancellationToken cancellationToken = default);
     }
@@ -40,7 +40,7 @@ namespace HambotV2.Backups
     /// </summary>
     internal sealed class ProcessBackupManager : IBackupManager
     {
-        /// <summary>Minimum size a valid dump must reach (FR-100's size floor; matches the sidecar's default).</summary>
+        /// <summary>Minimum size a valid dump must reach (matches the sidecar's size-floor default).</summary>
         internal const long MinimumDumpSizeBytes = 1024;
 
         internal const string DumpFilePrefix = "hambotv2-";
@@ -88,7 +88,7 @@ namespace HambotV2.Backups
             long size = new FileInfo(path).Length;
             if (size < MinimumDumpSizeBytes || !await CanListRestoreCatalogAsync(path, cancellationToken))
             {
-                // A failed dump counts for nothing (FR-100): remove it so it never shows up in
+                // A failed dump counts for nothing: remove it so it never shows up in
                 // !backups or the retention window as if it were good.
                 TryDelete(path);
                 _logger.LogError("The on-demand backup {BackupName} failed validation (restore catalog or size floor; size {SizeBytes} bytes).", fileName, size);
@@ -121,7 +121,7 @@ namespace HambotV2.Backups
                 throw new FileNotFoundException($"No backup named '{name}' exists.", path);
 
             // --clean --if-exists: existing objects are dropped before the dump's contents are
-            // restored, so the restored database matches the dump (FR-98).
+            // restored, so the restored database matches the dump.
             await RunAsync("pg_restore",
                 new[] { "--clean", "--if-exists", $"--dbname={_postgresUri}", path },
                 cancellationToken);
@@ -129,7 +129,7 @@ namespace HambotV2.Backups
             _logger.LogInformation("Backup {BackupName} restored into the live database", name);
         }
 
-        /// <summary>FR-100's first check: the dump's restore catalog must be listable.</summary>
+        /// <summary>The dump's restore catalog must be listable.</summary>
         private async Task<bool> CanListRestoreCatalogAsync(string path, CancellationToken cancellationToken)
         {
             try
@@ -180,7 +180,7 @@ namespace HambotV2.Backups
 
             if (process.ExitCode != 0)
             {
-                // The commands reply generically (FR-15 spirit: no exception details in Discord),
+                // The commands reply generically: no exception details in Discord.
                 // so this line is where the actual pg tool error lands.
                 _logger.LogError("{Tool} failed with exit code {ExitCode}: {Error}", fileName, process.ExitCode, stderr.Trim());
                 throw new InvalidOperationException($"{fileName} failed (exit {process.ExitCode}): {stderr.Trim()}");
@@ -188,7 +188,7 @@ namespace HambotV2.Backups
         }
     }
 
-    /// <summary>Formats byte counts for the backup command replies (FR-96/FR-97).</summary>
+    /// <summary>Formats byte counts for the backup command replies.</summary>
     internal static class BackupSize
     {
         public static string Format(long bytes) => bytes >= 1024 * 1024

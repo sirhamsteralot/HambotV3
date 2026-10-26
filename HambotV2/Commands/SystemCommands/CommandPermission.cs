@@ -16,7 +16,7 @@ namespace HambotV2.Commands.SystemCommands
         public string Usage => "commandpermission <commandName> [tier]";
         public int DefaultPermissionTier => PermissionTier.Admin;
 
-        /// <summary>Slash surface (FR-110): the command name typed, the tier picked as an integer.</summary>
+        /// <summary>Slash surface: the command name typed, the tier picked as an integer.</summary>
         public ApplicationCommandDeclaration? ApplicationCommand => new(
         [
             new ApplicationCommandOption("command", "The command whose required tier to show or set", ApplicationCommandOptionKind.Text),
@@ -25,7 +25,7 @@ namespace HambotV2.Commands.SystemCommands
 
         public async Task ExecuteCommand(IMessage message, ICommandContext context)
         {
-            // Command tiers are per-guild state; the DM scope (FR-25) has no guild to manage.
+            // Command tiers are per-guild state; the DM scope has no guild to manage.
             if (context.GuildId is not ulong guildId)
             {
                 await message.Channel.SendMessageAsync("This command manages per-server state and is only available in servers");

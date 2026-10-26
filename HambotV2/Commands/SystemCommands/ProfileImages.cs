@@ -3,7 +3,7 @@ using System.Diagnostics.CodeAnalysis;
 namespace HambotV2.Commands.SystemCommands
 {
     /// <summary>
-    /// Profile image validation (FR-115/FR-116): Discord accepts PNG, JPEG, and GIF up to 10 MB.
+    /// Profile image validation: Discord accepts PNG, JPEG, and GIF up to 10 MB.
     /// Content is verified by signature, not by the client-declared content type.
     /// </summary>
     internal static class ProfileImages

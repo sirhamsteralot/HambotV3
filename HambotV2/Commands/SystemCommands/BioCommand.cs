@@ -5,7 +5,7 @@ using HambotV2.SlashCommands;
 namespace HambotV2.Commands.SystemCommands
 {
     /// <summary>
-    /// Manages the bot's profile "About Me" (FR-113): no args report it, `<text...>` applies it
+    /// Manages the bot's profile "About Me": no args report it, `<text...>` applies it
     /// (≤ 190 chars, line breaks preserved verbatim — the bio is per-guild state, so it applies in
     /// every member guild), `clear` removes it. Tier 4, DM-usable; runtime changes are not
     /// persisted, and an absent startup configuration never wipes a hand-set bio.
@@ -25,7 +25,7 @@ namespace HambotV2.Commands.SystemCommands
         public int DefaultPermissionTier => PermissionTier.BotOwner;
 
         /// <summary>
-        /// Slash surface (FR-110): the bio text stays free-form so <c>clear</c> and multi-line
+        /// Slash surface: the bio text stays free-form so <c>clear</c> and multi-line
         /// text parse exactly as on the text surface.
         /// </summary>
         public ApplicationCommandDeclaration? ApplicationCommand =>

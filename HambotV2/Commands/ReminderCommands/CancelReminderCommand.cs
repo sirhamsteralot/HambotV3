@@ -7,10 +7,10 @@ using Microsoft.EntityFrameworkCore;
 namespace HambotV2.Commands.ReminderCommands
 {
     /// <summary>
-    /// Cancels one of the invoking user's own pending reminders by its number (FR-69). Numbers
+    /// Cancels one of the invoking user's own pending reminders by its number. Numbers
     /// come from <c>!reminders</c>; unknown and foreign numbers get the same answer, so users
     /// learn nothing about other users' reminders. User-scoped, so it works in direct messages
-    /// too (FR-71).
+    /// too.
     /// </summary>
     internal sealed class CancelReminderCommand : ICommand
     {
@@ -26,7 +26,7 @@ namespace HambotV2.Commands.ReminderCommands
         public string Usage => "cancelreminder <number>";
         public int DefaultPermissionTier => PermissionTier.Everyone;
 
-        /// <summary>Slash surface (FR-110): the reminder number picked as an integer.</summary>
+        /// <summary>Slash surface: the reminder number picked as an integer.</summary>
         public ApplicationCommandDeclaration? ApplicationCommand => new(
         [
             new ApplicationCommandOption("number", "The number of the reminder to cancel (from the reminders list)", ApplicationCommandOptionKind.Integer),
@@ -43,7 +43,7 @@ namespace HambotV2.Commands.ReminderCommands
                 return;
             }
 
-            // Own pending reminders only (FR-69): the owner filter makes foreign numbers look
+            // Own pending reminders only: the owner filter makes foreign numbers look
             // exactly like unknown ones.
             ulong ownerId = message.Author.Id;
             var reminder = await context.DbContext.Reminders
@@ -59,7 +59,7 @@ namespace HambotV2.Commands.ReminderCommands
             await context.DbContext.SaveChangesAsync();
 
             // The cancelled reminder may have been the earliest: wake the delivery loop so it
-            // re-schedules (FR-65).
+            // re-schedules.
             _deliverySignal.NotifyPendingSetChanged();
 
             await message.Channel.SendMessageAsync($"Cancelled reminder #{number}");

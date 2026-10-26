@@ -5,7 +5,7 @@ namespace HambotV2.Commands
     /// <summary>
     /// One non-gateway invocation to run through the real command pipeline (design §3.15/§3.11):
     /// the invoking user, the channel it arrived on (a guild channel carries the guild scope,
-    /// anything else runs in the DM scope, FR-25), the timestamp (commands schedule from it),
+    /// anything else runs in the DM scope), the timestamp (commands schedule from it),
     /// and the equivalent text command line — command name plus arguments, identifier excluded.
     /// </summary>
     /// <param name="Author">The invoking user, as reported by the origin surface.</param>
@@ -15,8 +15,8 @@ namespace HambotV2.Commands
     internal sealed record VirtualCommandInvocation(IUser Author, IMessageChannel OriginChannel, string CommandLine, DateTimeOffset Timestamp);
 
     /// <summary>
-    /// The captured result of a virtual invocation: the pipeline outcome (the audit outcome,
-    /// NFR-11, and the reply ephemerality input, FR-112) and every reply the pipeline sent,
+    /// The captured result of a virtual invocation: the pipeline outcome (the audit outcome
+    /// and reply-ephemerality input) and every reply the pipeline sent,
     /// in order, without posting anything to the origin channel.
     /// </summary>
     internal sealed record VirtualCommandResult(CommandOutcome Outcome, IReadOnlyList<string> Replies);

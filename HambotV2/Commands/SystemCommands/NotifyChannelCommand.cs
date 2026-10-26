@@ -5,8 +5,8 @@ using HambotV2.Watchdog;
 namespace HambotV2.Commands.SystemCommands
 {
     /// <summary>
-    /// Manages the operator notification channel (FR-117): where errors, failures, and criticals
-    /// are posted (FR-118). No arguments report the current channel (or that none is set);
+    /// Manages the operator notification channel: where errors, failures, and criticals
+    /// are posted. No arguments report the current channel (or that none is set);
     /// a channel mention or raw channel id sets it and persists the setting across restarts in the
     /// global `BotSetting` storage; `clear` unsets it. Global bot-owner scope (tier 4 by default),
     /// usable in direct messages, with help text.
@@ -26,7 +26,7 @@ namespace HambotV2.Commands.SystemCommands
         public int DefaultPermissionTier => PermissionTier.BotOwner;
 
         /// <summary>
-        /// Slash surface (FR-110): the operation stays free-form so <c>clear</c> and a raw
+        /// Slash surface: the operation stays free-form so <c>clear</c> and a raw
         /// channel id parse exactly as on the text surface.
         /// </summary>
         public ApplicationCommandDeclaration? ApplicationCommand =>

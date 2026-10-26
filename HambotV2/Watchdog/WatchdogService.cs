@@ -4,7 +4,7 @@ using HambotV2.Maintenance;
 namespace HambotV2.Watchdog
 {
     /// <summary>
-    /// The watchdog loop (FR-106): every check interval it evaluates operator-relevant degradation —
+    /// The watchdog loop: every check interval it evaluates operator-relevant degradation —
     /// gateway down past a threshold, backup trouble read from the shared status file (failed
     /// validation, overdue backups, failed/overdue restore test), maintenance mode, and the
     /// notification channel being unreachable — and alerts the bot owner by DM, additionally
@@ -98,7 +98,7 @@ namespace HambotV2.Watchdog
                 }
                 catch (Exception ex)
                 {
-                    // A failing watchdog check must never crash the bot (FR-106).
+                    // A failing watchdog check must never crash the bot.
                     _logger.LogError(ex, "Watchdog check failed.");
                 }
 
@@ -115,7 +115,7 @@ namespace HambotV2.Watchdog
             _logger.LogInformation("Watchdog service stopped.");
         }
 
-        /// <summary>One pass over all conditions; exposed so tests drive the cadence with a fake time provider (NFR-23).</summary>
+        /// <summary>One pass over all conditions; exposed so tests drive the cadence with a fake time provider.</summary>
         public async Task CheckOnceAsync(CancellationToken cancellationToken = default)
         {
             DateTimeOffset now = _timeProvider.GetUtcNow();
@@ -160,7 +160,7 @@ namespace HambotV2.Watchdog
 
             if (!ulong.TryParse(_configuration["Permissions:BotOwnerDiscordId"], out ulong ownerId))
             {
-                // Without a configured bot owner the alerts degrade to logs only (FR-106).
+                // Without a configured bot owner the alerts degrade to logs only.
                 return;
             }
 
@@ -175,7 +175,7 @@ namespace HambotV2.Watchdog
 
             try
             {
-                // Additionally posted to the configured channel when one is set (FR-118);
+                // Additionally posted to the configured channel when one is set;
                 // the publisher's rate limit and collapse apply, and it never throws.
                 await _publisher.PublishAsync(message);
             }
@@ -189,8 +189,6 @@ namespace HambotV2.Watchdog
         {
             _conditions[key] = new ConditionState(key, alertDescription, recoveryDescription, detect);
         }
-
-        // --- Condition detection (FR-106) ---
 
         private bool IsGatewayDownPastThreshold()
         {

@@ -5,7 +5,7 @@ using Microsoft.EntityFrameworkCore;
 namespace HambotV2.Commands.QuoteCommands
 {
     /// <summary>
-    /// Case-insensitive quote search of the invoking guild (FR-46): number-prefixed results,
+    /// Case-insensitive quote search of the invoking guild: number-prefixed results,
     /// ordered by number, capped at 10.
     /// </summary>
     internal class SearchQuotesCommand : ICommand
@@ -19,7 +19,7 @@ namespace HambotV2.Commands.QuoteCommands
 
         public async Task ExecuteCommand(IMessage message, ICommandContext context)
         {
-            // Quotes are per-guild state; the DM scope (FR-25/FR-50) has no guild to search.
+            // Quotes are per-guild state; the DM scope has no guild to search.
             if (context.GuildId is not ulong guildId)
             {
                 await message.Channel.SendMessageAsync("This command manages per-server state and is only available in servers");

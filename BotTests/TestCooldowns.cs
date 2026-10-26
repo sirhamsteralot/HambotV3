@@ -12,23 +12,16 @@ using System.Threading.Tasks;
 
 namespace BotTests
 {
-    /// <summary>
-    /// Command cooldowns (NFR-12): the per-(guild, user, command) in-memory throttle,
-    /// per-tier window resolution (global map, guild override, reset fallback, 0 disables), the
-    /// tier-4 and DM scope exclusions, the pipeline throttle reply, and the !settings cooldown
-    /// subcommand with its escalation guard.
-    /// </summary>
     [TestClass]
     public sealed class TestCooldowns
     {
         private const ulong GuildId = 5;
         private const ulong UserId = 100;
 
-        /// <summary>
-        /// A real CooldownService over an isolated in-memory store and a fake clock, so window expiry
+        /// <summary>/// A real CooldownService over an isolated in-memory store and a fake clock, so window expiry
         /// is tested by advancing time instead of sleeping. Fresh contexts over the same store mimic
         /// the transient per-message contexts in production (each handler disposes its own).
-        /// </summary>
+        ///</summary>
         private sealed class CooldownHarness
         {
             private readonly string _storeName = Guid.NewGuid().ToString();
@@ -171,7 +164,6 @@ namespace BotTests
         public void BotOwnerTier_IsNeverBoundByAGuildOverride()
         {
             var harness = new CooldownHarness(new Dictionary<int, int> { { PermissionTier.BotOwner, 3 } });
-            // A guild trying to disable every configurable tier must not reach tier 4 (FR-41).
             harness.Database.GuildSettings.Add(new DatabaseContext.GuildSetting
             {
                 GuildId = GuildId,
@@ -191,7 +183,6 @@ namespace BotTests
         {
             var harness = new CooldownHarness(new Dictionary<int, int> { { PermissionTier.Owner, 5 } });
 
-            // DM scope: the user acts at owner tier (FR-25) and no guild state is read.
             Assert.IsTrue(harness.Invoke(guildId: null, userTier: PermissionTier.Owner).IsAllowed);
             Assert.IsFalse(harness.Invoke(guildId: null, userTier: PermissionTier.Owner).IsAllowed, "Repeated DM invocations must be throttled through the tier-3 window");
 

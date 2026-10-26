@@ -2,10 +2,6 @@ using HambotV2.Commands;
 
 namespace BotTests
 {
-    /// <summary>
-    /// The shared argument-parsing helper (NFR-13): tokenization of command messages
-    /// and typed accessors (string, int, Discord id/mention).
-    /// </summary>
     [TestClass]
     public sealed class TestCommandArguments
     {
@@ -98,8 +94,6 @@ namespace BotTests
             Assert.IsFalse(absent.TryGetDiscordUserId(0, out _));
         }
 
-        // --- GetRaw: the raw argument text with line breaks preserved (bio, FR-113) ---
-
         [TestMethod]
         public void GetRaw_Returns_The_Remainder_Verbatim()
         {
@@ -111,7 +105,6 @@ namespace BotTests
         [TestMethod]
         public void GetRaw_Preserves_Line_Breaks()
         {
-            // Unlike GetJoined, the raw text keeps the bio's line structure (FR-113).
             var arguments = CommandArguments.Parse("!bio first line\nsecond line");
 
             Assert.AreEqual("first line\nsecond line", arguments.GetRaw());

@@ -3,17 +3,17 @@ using System.Globalization;
 namespace HambotV2.SlashCommands
 {
     /// <summary>
-    /// Maps a slash invocation onto its equivalent text command line (FR-110/FR-111): the values
+    /// Maps a slash invocation onto its equivalent text command line: the values
     /// of typed options join in declaration order, mapped to the text-surface tokens the
     /// pipeline's argument parsers accept; the free-form fallback option becomes the whole
-    /// argument line. Pure and Discord-free, so the mapping is unit-testable (NFR-26).
+    /// argument line. Pure and Discord-free, so the mapping is unit-testable.
     /// </summary>
     internal static class SlashCommandLineBuilder
     {
         /// <summary>
         /// Builds <c>name arg1 arg2 ...</c> from the invocation's option values (keyed by option
         /// name, as the interaction surface reports them). Returns false when a value cannot be
-        /// mapped — the caller answers with the generic error, nothing executes (FR-15).
+        /// mapped — the caller answers with the generic error, nothing executes.
         /// </summary>
         public static bool TryBuild(string commandName, ApplicationCommandDeclaration declaration, IReadOnlyDictionary<string, object?> optionValues, out string commandLine)
         {

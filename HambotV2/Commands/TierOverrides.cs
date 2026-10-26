@@ -2,7 +2,7 @@ namespace HambotV2.Commands
 {
     /// <summary>
     /// Tier overrides: Discord ids whose permission tier is implicit instead of stored in the
-    /// database (FR-34/FR-41). The guild owner acts at owner tier in their guild;
+    /// database. The guild owner acts at owner tier in their guild;
     /// the configured bot owner acts at bot owner tier in every guild. Bundled into one value so
     /// permission checks don't grow an id parameter per override source.
     /// </summary>

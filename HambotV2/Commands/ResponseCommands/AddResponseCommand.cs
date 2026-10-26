@@ -5,14 +5,14 @@ namespace HambotV2.Commands.ResponseCommands
 {
     /// <summary>
     /// Creates a custom response of the invoking guild, or updates an existing one's content
-    /// (FR-56); moderator by default, declining in direct messages (FR-59). Names follow FR-52
-    /// and may not collide with a registered built-in (FR-53). Content is text only (FR-60):
+    ///; moderator by default, declining in direct messages. Names follow 
+    /// and may not collide with a registered built-in. Content is text only:
     /// invocations carrying file or image attachments are rejected and nothing is stored — links
     /// in the content are ordinary text and are stored verbatim.
     /// </summary>
     internal class AddResponseCommand : ICommand
     {
-        /// <summary>Maximum response content length (FR-56).</summary>
+        /// <summary>Maximum response content length.</summary>
         internal const int MaxContentLength = 1000;
 
         private readonly ICommandService _commandService;
@@ -29,14 +29,14 @@ namespace HambotV2.Commands.ResponseCommands
 
         public async Task ExecuteCommand(IMessage message, ICommandContext context)
         {
-            // Responses are per-guild state; the DM scope (FR-25/FR-59) has no guild to define them in.
+            // Responses are per-guild state; the DM scope has no guild to define them in.
             if (context.GuildId is not ulong guildId)
             {
                 await message.Channel.SendMessageAsync("This command manages per-server state and is only available in servers");
                 return;
             }
 
-            // Text-only content (FR-60): the whole invocation is rejected before anything is validated
+            // Text-only content: the whole invocation is rejected before anything is validated
             // or stored, so an attachment can never sneak a file into a response.
             if (message.Attachments.Count > 0)
             {
@@ -58,7 +58,7 @@ namespace HambotV2.Commands.ResponseCommands
                 return;
             }
 
-            // Built-in commands always win dispatch (FR-53), so their names are reserved up front —
+            // Built-in commands always win dispatch, so their names are reserved up front —
             // including built-ins added later, since dispatch consults the registry first regardless.
             if (_commandService.Commands.ContainsKey(name))
             {
@@ -96,7 +96,7 @@ namespace HambotV2.Commands.ResponseCommands
                 return;
             }
 
-            // Create-or-update (FR-56): an existing name updates the content and the
+            // Create-or-update: an existing name updates the content and the
             // modification fields; created/updated timestamps keep the original creation time.
             response.Content = content;
             response.LastModifiedByDiscordId = message.Author.Id;

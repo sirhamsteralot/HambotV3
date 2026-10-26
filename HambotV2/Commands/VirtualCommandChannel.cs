@@ -8,7 +8,7 @@ namespace HambotV2.Commands
     /// wraps the origin channel the interaction arrived on (so the pipeline's guild scope and
     /// audit data stay real) and records every reply instead of posting it — the interaction
     /// handler re-posts the captured replies as the interaction's response, publicly for normal
-    /// command output, ephemerally for denials (FR-112).
+    /// command output, ephemerally for denials.
     /// </summary>
     internal class VirtualCommandChannel : IMessageChannel
     {
@@ -81,7 +81,7 @@ namespace HambotV2.Commands
         public IAsyncEnumerable<IReadOnlyCollection<IUser>> GetUsersAsync(CacheMode mode = CacheMode.AllowDownload, RequestOptions? options = null)
             => throw Unsupported(nameof(GetUsersAsync));
 
-        private static NotSupportedException Unsupported(string operation)
+        private protected static NotSupportedException Unsupported(string operation)
         {
             return new NotSupportedException($"'{operation}' is not part of the virtual command invocation seam (the reply is captured, not posted).");
         }
@@ -91,7 +91,7 @@ namespace HambotV2.Commands
     /// The guild variant of <see cref="VirtualCommandChannel"/>: the origin channel's guild data
     /// (id and owning guild) flows through, so the pipeline resolves the guild scope, the
     /// guild-owner tier override, and the guild's command identifier exactly as for a real
-    /// guild message (FR-25).
+    /// guild message.
     /// </summary>
     internal sealed class VirtualGuildCommandChannel : VirtualCommandChannel, IGuildChannel
     {
@@ -122,10 +122,5 @@ namespace HambotV2.Commands
         public new Task<IGuildUser> GetUserAsync(ulong id, CacheMode mode = CacheMode.AllowDownload, RequestOptions? options = null) => throw Unsupported(nameof(GetUserAsync));
         public new IAsyncEnumerable<IReadOnlyCollection<IGuildUser>> GetUsersAsync(CacheMode mode = CacheMode.AllowDownload, RequestOptions? options = null) => throw Unsupported(nameof(GetUsersAsync));
         public Task DeleteAsync(RequestOptions? options = null) => throw Unsupported(nameof(DeleteAsync));
-
-        private static NotSupportedException Unsupported(string operation)
-        {
-            return new NotSupportedException($"'{operation}' is not part of the virtual command invocation seam (the reply is captured, not posted).");
-        }
     }
 }

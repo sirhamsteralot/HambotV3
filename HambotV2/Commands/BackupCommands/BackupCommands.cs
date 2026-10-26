@@ -5,7 +5,7 @@ using HambotV2.SlashCommands;
 namespace HambotV2.Commands.BackupCommands
 {
     /// <summary>
-    /// Triggers an on-demand database backup (FR-96): the same dump format and shared directory as
+    /// Triggers an on-demand database backup: the same dump format and shared directory as
     /// the scheduled backups, with the reply carrying the dump's name and size. Bot-owner tier by
     /// default, usable in direct messages (a global operation touching no guild state), with help
     /// text like every command. A failure produces an in-channel error and leaves the scheduled
@@ -25,7 +25,7 @@ namespace HambotV2.Commands.BackupCommands
         public string Usage => "backup";
         public int DefaultPermissionTier => PermissionTier.BotOwner;
 
-        /// <summary>Slash surface (FR-110): administrative, no arguments.</summary>
+        /// <summary>Slash surface: administrative, no arguments.</summary>
         public ApplicationCommandDeclaration? ApplicationCommand => ApplicationCommandDeclaration.NoArguments;
 
         public async Task ExecuteCommand(IMessage message, ICommandContext context)
@@ -51,12 +51,12 @@ namespace HambotV2.Commands.BackupCommands
 
     /// <summary>
     /// Lists the available backups — the dump files in the shared backup directory — newest first,
-    /// capped at 10 entries (FR-97); an empty directory gets a friendly message instead of an error.
+    /// capped at 10 entries; an empty directory gets a friendly message instead of an error.
     /// Bot-owner tier by default, usable in direct messages.
     /// </summary>
     internal sealed class BackupsCommand : ICommand
     {
-        /// <summary>Maximum entries in the list reply (FR-97).</summary>
+        /// <summary>Maximum entries in the list reply.</summary>
         internal const int MaxListedEntries = 10;
 
         private readonly IBackupManager? _backupManager;
@@ -71,7 +71,7 @@ namespace HambotV2.Commands.BackupCommands
         public string Usage => "backups";
         public int DefaultPermissionTier => PermissionTier.BotOwner;
 
-        /// <summary>Slash surface (FR-110): administrative, no arguments.</summary>
+        /// <summary>Slash surface: administrative, no arguments.</summary>
         public ApplicationCommandDeclaration? ApplicationCommand => ApplicationCommandDeclaration.NoArguments;
 
         public async Task ExecuteCommand(IMessage message, ICommandContext context)
