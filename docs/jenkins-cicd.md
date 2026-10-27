@@ -1,269 +1,119 @@
 # Jenkins CI/CD Setup
 
-How to wire this repository up to [Jenkins](https://www.jenkins.io/) so that every push is built and tested, and — on a version tag (`v<major.minor.patch>`) — automatically deployed to the production server.
-
-The pipeline lives in the repository root [`Jenkinsfile`](../Jenkinsfile) and is meant to be used as **"Pipeline script from SCM"**, so the pipeline definition stays versioned alongside the code it builds.
+How to wire this repository to Jenkins so every push is built and tested, and version tags (`v<major.minor.patch>`) auto-deploy to production. The pipeline lives in the root [`Jenkinsfile`](../Jenkinsfile), used as **"Pipeline script from SCM"**.
 
 ## What the pipeline does
 
 | Stage | Runs on | What happens |
 |---|---|---|
-| **Build** | every build | `dotnet build HambotV2.sln --configuration Release /warnaserror:nullable` — the build is warning-free; this fails the job if a commit introduces a nullable warning. |
-| **Test** | every build | `dotnet test HambotV2.sln --no-build` with results written as TRX files to `TestResults/`. Tests need no database, Discord token, or Docker. |
-| **Deploy** | version tags only | Jenkins SSHes into the production host, checks out the exact commit CI just built and tested in the deploy clone, and runs [`scripts/deploy.sh`](../scripts/deploy.sh). Ordinary branch pushes (including `master`), feature branches, and PR builds stop after Test. |
+| **Build** | every build | `dotnet build HambotV2.sln --configuration Release /warnaserror:nullable` |
+| **Test** | every build | `dotnet test HambotV2.sln --no-build` (TRX to `TestResults/`); no database, token, or Docker needed |
+| **Deploy** | version tags only | SSH to the production host, check out the exact built commit in the deploy clone, run [`scripts/deploy.sh`](../scripts/deploy.sh) |
 
-Safety properties:
+Safety properties: a failed build/test never deploys; `deploy.sh` builds the new image *before* replacing containers, verifies the startup lines (`Database migrations applied successfully`, `Discord gateway connection established.`, `Bot version: <version>` matching tag + commit), and rolls back to the previous image if they don't appear; secrets never pass through Jenkins (the server's gitignored `.env` is read by Compose there).
 
-- A stage only runs if the previous ones succeeded — **a failed build or test run never deploys anything**.
-- The deploy script builds the new Docker image *before* replacing any container, so a failed image build leaves the running stack untouched.
-- After starting the new container, the script waits for the database healthcheck and the bot's known startup lines (`Database migrations applied successfully`, `Discord gateway connection established.`, and `Bot version: <version>` matching the deployed tag + commit); if they don't appear in time, it rolls back to the previously running image and the Jenkins job fails.
-- Secrets never pass through Jenkins: the production `.env` (gitignored) lives on the server next to `docker-compose.yml` and is read by Compose there.
+A second scheduled pipeline, [`Jenkinsfile.security`](../Jenkinsfile.security), runs the weekly dependency security scan — see §10.
 
-Besides this build/test/deploy pipeline, a second **scheduled** pipeline — [`Jenkinsfile.security`](../Jenkinsfile.security) — runs a weekly dependency security scan (SBOM + CVE report, never deploys). See [§10](#10-the-weekly-dependency-security-scan-job).
+## Setup steps (in order)
 
-## Setup in the order you'll do it
-
-The steps below are chronological — each one depends on the previous:
-
-1. **Prepare the production server** — deploy user, clone of the repo, `.env` ([§1](#1-prepare-the-production-server)).
-2. **Create and authorize the deploy SSH key** — on that same server, then paste the private key into Jenkins ([§2](#2-create-and-authorize-the-deploy-ssh-key)).
-3. **Install the .NET 10 SDK** on the Jenkins agent ([§3](#3-install-the-net-10-sdk-on-the-agent)).
-4. **Install the Jenkins plugins** ([§4](#4-install-the-required-jenkins-plugins)).
-5. **Add the Jenkins credentials** — the deploy SSH key, plus git credentials for the repository ([§5](#5-add-the-jenkins-credentials)).
-6. **Point the pipeline at your server** — the `environment` block in the Jenkinsfile ([§6](#6-point-the-pipeline-at-your-server)).
-7. **Create the Jenkins job** ([§7](#7-create-the-jenkins-job)).
-8. **Run it and verify** ([§8](#8-run-it-and-verify)).
-9. **Stopping the stack** — when you need the bot down ([§9](#9-stopping-the-stack)).
-
-## Prerequisites
-
-- A Jenkins controller/agent running **Linux** (the pipeline uses `sh`).
-- A production host with **Docker + the Compose plugin** and **git**, reachable from the Jenkins agent over SSH.
-- The **.NET 10 SDK** (`10.0.x`) for the Jenkins agent.
-- Git credentials for this repository in Jenkins (or a public repo).
-- For the weekly scan job (§10) only: **Docker** on the Jenkins agent itself and outbound network access to NuGet, GitHub releases, and the Trivy vulnerability DB registry (pinned jq ships inside the workspace, so the agent needs nothing else).
-
-## 1. Prepare the production server
-
-On the production host, once — this mirrors the "One-time server preparation" block in [`software-design.md`](software-design.md) §5.1:
+### 1. Prepare the production server
 
 ```bash
-# deploy user with Docker access (docker group membership is effectively root-equivalent
-# on the host — acceptable for this single-server deployment; harden with rootless
-# Docker if that ever changes)
+# docker group membership is effectively root-equivalent — accepted for this single-server deploy
 sudo useradd -m hambot-deploy && sudo usermod -aG docker hambot-deploy
 sudo mkdir -p /opt/hambotv2 && sudo chown hambot-deploy /opt/hambotv2
-sudo -u hambot-deploy git clone https://github.com/sirhamsteralot/HambotV3.git /opt/hambotv2   # deploy key if the repo is private
+sudo -u hambot-deploy git clone <origin-url> /opt/hambotv2   # deploy key if the repo is private
 cd /opt/hambotv2 && sudo -u hambot-deploy cp .env.example .env  # fill in; the pipeline never touches this file
 ```
 
-Notes:
+Note: `useradd -m` creates a mode-`750` home — correct for sshd's `StrictModes`, but your admin account can't read the deploy user's files; inspect them with `sudo`.
 
-- **Docker group membership is effectively root-equivalent on the host.** That is accepted for this single-server deployment; harden with rootless Docker if that ever changes.
-- If the repository is **private**, give the deploy user's clone a deploy key (read access is enough — the pipeline only fetches).
-- Fill in the server's `.env` (`DISCORD_BOT_TOKEN`, `POSTGRES_PASSWORD`, `BOT_OWNER_DISCORD_ID`) there and then; the pipeline never reads, transfers, or modifies this file.
-
-> **Pitfall:** `useradd -m` creates the home directory with mode `750` owned by `hambot-deploy`. That is correct (and required — sshd's `StrictModes` rejects group-writable homes), but it also means **your admin account cannot read the deploy user's files**. Any later inspection of `~hambot-deploy/.ssh/...` needs `sudo`; a plain `stat`/`cat` fails with `Permission denied`, which looks like a problem but isn't.
-
-## 2. Create and authorize the deploy SSH key
-
-Still on the production host: generate the key pair for the deploy user (no passphrase — the pipeline must use it non-interactively), install the public key, and verify each step left what it should have.
+### 2. Create and authorize the deploy SSH key (on the server)
 
 ```bash
-# 1. Generate the key pair as the deploy user. mkdir comes FIRST:
-#    ssh-keygen does not create ~/.ssh itself and fails if it doesn't exist.
 sudo -u hambot-deploy mkdir -p ~hambot-deploy/.ssh && sudo chmod 700 ~hambot-deploy/.ssh
 sudo -u hambot-deploy ssh-keygen -t ed25519 -f ~hambot-deploy/.ssh/id_ed25519 -N "" -C "jenkins-deploy"
-
-# 2. Authorize it for the deploy user (id_ed25519 -> authorized_keys)
 sudo -u hambot-deploy sh -c 'cat ~/.ssh/id_ed25519.pub >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys'
-
-# 3. Verify BOTH halves exist and match — do not skip this:
-sudo ls -la /home/hambot-deploy/.ssh/                       # id_ed25519, id_ed25519.pub, authorized_keys
+# Verify BOTH halves exist (the most common deploy failure is a skipped authorized_keys step):
+sudo ls -la /home/hambot-deploy/.ssh/                        # id_ed25519, id_ed25519.pub, authorized_keys
 sudo ssh-keygen -lf /home/hambot-deploy/.ssh/authorized_keys  # the fingerprint sshd will accept
-
-# 4. Print the private key and copy it for the Jenkins credential in step 5
-sudo -u hambot-deploy cat ~hambot-deploy/.ssh/id_ed25519
+sudo -u hambot-deploy cat ~hambot-deploy/.ssh/id_ed25519     # copy the private key for step 5
 ```
 
-> **Pitfall — the single most common deploy failure:** step 2 is a separate command, and skipping or half-running it produces exactly the Jenkins error `Permission denied (publickey,password)` in the Deploy stage. The keypair existing is *not* enough — sshd only sees `authorized_keys`. If `sudo ls -la` shows `id_ed25519` but no `authorized_keys` (or `ssh-keygen -lf` says `No such file or directory`), re-run step 2 and re-verify.
+If `authorized_keys` is missing, sshd falls through to password auth and Jenkins fails with `Permission denied (publickey,password)`. Wrong ownership/modes make sshd ignore the key *silently* (`.ssh` 700, `authorized_keys` 600, both owned by the deploy user).
 
-> **Pitfall — permissions are enforced silently:** if `~/.ssh` is not `700`, `authorized_keys` is not `600`, or either is owned by another user, sshd's `StrictModes` ignores the key **without any visible error** — the connection just falls through to password auth. The commands above set the right modes; only change them knowingly.
+### 3. Install the .NET 10 SDK on the agent
 
-Keep the fingerprint from step 3 — in [§5](#5-add-the-jenkins-credentials) you'll confirm the Jenkins credential holds the matching private key.
+The Jenkinsfile expects `DOTNET_ROOT = '/opt/dotnet10'` (and that on `PATH`) — install there, symlink, or edit the `environment` block. Verify: `/opt/dotnet10/dotnet --version` → `10.0.x`.
 
-## 3. Install the .NET 10 SDK on the agent
+### 4. Install Jenkins plugins
 
-The Jenkinsfile sets:
+**Pipeline** and **Git** (usually preinstalled), **SSH Agent** (the Deploy stage's `sshagent` step), optionally a test-results plugin for the TRX files.
+
+### 5. Add the Jenkins credentials
+
+- **Deploy SSH key**: "SSH Username with private key", paste the private key from §2, username `hambot-deploy`, ID matching `DEPLOY_SSH_CREDENTIAL`.
+- **Git** (private repos only): the PAT/deploy token for checkout.
+
+Verify the halves match: compare the authorized fingerprint (§2) with the key the agent offers (`ssh -v hambot-deploy@<host> 2>&1 | grep 'offering public key'`). The Deploy stage uses `StrictHostKeyChecking=accept-new` — first connect accepts, later host-key changes fail visibly.
+
+### 6. Point the pipeline at your server
+
+Edit the `Jenkinsfile` `environment` block:
 
 ```groovy
-environment {
-    DOTNET_ROOT = '/opt/dotnet10'
-    PATH = "/opt/dotnet10:${env.PATH}"
-    ...
-}
+DEPLOY_HOST = '172.17.0.1'                        // reachable from the Jenkins agent; 172.17.0.1 is the Docker
+                                                 // bridge gateway when Jenkins is containerized on the host
+DEPLOY_USER = 'hambot-deploy'
+DEPLOY_DIR = '/opt/hambotv2'
+DEPLOY_SSH_CREDENTIAL = 'hambot-deploy-ssh-key'
 ```
 
-Install the SDK and put it (or a symlink) at `/opt/dotnet10`, **or** edit those two lines to point at wherever `dotnet` lives on your agent (e.g. `/usr/lib/dotnet`, `/usr/share/dotnet`). Verify with:
+### 7. Create the Jenkins job
+
+1. New Item → **Multibranch Pipeline** (or a plain Pipeline job for `master` + tags only).
+2. Point it at this repository; **Script Path**: `Jenkinsfile`.
+3. **Enable builds of tag refs** — deploys are gated on tags: Multibranch → Branch Source → *Add property* → **Tag discovery** → All; plain Pipeline → refspec `+refs/tags/*:refs/remotes/origin/tags/*` + specifier `origin/tags/*` alongside `*/master`.
+
+### 8. Run it and verify
+
+Push a branch or `master` → build + test, no deploy. Push a tag (`git tag v1.0.0 && git push origin v1.0.0`) → build, test, deploy. Verify on the server: `cat /opt/hambotv2/.deploy-info`, `docker compose logs -f bot`.
+
+### 9. Stopping the stack
+
+An explicit stop sticks across reboots (`restart: unless-stopped`). Run in `/opt/hambotv2` as a Docker-access user:
 
 ```bash
-/opt/dotnet10/dotnet --version   # should print 10.0.x
+docker compose stop bot    # bot only; or `stop` for everything; `start`/`up -d` brings it back
+docker compose down       # also removes containers; db-data volume KEPT
+docker compose down -v    # ALSO DELETES the database data — destructive
 ```
 
-## 4. Install the required Jenkins plugins
-
-Manage Jenkins → Plugins → Available:
-
-- **Pipeline** (usually preinstalled) — declarative pipeline support.
-- **Git** (usually preinstalled) — checkout and "Pipeline script from SCM".
-- **SSH Agent** — provides the `sshagent` step used by the Deploy stage. Without it the Deploy stage fails with `sshagent` step not found.
-- Optional: **Publish Test results** / an xUnit plugin to render the TRX files nicely (the pipeline archives `TestResults/**/*.trx` either way, so results are inspectable even without one).
-
-## 5. Add the Jenkins credentials
-
-Two credentials in Jenkins: the deploy SSH key from [§2](#2-create-and-authorize-the-deploy-ssh-key), and (for a private repo) the git token.
-
-**Deploy SSH key** — Manage Jenkins → Credentials → add **SSH Username with private key**:
-
-1. Paste the *private* key printed by step 4 of §2 (`id_ed25519`, starting with `-----BEGIN OPENSSH PRIVATE KEY-----`).
-2. Set the username to `hambot-deploy` (i.e. `DEPLOY_USER`).
-3. Give the credential the ID used in `DEPLOY_SSH_CREDENTIAL` (`hambot-deploy-ssh-key` by default — pick your own ID and update the Jenkinsfile if you prefer).
-
-**Git** — for a private repository, add the PAT/deploy token the job uses for checkout.
-
-Verify the two sides match before the first deploy — the authorized fingerprint from §2 step 3 must be the public half of the key now stored in Jenkins. If in doubt, check what the agent actually offers:
-
-```bash
-# from the Jenkins container: the key the agent offers (rejects the password
-# prompt, but prints the fingerprint of the offered key before failing)
-ssh -v hambot-deploy@172.17.0.1 2>&1 | grep 'offering public key'
-```
-
-If the fingerprints differ, the private key pasted into the Jenkins credential is not the counterpart of the `authorized_keys` entry — fix the credential or the entry until they match.
-
-The Deploy stage uses `StrictHostKeyChecking=accept-new`, so the first connection accepts the server's host key automatically; later changes to the host key fail the build (visible rather than silent).
-
-## 6. Point the pipeline at your server
-
-The Deploy stage's target is defined once per Jenkins install in the `Jenkinsfile` `environment` block — edit it to match the values from §1 and §2:
-
-```groovy
-DEPLOY_HOST = '172.17.0.1'                        // host reachable *from* the Jenkins agent
-DEPLOY_USER = 'hambot-deploy'                     // deploy user created in §1
-DEPLOY_DIR = '/opt/hambotv2'                      // server-side clone from §1
-DEPLOY_SSH_CREDENTIAL = 'hambot-deploy-ssh-key'   // Jenkins credential ID from §5
-```
-
-Notes on `DEPLOY_HOST`:
-
-- `172.17.0.1` is the default Docker bridge gateway — it works when Jenkins runs *in a container* and the production stack runs *on the same host*.
-- Alternatively use `host.docker.internal` (requires the container to be started with `--add-host=host.docker.internal:host-gateway`, or the corresponding `extra_hosts` compose entry).
-- If Jenkins and production are separate machines, use the production host's address/hostname.
-
-## 7. Create the Jenkins job
-
-1. New Item → **Multibranch Pipeline** (recommended: it discovers branches and PRs automatically and matches the pipeline's tag condition), or a plain **Pipeline** job if you only build `master` and tags.
-2. Point it at this repository (Git). For a Multibranch Pipeline this goes in *Branch Sources*.
-3. Set **Script Path** to `Jenkinsfile` (the default) — the file is at the repository root.
-4. **Enable builds of tag refs** — deploys are gated on version tags (`v<major.minor.patch>`), so the job must build tags or a pushed tag deploys nothing:
-   - *Multibranch Pipeline*: in the Git *Branch Source*, *Add property* → **Tag discovery** → *All*.
-   - *Plain Pipeline job*: add a refspec `+refs/tags/*:refs/remotes/origin/tags/*` and a branch specifier `origin/tags/*` (or `refs/tags/*`) alongside `*/master`.
-5. If Jenkins itself runs in a Docker container and the repository/agent layout needs it, give the container access to the host Docker socket or run the build on an agent with the SDK installed.
-
-## 8. Run it and verify
-
-Push a branch → Jenkins builds and tests it, no deploy. Push (or merge) to `master` → build and test, still no deploy. Push a version tag (e.g. `git tag v1.0.0 && git push origin v1.0.0`) → build, test, then deploy to production.
-
-Verify a deploy from the server:
-
-```bash
-cat /opt/hambotv2/.deploy-info   # written by scripts/deploy.sh on success
-docker compose logs -f bot       # should show the startup lines, then connect to Discord
-```
-
-The pipeline only ever checks out a commit in the server-side clone and runs the repo's own deploy script — it transfers no files and no secrets.
-
-## 9. Stopping the stack
-
-Both services run with `restart: unless-stopped`: crashes and reboots bring them back automatically, but an **explicit stop sticks** — a stopped container stays down across reboots until you start it again. All commands run in the deploy directory (`/opt/hambotv2`) as a user with Docker access (e.g. `sudo -u hambot-deploy`).
-
-```bash
-# stop only the bot (database keeps running; bot stays down across reboots)
-docker compose stop bot
-
-# stop everything (bot + database)
-docker compose stop
-
-# bring it back
-docker compose start          # or: docker compose up -d
-```
-
-If you also want the containers *removed* (not just stopped):
-
-```bash
-docker compose down           # stops and removes containers; db-data volume is KEPT
-docker compose down -v        # ALSO DELETES the database data — destructive
-```
-
-Caveats:
-
-- **The next Jenkins deploy starts whatever you stopped.** The Deploy stage runs `docker compose up -d`, which recreates and starts stopped services. If the bot must stay down (e.g. maintenance), disable the Jenkins job for that period, not just the container.
-- `docker compose down` without `-v` keeps the `db-data` volume, so quotes, permissions, and reminders survive; with `-v` they are gone permanently.
-- Stopping the **database** alone is possible (`docker compose stop db`), but pointless for maintenance — the bot's `depends_on: service_healthy` will keep it from starting (or restart-loop on an unhealthy db) until Postgres is back.
+The next Jenkins deploy starts whatever you stopped (`docker compose up -d`) — disable the Jenkins job if the bot must stay down. Stopping only the db is pointless: the bot waits on the db healthcheck.
 
 ## 10. The weekly dependency security scan job
 
-A second, **scheduled** pipeline runs the weekly dependency security scan: it inventories what is actually deployed (per-project NuGet SBOMs plus the Docker image) and checks it against known CVEs. It **never deploys and never touches the running stack** — it has no Deploy stage, and the job deliberately holds no deploy or bot credentials (FR-121). Requirements: FR-121–FR-126 / NFR-27–NFR-28 in [`software-requirements.md`](software-requirements.md); design: §5.3 in [`software-design.md`](software-design.md).
+A scheduled Pipeline job (cron `0 4 * * 0` in the pipeline itself; controller timezone — FR-121 specifies 04:00 UTC). It inventories the deployed tree (per-project NuGet SBOMs + the Docker image) and checks it for CVEs. It **never deploys** and holds no deploy or bot credentials.
 
-### What the scan pipeline does
+Stages: **Build** (same policy as the main pipeline, no tests) → **SBOM** (pinned `dotnet CycloneDX` + jq installed into the workspace) → **Image** (`docker build` + `docker save`, never pushed or started) → **Scan** (Trivy over SBOMs and the saved tarball; findings never fail a stage, tool/DB failures do) → **Report** (severity summary; HIGH/CRITICAL in the deployed tree → build **UNSTABLE**, never FAILED; `BotTests` findings informational).
 
-| Stage | What happens |
-|---|---|
-| **Build** | Same command and warning policy as the main pipeline's Build stage — the scan sees the tree exactly as CI builds it. No tests. |
-| **SBOM** | Installs the pinned `dotnet CycloneDX` tool, Trivy, and the static jq binary **into the workspace** (no global agent state, cleaned with the workspace) and generates one CycloneDX JSON SBOM per project: `sbom.hambotv2.cdx.json` (the deployed image's NuGet package set) and `sbom.bottests.cdx.json` (informational). |
-| **Image** | `docker build` + `docker save` the deployment image under a scan-only tag — the only way to cover what the NuGet graph cannot see: the ASP.NET Core runtime base layers and the apt-installed `postgresql-client-17`. The image is never pushed, never started, and removed in `post`. |
-| **Scan** | Trivy scans both SBOMs and the saved image (`--input`, no Docker socket access needed), emitting one JSON CVE report per input plus the image's own CycloneDX SBOM (`sbom.image.cdx.json`). All scans run with `--exit-code 0`, so findings never fail a stage — but a tool or vulnerability-DB failure does fail the build, so a broken scan is red, not silent. |
-| **Report** | Prints a per-report severity summary and the list of high/critical findings to the build output, and applies the result policy (below). |
+Creating the job: New Item → **Pipeline** (plain, not multibranch) → "Pipeline script from SCM" → Script Path `Jenkinsfile.security` → no credentials attached → Discard old builds with artifacts kept ≥ ~26 builds. **Run it once manually** — that is what registers the cron trigger and serves as the feature's acceptance verification (NFR-28).
 
-Artifacts archived per build under `security/`: the three SBOMs, the three CVE reports, and the deployed-tree high/critical count.
-
-### Result policy
-
-- **Low/medium findings**: informational only — the build stays green.
-- **HIGH or CRITICAL in the deployed tree** (the `HambotV2` SBOM or the image scan): the build is marked **UNSTABLE — never FAILED** — so the yellow badge is visible in the Jenkins UI without blocking history or re-runs.
-- **`BotTests` findings**: archived and reported, but never affect the build result (test-only packages never reach the deployed image).
-- There is no Discord/notification-channel route: the pipeline deliberately holds no bot credentials, so findings surface through the Jenkins build status, the build-output summary, and Jenkins email if the controller is configured for it.
-
-### Creating the job
-
-1. New Item → **Pipeline** (a plain pipeline job, *not* multibranch — the scan always checks out `master` on a schedule and builds no tags).
-2. **Pipeline** → *Definition*: "Pipeline script from SCM" → point it at this repository (same git credentials as the main job) → **Script Path**: `Jenkinsfile.security`.
-3. **Build Triggers**: nothing — the cron trigger lives in the pipeline itself (`0 4 * * 0`, Sundays 04:00). Jenkins evaluates cron in the **controller's timezone**: FR-121 specifies 04:00 UTC, so run the controller on UTC or adjust the expression. The trigger only registers after the pipeline has run once — kick a first build manually after creating the job.
-4. **Do not attach any credentials to this job.** No deploy SSH key, no bot token — the scan is isolated by construction (FR-121).
-5. **Discard old builds**: enable it and keep the **artifacts** for at least ~26 builds (six months of weekly history — enough to see when a vulnerability entered or left the tree, FR-125); build logs can rotate earlier.
-
-Run the job once manually and verify: the five stages run, the `security/` artifacts appear under the build, the build-output summary lists severities, and (unless the tree is already clean) the result matches the policy. Confirm the cron trigger now shows on the job's configuration page — it registers when the pipeline runs for the first time, so that manual kick is what arms the weekly schedule. That live run is the feature's acceptance verification (NFR-28).
-
-### Keeping the scan current
-
-The tool versions are pinned in `Jenkinsfile.security`'s `environment` block so results stay comparable week over week: bump `CYCLONEDX_VERSION` / `TRIVY_VERSION` / `JQ_VERSION` deliberately (a new Trivy version also refreshes its vulnerability DB on first run, cached in the agent user's home). The vulnerability DB downloads automatically on the first scan after each DB update — no registration or interaction.
+Tool versions are pinned in `Jenkinsfile.security`; bump them deliberately. The Image stage needs Docker *on the Jenkins agent* — with a containerized Jenkins, mount the host socket and a Docker CLI as volumes in the Jenkins compose file.
 
 ## Troubleshooting
 
-| Symptom | Likely cause / fix |
+| Symptom | Fix |
 |---|---|
-| `dotnet: not found` in the Build stage | SDK not on the agent's path as configured in `environment` — check `DOTNET_ROOT`/`PATH` in the Jenkinsfile match your install location (§3). |
-| Build fails with warning CS86xx | The pipeline treats nullable warnings as errors (`/warnaserror:nullable`); fix the warning in code, don't remove the flag. |
-| Deploy stage skipped on a tagged commit | The `when` gate only fires for tag builds (`TAG_NAME` matches `v<major.minor.patch>` in multibranch jobs) or, in plain jobs, when the built commit carries a matching tag — check tag discovery/refspec is configured (§7 step 4) and that the tag matches `v<major.minor.patch>` exactly. |
-| `sshagent` step not found | The **SSH Agent** plugin is not installed (§4), or the credential ID doesn't match `DEPLOY_SSH_CREDENTIAL`. |
-| SSH connection refused / timeout | `DEPLOY_HOST` not reachable from the Jenkins agent — see the host notes in §6. |
-| `Permission denied (publickey,password)` in the Deploy stage | The server rejected the agent's key. In order of likelihood: `authorized_keys` was never created or doesn't contain the key (§2 step 2 — check `sudo ssh-keygen -lf /home/hambot-deploy/.ssh/authorized_keys`); the private key in the Jenkins credential doesn't match (compare fingerprints, §2/§5); bad ownership/modes make sshd ignore the key under `StrictModes` (`.ssh` 700, `authorized_keys` 600, all owned by the deploy user — the auth log says "bad ownership or modes"); or sshd config (`PubkeyAuthentication no`, an `AllowUsers` list). Check `sudo journalctl -u ssh -n 50` on the server for the exact reason — the Jenkins attempt is the line with `rhost=172.17.0.x`. |
-| `Permission denied` inspecting `~hambot-deploy/.ssh/` as your admin user | Expected — the deploy home is `750` (§1 pitfall). Use `sudo` for all inspection of the deploy user's files. |
-| Deploy fails and Jenkins reports `Deploy verification FAILED` | The bot didn't reach its startup lines in time; the job log includes the last 100 bot log lines, and the previous image was rolled back. Check the bot logs on the server (e.g. a bad token in the server's `.env`). |
-| Scan job: `docker: not found` / `Cannot connect to the Docker daemon` in the Image stage | The scan job needs Docker *on the Jenkins agent* (unlike the main pipeline, which only SSHes to the server). With Jenkins in a container, give it both halves as **volume mounts in the Jenkins compose file** — they survive container recreates, unlike `docker exec` installs (on this deployment that file lives in `/opt/jenkins`, root-owned, so edit and run compose with `sudo`): the host socket (`- /var/run/docker.sock:/var/run/docker.sock`) and a Docker CLI (`- /usr/bin/docker:/usr/bin/docker:ro` — host and container are both Debian, so the host binary runs fine) — then recreate the service: `sudo docker compose -f /opt/jenkins/docker-compose.yml up -d jenkins`. The socket makes that CLI talk to the *host* daemon; that access is effectively root-equivalent, the same accepted trade-off as §1. Verify with `docker version` inside the container — name the container explicitly (`docker ps --format 'table {{.Names}}\t{{.Image}}'`); a `--filter name=jenkins` matches every container with that substring and a `$(docker ps -q ...)` one-liner can then exec into the wrong one. Alternatively install the CLI inside the container with apt (Docker's Debian repo, `docker-cli`), but re-do that after every container recreate. |
-| Scan job: `jq: not found` in the Report stage | The pipeline ships its own jq (the pinned static binary downloaded into the workspace's `.tools` in the SBOM stage, first on `PATH`), so this error means that download failed — check the agent's outbound access to `github.com` releases in the SBOM stage log (the curl there fails first), and note the job never falls back to a container-installed jq. |
-| Scan job fails downloading the Trivy vulnerability DB | The agent needs outbound access to the DB registry (Trivy pulls `aquasec/trivy-db` from `ghcr.io`, falling back to its `mirror.gcr.io` mirror). The DB is cached in the agent user's home (`~/.cache/trivy`); a stale cache after an interrupted download is the usual fix — delete the directory and re-run. |
-| Scan job: `dotnet-CycloneDX` fails to find a .NET runtime | The pipeline sets `DOTNET_ROLL_FORWARD=Major` so the pinned SBOM tool (built for an older runtime) runs on the agent's .NET 10 — check `DOTNET_ROOT`/`PATH` still point at the SDK install (§3). |
-| Scan job never runs on schedule | The cron trigger registers only after the pipeline has run once from the job — run one manual build after creating the job, and remember the expression is evaluated in the controller's timezone (§10). |
-| Scan build UNSTABLE but nothing seems broken | That is the result policy working: a HIGH/CRITICAL finding in the deployed tree marks the build UNSTABLE by design (§10). The build-output summary lists the findings; the fix is updating the affected package, not re-running. |
-| Host key verification failed after server reinstall | `accept-new` only accepts *new* keys; remove the stale entry from the deploy user's `known_hosts`. |
+| `dotnet: not found` in Build | `DOTNET_ROOT`/`PATH` in the Jenkinsfile don't match the agent install (§3). |
+| Nullable warning CS86xx fails the build | By design (`/warnaserror:nullable`); fix the warning. |
+| Deploy skipped on a tag | Tag discovery/refspec not configured (§7.4), or the tag doesn't match `v<major.minor.patch>`. |
+| `sshagent` step not found | SSH Agent plugin missing, or credential ID ≠ `DEPLOY_SSH_CREDENTIAL`. |
+| `Permission denied (publickey,password)` | `authorized_keys` missing/incomplete (§2), key mismatch (compare fingerprints), or bad ownership/modes silently ignored by sshd — check `sudo journalctl -u ssh -n 50`. |
+| `Deploy verification FAILED` | The bot didn't reach its startup lines (e.g. bad token in the server `.env`); the old image was rolled back — check the bot logs. |
+| Scan: `docker: not found` / daemon unreachable | Mount the host socket + CLI into the Jenkins container as volumes; verify with `docker version` inside (name the container explicitly). |
+| Scan: `jq: not found` | The pinned jq download in the SBOM stage failed — check outbound access to `github.com` releases. |
+| Scan: Trivy DB download fails | The agent needs outbound access to `ghcr.io`; delete a stale `~/.cache/trivy` and re-run. |
+| Scan never runs on schedule | The cron registers only after the first manual run; also check the controller timezone. |
+| Scan UNSTABLE with nothing "broken" | The result policy working — a HIGH/CRITICAL finding in the deployed tree; fix the package, don't re-run. |
+| Host key verification failed after a server reinstall | `accept-new` only accepts *new* keys — remove the stale `known_hosts` entry. |

@@ -1,274 +1,221 @@
 # Manual Test Plan — pre-production command testing
 
-Run this against a **test deployment** before rolling a build out to production: a separate Discord application (own token), a throwaway test server, and its own `.env` + Docker volumes. Never point the test stack at the production database, and never run the destructive steps (§3, §8) against production.
-
-**Why a separate bot application:** permission tiers, guild settings, quotes, and reminders all live in the database, but the *bot identity* (token, bot owner id, notification channel) comes from configuration — sharing a token between test and prod means every test command runs in prod's name. A second application on the same machine costs nothing: same `docker-compose.yml`, different `.env`.
+Run against a **test deployment**: a second Discord application (own token), a throwaway server, its own `.env` + volumes. Never point the test stack at the production database and never run the destructive steps (§3, §8) against production. Sharing a token with prod would mean every test command runs in prod's name.
 
 ## 0. Test environment setup
 
-1. Create a second Discord application with a bot user; enable the **Message Content intent**; copy the token.
-2. Create a test server with at least: a normal channel, a second channel to use as the notification channel, and a scratch category for permission tests.
-3. Invite the bot with the standard permissions (it needs View Channel + Send Messages at minimum; also Attach Files for the quote-import test).
-4. Give the test `.env` these overrides (they shrink every wait to minutes instead of hours/days):
+1. Create a second Discord application with the **Message Content intent**; create a test server with a normal channel, a notification channel, and a scratch category.
+2. Invite the bot (View Channel + Send Messages minimum; Attach Files for the quote-import test).
+3. Test `.env` — fast cadences so everything resolves in minutes:
 
    ```dotenv
    DISCORD_BOT_TOKEN=<test token>
    BOT_OWNER_DISCORD_ID=<your Discord id>
    NOTIFY_CHANNEL_ID=<test notification channel id>
-
-   # fast watchdog cadence for testing (defaults: 5 / 10 / 60)
    WATCHDOG_CHECK_INTERVAL_MINUTES=1
    WATCHDOG_GATEWAY_DOWN_ALERT_MINUTES=1
    WATCHDOG_RE_ALERT_MINUTES=2
-
-   # fast backup cadence for testing (defaults: 86400 / 7 / 2592000)
    BACKUP_INTERVAL=60
    BACKUP_RETENTION=3
    BACKUP_TEST_INTERVAL=300
    ```
 
-5. Bring it up: `docker compose up -d --build`. Verify the startup lines: `Bot version:`, `Database migrations applied successfully`, `Initializing Discord connection...`, then `Gateway: Ready`.
-6. Useful observation commands while testing:
+4. `docker compose up -d --build`; verify startup: `Bot version:`, `Database migrations applied successfully`, `Initializing Discord connection...`, `Gateway: Ready`.
+5. Observation commands: `docker compose logs -f bot`, `docker compose logs -f backup`, `docker compose exec backup ls -l /backups`, `docker compose exec backup cat /backups/.backup-status`.
 
-   ```bash
-   docker compose logs -f bot                     # bot + watchdog + notification logs
-   docker compose logs -f backup                  # sidecar passes
-   docker compose exec backup ls -l /backups      # dump files, retention behavior
-   docker compose exec backup cat /backups/.backup-status   # the status file !health reads
-   ```
-
-**Reminder:** if the `db-data` volume already exists from an earlier `.env`, changing `POSTGRES_PASSWORD` has no effect — postgres only applies it on first init. Either keep the old password or wipe the volume (`docker compose down -v`) while it is still disposable.
+Note: `POSTGRES_PASSWORD` only applies on first volume init — keep the old password or wipe the volume while it's disposable.
 
 ## 1. Smoke test
 
 | # | Action | Expected |
 |---|---|---|
-| 1.1 | `!version` in the test server | Reply with the version (e.g. `1.2.3+1639324`; local builds show `0.0.0+unknown` — fine). |
+| 1.1 | `!version` | Version string (local builds `0.0.0+unknown` is fine). |
 | 1.2 | `!hello` | `Hello World` |
-| 1.3 | `!help` | Lists the account's commands grouped by category under bold headers (General, Quotes, Custom responses, Reminders, Permissions & settings, Backups & stability, Bot profile), alphabetized within each group; categories with nothing visible to the account are omitted (FR-38/FR-132/FR-133). |
-| 1.4 | `!help backup` | Detailed help: description, usage, required tier. |
-| 1.5 | `!help nonexistentcommand` | Generic "The requested command is unavailable" — no error, no reveal. |
-| 1.6 | Any command from a **second, non-owner test account** (default tier) | `You are not permitted to use that command` for admin/owner-tier commands. |
+| 1.3 | `!help` | Commands grouped under bold category headers, alphabetized within groups; empty groups omitted. |
+| 1.4 | `!help backup` | Detailed help (description, usage, tier). |
+| 1.5 | `!help nonexistentcommand` | Generic "The requested command is unavailable". |
+| 1.6 | Any admin/owner command from a second, default-tier account | "You are not permitted to use that command". |
 
-## 2. Backups — create & list (FR-96/FR-97)
+## 2. Backups — create & list
 
 | # | Action | Expected |
 |---|---|---|
-| 2.1 | `!backups` (before any backup) | Either "There are no backups yet." or the sidecar's scheduled dumps (already running every 60 s in the test env). |
-| 2.2 | `!backup` | "Backup created: hambotv2-<timestamp>.dump (<size>)" within a few seconds. |
-| 2.3 | `!backups` | New dump listed, newest first; timestamp and size match. |
-| 2.4 | `docker compose exec backup ls /backups` | The file exists in the volume — the command and the sidecar share one directory. |
-| 2.5 | Second account runs `!backup` / `!backups` | Permission denied (tier 4 default). |
-| 2.6 | `!backup` in a **DM** with the bot owner account | Works — these commands are DM-usable. |
-| 2.7 | Retention: wait for >3 sidecar dumps (`BACKUP_INTERVAL=60`), check `ls /backups` | Only the newest `BACKUP_RETENTION=3` dump files remain. |
+| 2.1 | `!backups` (before any backup) | Empty message, or the sidecar's scheduled dumps. |
+| 2.2 | `!backup` | "Backup created: hambotv2-<timestamp>.dump (<size>)" within seconds. |
+| 2.3 | `!backups` | New dump listed newest first. |
+| 2.4 | `docker compose exec backup ls /backups` | The file exists — commands and sidecar share one directory. |
+| 2.5 | Second account runs `!backup` | Permission denied (tier 4). |
+| 2.6 | `!backup` in a DM | Works — DM-usable. |
+| 2.7 | Wait for >3 sidecar dumps | Only `BACKUP_RETENTION=3` files remain. |
 
-## 3. Restore & maintenance mode (FR-98) — the destructive core path
+## 3. Restore & maintenance mode — the destructive core path
 
-Set this up so the restore is *provably real*: make data, back it up, change data, restore, see the old data return.
-
-1. `!quote add test-marker-before-backup` (or create any data: a quote, a custom response).
+1. `!quote add test-marker-before-backup` (or create any data).
 2. `!backup` → note the dump name.
-3. `!quote remove 1` (delete/modify the marker data).
-4. `!restorebackup <name>` (without `confirm`) → **warning only**, nothing restored: "…will REPLACE ALL CURRENT DATA… run: !restorebackup <name> confirm".
-5. Verify the marker is still deleted (the unconfirmed step changed nothing).
-6. `!restorebackup <name> confirm` → success reply: "Backup '<name>' restored successfully. The bot is back in normal operation."
-7. `!quote 1` (fetch the marker) → **it's back** — the restore actually replaced the data.
-8. While a large restore runs (hard to time manually — the test DB is small), any other command should get "The bot is in maintenance mode…" — if you miss the window, the two notification posts in the notification channel (§3.11) are the evidence the mode was entered and exited.
-9. Negative: `!restorebackup does-not-exist` → "There is no backup named 'does-not-exist' — run !backups…".
-10. Negative: `!restorebackup <name> wrongword` → asks again for the exact `confirm` suffix.
+3. `!quote remove 1` (delete the marker).
+4. `!restorebackup <name>` *without* `confirm` → warning only; verify the marker is still deleted.
+5. `!restorebackup <name> confirm` → success reply.
+6. `!quote 1` → **the marker is back** — the restore really replaced the data.
+7. During the restore, other commands get the maintenance notice; the notification channel posts maintenance entry/exit (evidence if the window was too fast to catch).
+8. Negative: `!restorebackup does-not-exist` → "no backup named…" error; `!restorebackup <name> wrongword` → asks for the exact `confirm` suffix.
 
-## 4. `!health` (FR-105)
+## 4. `!health`
 
 | # | Action | Expected |
 |---|---|---|
-| 4.1 | `!health` in the server (bot owner) | One report: version, uptime, gateway state (`Connected`), database (`reachable`), pending reminders count, backup line (timestamp + name + size), restore test line (timestamp — `passed`), notification channel (`<#id> (…)`). |
-| 4.2 | `!health` in a **DM** | Same report — DM-usable. |
-| 4.3 | Second account runs `!health` | Permission denied (tier 4). |
-| 4.4 | Correlate with reality: compare the backup line against `cat /backups/.backup-status` | Timestamps match the sidecar's status file. |
+| 4.1 | `!health` (bot owner, in server) | One report: version, uptime, gateway `Connected`, database `reachable`, pending reminders, backup + restore-test lines, notification channel. |
+| 4.2 | `!health` in a DM | Same report. |
+| 4.3 | Second account | Permission denied (tier 4). |
+| 4.4 | Compare the backup line to `cat /backups/.backup-status` | Timestamps match. |
 
-## 5. `!notifychannel` (FR-117)
-
-| # | Action | Expected |
-|---|---|---|
-| 5.1 | `!notifychannel` (no args) | Shows the effective channel — initially the `NOTIFY_CHANNEL_ID` from `.env`. |
-| 5.2 | `!notifychannel <#other-channel>` (mention a different channel in the same server) | Confirmation reply; subsequent notifications land in the new channel. |
-| 5.3 | `docker compose restart bot`, then `!notifychannel` | Still shows the runtime override — it persists in the database across restarts. |
-| 5.4 | `!notifychannel clear`, then `!notifychannel` | Falls back to the `.env` default again (not "not set" — the env default still applies). |
-| 5.5 | Remove `NOTIFY_CHANNEL_ID` from `.env`, `docker compose restart bot`, `!notifychannel` | "not set (notifications go to logs and bot-owner DMs)". |
-| 5.6 | Second account runs `!notifychannel <#channel>` | Permission denied (tier 4). |
-
-## 6. Notifications in action (FR-118)
+## 5. `!notifychannel`
 
 | # | Action | Expected |
 |---|---|---|
-| 6.1 | Trigger a command failure: `!quote` with a bad argument (e.g. `!quote abc` where a number is required) → check channel | The generic in-channel error goes to the user; nothing sensitive is posted. For a real failure path, use a command that throws (e.g. stop the db container briefly and run any DB-backed command). |
-| 6.2 | **Rate limit / collapse:** while the db is stopped, spam several DB-backed commands | The user channel gets the generic error each time; the notification channel gets at most 5 posts per minute and identical consecutive messages collapse to one — no flood. Overflow still visible in `docker compose logs bot`. |
-| 6.3 | Restart the db | The bot recovers on its own; verify a normal command works again. |
+| 5.1 | `!notifychannel` | Shows the `NOTIFY_CHANNEL_ID` default. |
+| 5.2 | `!notifychannel <#other-channel>` | Confirmation; notifications land in the new channel. |
+| 5.3 | `docker compose restart bot`, then `!notifychannel` | The runtime override persists across restarts. |
+| 5.4 | `!notifychannel clear` | Falls back to the `.env` default. |
+| 5.5 | Remove `NOTIFY_CHANNEL_ID` from `.env`, restart | "not set (notifications go to logs and bot-owner DMs)". |
+| 5.6 | Second account | Permission denied. |
 
-## 7. Watchdog (FR-106)
-
-Watchdog DMs go to `BOT_OWNER_DISCORD_ID` **and** post to the notification channel. With the fast test cadence (1-min checks, 1-min gateway threshold, 2-min re-alert) each case resolves in minutes. DM delivery requires the bot to share a server with the owner account.
+## 6. Notifications in action
 
 | # | Action | Expected |
 |---|---|---|
-| 7.1 | **Gateway down:** put an invalid token in `.env`, `docker compose restart bot` | Gateway never connects (`Gateway: Disconnected`/retry logs); after ~2 min: owner DM + notification post "the Discord gateway has been disconnected". It re-alerts every ~2 min while it persists. Restore the real token and restart → recovery announcement ("the Discord gateway is connected again") exactly once. |
-| 7.2 | **Backup overdue:** `docker compose stop backup` and wait ~2 min (interval 60 s + grace) | Alert: "no successful backup has completed within the scheduled interval". `docker compose start backup` → recovery announcement once. |
-| 7.3 | **Restore test failed/overdue:** set `BACKUP_TEST_INTERVAL=120`, stop the db for a few minutes so a scheduled pass fails validation, restart db | If a restore test fails you get the failed alert; if tests stop running (sidecar stopped) you get the overdue alert once it passes the interval. Recovery announcement when tests pass again. |
-| 7.4 | **Notification channel unreachable:** set `!notifychannel <#a-channel-the-bot-cannot-see>` (or drop the bot's permissions on the current one) | Within a couple of check intervals: owner DM "the notification channel could not be posted to" (the meta-failure path). Fix the channel perms → recovery announcement. |
-| 7.5 | **Maintenance mode:** during §3's confirmed restore | Watchdog alert "the bot is in maintenance mode" on entry, recovery announcement on exit. |
-| 7.6 | **No owner fallback:** remove `BOT_OWNER_DISCORD_ID`, restart, stop the backup container | No DMs (nobody to DM); alerts degrade to `docker compose logs bot` lines only. Restore the id afterwards. |
+| 6.1 | Cause a real failure (stop the db container, run any DB-backed command) | Generic in-channel error; the notification channel gets the failure post. |
+| 6.2 | While the db is stopped, spam DB-backed commands | Notification channel: ≤ 5 posts/min, identical consecutive messages collapsed; overflow still in `docker compose logs bot`. |
+| 6.3 | Restart the db | The bot recovers on its own. |
 
-## 8. Operator restore drill (FR-83 / NFR-19) — the scripted path
+## 7. Watchdog
 
-This is the outstanding operator action; run it once here and record the outcome. It proves recovery when the *bot itself* is broken.
+Alerts go to `BOT_OWNER_DISCORD_ID` by DM **and** the notification channel (DM delivery needs a shared server). With the fast cadence each case resolves in minutes.
 
-1. Note a dump from `!backups` and copy it out of the volume:
-   ```bash
-   docker compose cp backup:/backups/<dump-name>.dump ./test-restore.dump
-   ```
-2. Break the bot on purpose (e.g. invalid token again — simulates a bot that cannot start).
-3. Run the drill against the **test stack only**:
-   ```bash
-   scripts/restore-backup.sh ./test-restore.dump
-   ```
-4. Expected: the script validates the dump, stops the bot, drops/recreates the database, restores, restarts, and prints success after matching the known startup lines (`Bot version:`, `Database migrations applied successfully`, `Initializing Discord connection...`, gateway ready).
-5. Verify data: the restored marker quote from §3 is present again; `!health` reports `reachable`.
+| # | Action | Expected |
+|---|---|---|
+| 7.1 | **Gateway down**: invalid token in `.env`, restart bot | After ~2 min: alert "the Discord gateway has been disconnected", re-alerting every ~2 min; restore the token → recovery announced once. |
+| 7.2 | **Backup overdue**: `docker compose stop backup` ~2 min | Alert "no successful backup…"; `start backup` → recovery once. |
+| 7.3 | **Restore test failed/overdue**: `BACKUP_TEST_INTERVAL=120`, stop the db for a pass, restart | The failed or overdue restore-test alert; recovery when tests pass again. |
+| 7.4 | **Channel unreachable**: `!notifychannel <#channel-the-bot-cannot-see>` | Owner DM "the notification channel could not be posted to"; fix perms → recovery. |
+| 7.5 | **Maintenance mode**: during §3's restore | Alert on entry, recovery on exit. |
+| 7.6 | **No owner**: remove `BOT_OWNER_DISCORD_ID`, stop backup | No DMs; alerts degrade to logs. Restore the id afterwards. |
 
-**Record the outcome** (date, dump, both §3 and §8 results) — with that, the restore drill (NFR-19) is satisfied for this build.
+## 8. Operator restore drill — the scripted path
+
+Proves recovery when the *bot itself* is broken. Run once here and record the outcome (this satisfies the restore drill).
+
+1. Copy a dump out: `docker compose cp backup:/backups/<dump-name>.dump ./test-restore.dump`
+2. Break the bot on purpose (invalid token again).
+3. `scripts/restore-backup.sh ./test-restore.dump` (test stack only).
+4. Expected: validates, stops the bot, drops/recreates the database, restores, restarts, prints success after matching the startup lines.
+5. Verify: the §3 marker quote is present; `!health` reports `reachable`.
 
 ## 9. Regression pass — pre-existing features
 
-Quick sweep to catch anything the new pipeline changes (maintenance gate, notification hooks, new `BotSetting` entity) broke:
-
 | Area | Commands | Expected |
 |---|---|---|
-| Permissions | `!userpermission @user 1`, `!userpermission @user 5`, `!commandpermission hello 0` | Grant works from owner/admin; tier 5 rejected (max 4); self/equal-tier escalation rejected. |
-| Guild settings | `!settings`, `!settings commandidentifier ?`, `!settings commandidentifier reset`, `!settings cooldown 0 5` | Show/set/reset behave; new identifier applies to the very next message; DMs decline ("only available in servers"). |
-| Cooldowns | Spam `!hello` as tier-0 user after `!settings cooldown 0 5` | Throttle reply with wait seconds; no throttle for the bot owner (tier 4). |
-| Quotes | `!quote add/list/remove/get random/search` + `!importquotes` with a small JSON attachment | Full lifecycle; import continues numbering; per-guild isolation (a quote made in test server A is invisible in server B). |
-| Custom responses | `!response add test ping`, then `!test` | Custom response fires through the permission/cooldown path; unknown-name fallback reply otherwise. |
-| Reminders | `!remindme 1m test`, then wait | DM delivery of the reminder; retry/defer behavior unchanged. |
-| Recurring reminders | `!remindme every 10m test`, `!reminders`, wait two intervals, `!cancelreminder <n>` | Recurring confirmation; list entry marked `repeats every 10m`; a DM per interval (each re-scheduled from its delivery); cancellation stops it. |
+| Permissions | `!userpermission @user 1` / `@user 5`; `!commandpermission hello 0` | Grant works; tier 5 rejected (max 4); self/equal-tier escalation rejected. |
+| Guild settings | `!settings`, `!settings commandidentifier ?`, `… reset`, `!settings cooldown 0 5` | Set applies to the very next message; DMs decline. |
+| Cooldowns | Spam `!hello` as tier-0 user | Throttle reply with wait seconds; no throttle for the bot owner. |
+| Quotes | Lifecycle + `!importquotes` with a small JSON attachment | Full lifecycle; import continues numbering; per-guild isolation across servers. |
+| Custom responses | `!addresponse test ping`, then `!test` | Fires through the permission/cooldown path; unknown names fall back to "unavailable". |
+| Reminders | `!remindme 1m test` | DM delivery. |
+| Recurring | `!remindme every 10m test`, wait two intervals, `!cancelreminder <n>` | List entry marked recurring; a DM per interval; cancellation stops it. |
 
 ## 10. Rollout checklist
 
-Before promoting the same build to production:
+- [ ] §1–§9 pass (§3 and §8 recorded as the restore drill).
+- [ ] Production `.env` uses the **production** intervals (`BACKUP_INTERVAL=86400`, `RETENTION=7`, `TEST_INTERVAL=2592000`, watchdog defaults) — not the fast test values.
+- [ ] `BACKUP_RCLONE_REMOTE` set in production if offsite push is wanted.
+- [ ] Production `NOTIFY_CHANNEL_ID` points at a channel the prod bot can see.
+- [ ] After deploy: startup lines, first scheduled backup lands, `!health` shows the prod dump.
 
-- [ ] §1–§9 pass (§3 and §8 recorded as the restore drill, NFR-19).
-- [ ] Production `.env` reviewed: keep the **production** intervals (`BACKUP_INTERVAL=86400`, `RETENTION=7`, `TEST_INTERVAL=2592000`, watchdog defaults) — do not ship the fast test values.
-- [ ] `BACKUP_RCLONE_REMOTE` set in production if offsite push is wanted (plus S3 credentials) — otherwise leave empty.
-- [ ] Production `NOTIFY_CHANNEL_ID` points at a channel the prod bot can actually see (the §7.4 failure is exactly what a misconfigured channel looks like).
-- [ ] Verify in prod after deploy: startup lines, first scheduled backup lands (`docker compose logs backup`), `!health` shows the prod dump.
+## 11. Presence & profile identity
 
-## 11. Presence & profile identity (FR-78–FR-80, FR-113, FR-115–FR-116)
-
-Requires a second test server the bot is a member of (per-guild applies are visible there), and two small image files (a PNG under 10 MB and a text file that is not an image).
+Needs a second test server the bot is a member of (per-guild applies), a small PNG (< 10 MB), and a non-image text file.
 
 | # | Action | Expected |
 |---|---|---|
-| 11.1 | `!presence watching the test server` in the server | Bot's activity changes to "Watching the test server" immediately; reply confirms. |
-| 11.2 | `!presence` | "Current activity: watching the test server". |
-| 11.3 | `!presence nonsense text` / `!presence playing` (no text) | In-channel errors; activity unchanged. |
-| 11.4 | `!presence clear` | Activity removed. |
-| 11.5 | `!bio line one` (message with a line break in the text) | Bio applies with the line break preserved; visible on the bot's per-server profile in **both** servers. |
-| 11.6 | `!bio` / `!bio clear` | Show reports the current bio; clear removes it everywhere. |
-| 11.7 | `!avatar` with the PNG attached | Confirmation reply; profile picture changes in both servers and in DMs (global avatar). |
-| 11.8 | `!avatar <image-url>` with a direct image link | Same result via the URL path. |
-| 11.9 | `!avatar` with the text file attached, and `!avatar not-a-url` | In-channel rejection (not a PNG/JPEG/GIF; not an image URL); nothing changes. |
-| 11.10 | `!avatar reset` / `!banner clear` | Custom images removed; avatar falls back to the application default; `!banner` reports "No banner is set." |
-| 11.11 | Second account runs `!presence playing chess` | Permission denied (tier 4). |
-| 11.12 | Same commands in a **DM** | All work — DM-usable (no guild state). |
-| 11.13 | Configure `BotConfiguration:Presence:Type`/`:Text` (and optionally `BotConfiguration:Bio`), restart the bot | The configured activity (and bio) apply once the gateway is ready; a runtime change made before the restart is gone — runtime changes are not persisted. |
-| 11.14 | Set `BotConfiguration:Presence:Type` to an invalid value, restart | Startup fails fast with a critical log line naming `BotConfiguration:Presence:Type`. |
+| 11.1 | `!presence watching the test server` | Activity changes immediately; confirmation. |
+| 11.2 | `!presence` / `!presence nonsense text` / `!presence clear` | Show works; invalid input errors in-channel; clear removes. |
+| 11.3 | `!bio line one` (with a line break) | Bio applies with the break preserved, visible in **both** servers. |
+| 11.4 | `!bio` / `!bio clear` | Show; clear removes everywhere. |
+| 11.5 | `!avatar` with the PNG attached, and with a direct image URL | Picture changes in both servers and DMs (global avatar). |
+| 11.6 | `!avatar` with the text file, or `!avatar not-a-url` | In-channel rejection; nothing changes. |
+| 11.7 | `!avatar reset` / `!banner clear` | Custom images removed; avatar falls back to the application default. |
+| 11.8 | Second account runs `!presence playing chess`; same commands in a DM | Denial (tier 4); DMs work (no guild state). |
+| 11.9 | Configure `BotConfiguration:Presence` (+ optionally `Bio`), restart | The configured state applies at Ready; a pre-restart runtime change is gone (not persisted). |
+| 11.10 | Invalid `BotConfiguration:Presence:Type`, restart | Startup fails fast naming the key. |
 
-## 12. Slash commands (FR-110–FR-112 / NFR-26)
+## 12. Slash commands
 
-Set `SlashCommands__Enabled: true` (or `SLASH_COMMANDS_ENABLED=true` in Compose) and restart the bot; the log line "Registered N application commands with Discord." confirms the registration pass. Requires the test account to have the commands visible (global commands can take up to an hour to propagate in the Discord client; re-login refreshes them).
+Set `SLASH_COMMANDS_ENABLED=true`, restart; the log line "Registered N application commands with Discord." confirms. Global commands can take up to an hour to appear (re-login refreshes).
 
 | # | Action | Expected |
 |---|---|---|
-| 12.1 | Type `/` in the test server | The bot's `/` picker shows exactly the administrative/configuration, user-scoped, and help commands (agenttier, backup, backups, banlist, banuser, bio, cancelreminder, commandpermission, health, help, notifychannel, presence, remindme, reminders, restorebackup, settings, unbanuser, userpermission, avatar, banner) — **no** quote, response, or `version` commands (FR-110/FR-119). |
-| 12.2 | `/remindme` with arguments `10m water the plants` | Confirmation reply identical to the text surface, visible **only to the invoker** (ephemeral, FR-112). |
-| 12.3 | `/reminders` | Lists your pending reminders, visible only to the invoker. |
-| 12.4 | `/userpermission` picking a user and tier 1 (as guild owner) | Same reply as `!userpermission <@user> 1`; the tier is set. |
-| 12.5 | Second account runs `/backup` (tier 4 required) | Denial visible **only to the invoker** (ephemeral); no public reply (FR-112). |
-| 12.6 | `/backup` twice within the cooldown window as an allowed user | Ephemeral throttle reply naming the wait; the text surface shows the same shared throttle afterwards (one key per user per command across surfaces). |
-| 12.7 | `/remindme 10m test`, then `!remindme 10m test` again within the window | The text invocation is throttled — slash and text share the cooldown (NFR-12). |
-| 12.8 | `/help` as the bot owner (tier 4) | Page 1 of the command list appears with a `page 1 of N` header and previous/next buttons, visible only to the invoker; the previous button is disabled (FR-119). |
-| 12.9 | Click **Next ▶** on the `/help` reply | The same ephemeral message updates in place to page 2 with rebuilt buttons — no new message (FR-119). |
-| 12.10 | Type `!help` in the text channel (bot owner) | The paginated list carries the same buttons on a plain text message; clicking them pages it the same way, regardless of `SlashCommands:Enabled` (FR-119). |
-| 12.11 | Spam the pagination buttons faster than the tier cooldown | Ephemeral throttle reply naming the wait; the paginated message stays unchanged — paging shares the command cooldown (FR-111 semantics). |
-| 12.8 | `/userpermission` in a **DM** | "This command manages per-server state and is only available in servers" — the DM scope applies (FR-25). `/reminders` in a DM works. |
-| 12.9 | `/restorebackup <name>` without confirm | The destructive-restore warning, same as the text surface. |
-| 12.10 | Set `SlashCommands__Enabled: false`, restart | Nothing registers; the `/` picker keeps stale commands until the next enabled boot's bulk overwrite removes them (the overwrite runs only when enabled — re-enable once before production to clear). Text surface unaffected throughout. |
+| 12.1 | Type `/` | Exactly the administrative/configuration, user-scoped, and help commands — no quote, response, or `version` commands. |
+| 12.2 | `/remindme` with `10m water the plants` | Reply identical to the text surface, visible **only to the invoker** (ephemeral). |
+| 12.3 | `/userpermission` picking a user + tier 1 (as guild owner) | Same effect as the text command. |
+| 12.4 | Second account runs `/backup` | Ephemeral denial only; no public reply. |
+| 12.5 | `/backup` twice inside the cooldown window | Ephemeral throttle reply; the shared cooldown applies on the text surface afterwards too. |
+| 12.6 | `/remindme 10m test`, then `!remindme 10m test` | The text invocation is throttled — one cooldown key across surfaces. |
+| 12.7 | `/help` as bot owner, click **Next ▶** | Page 1 with `page 1 of N` header and buttons; the *same* message updates in place to page 2. |
+| 12.8 | `!help` (text surface), click its buttons | Same paging on a plain text message, regardless of `SlashCommands:Enabled`. |
+| 12.9 | Spam the pagination buttons | Ephemeral throttle reply; the message stays unchanged. |
+| 12.10 | `/userpermission` in a DM; `/reminders` in a DM | Guild-state decline; `/reminders` works. |
+| 12.11 | `/restorebackup <name>` without confirm | The destructive-restore warning, same as text. |
+| 12.12 | Set `SlashCommands__Enabled: false`, restart | Nothing registers; stale `/` entries persist until the next enabled boot's bulk overwrite (re-enable once before production to clear). Text surface unaffected. |
 
-## 13. MCP endpoint (FR-86–FR-91 / FR-120 / NFR-20)
+## 13. MCP endpoint
 
-Set `MCP_ENABLED=true` and `MCP_API_KEY=<key>` in `.env` (or `Mcp__Enabled`/`Mcp__ApiKey` as environment variables), then restart the bot. The startup log must name the state and address; with a key: "MCP endpoint listening at http://0.0.0.0:2525/mcp". Reach the endpoint from the deployment host only (`http://127.0.0.1:2525/mcp` — the compose port is loopback-published).
-
-Any MCP-capable client works; with raw HTTP, each call is a POST with the headers `Authorization: Bearer <key>`, `Accept: application/json, text/event-stream`, and a JSON-RPC body (`initialize` first, then `tools/call`).
+Set `MCP_ENABLED=true` + `MCP_API_KEY=<key>`, restart. Startup log: "MCP endpoint listening at http://0.0.0.0:2525/mcp"; reachable only from the deployment host. Any MCP client works; raw HTTP is a POST with `Authorization: Bearer <key>`, `Accept: application/json, text/event-stream`, JSON-RPC body (`initialize`, then `tools/call`).
 
 | # | Action | Expected |
 |---|---|---|
-| 13.1 | Start with `MCP_ENABLED=true` but **no** key | Log: "MCP endpoint disabled: Mcp:Enabled is true but no Mcp:ApiKey is configured"; nothing listens on 2525; `!health` shows the same state. |
-| 13.2 | Start with `MCP_ENABLED=false` | Log: "MCP endpoint disabled: Mcp:Enabled is false"; `!health` reports it. |
-| 13.3 | POST without the `Authorization` header | 401 — rejected before any tool logic (FR-87). |
-| 13.4 | POST with a wrong key | 401. |
-| 13.5 | `bot_status` | Version, uptime, gateway state, guild count, presence, bio — all matching the live bot. |
-| 13.6 | `list_guilds` | The test server's id and name. |
-| 13.7 | `list_channels` with the test server's id | Every channel of the server as "<id> <name> (<type>)", by position. |
-| 13.8 | `list_commands` | Every registered command with tier, description, and usage, in name order. |
-| 13.9 | `get_recent_messages` on a channel the bot can read (limit 5) | The 5 most recent messages, newest first, ≤ 50. |
-| 13.10 | `send_message` to the test channel | The plain-text message appears in the channel. |
-| 13.11 | `run_command` with a tier-0 command line, e.g. `hello` | The command's reply returned as the tool result; **nothing** posted to any channel. |
-| 13.12 | `run_command` with a tier-4 command line (e.g. `health`) on a fresh guild | "You are not permitted to use that command" — the default agent tier is the lowest (FR-120). |
-| 13.13 | `!agenttier` (guild owner) | "The operator agent acts at the default, tier 0 (everyone), in this server; raise it with a tier 1-4". |
-| 13.14 | `!agenttier 4`, then `run_command` with a tier-4 command line again | The command executes; its reply is the tool result. |
-| 13.15 | `!agenttier 1`, then `run_command` with a tier-2+ command line | Denied again — the per-guild tier governs the agent. |
-| 13.16 | `run_command` with the command line `agenttier 4` | "The operator agent cannot change its own tier in this server" — the agent can never raise its own ceiling (FR-120). |
-| 13.17 | `!agenttier 4` from a second, non-owner account | "You are not permitted to use that command" (owner tier required). |
-| 13.18 | `!agenttier clear` | Reset to the lowest-tier default; `!agenttier` shows it. |
-| 13.19 | `!agenttier` in a **DM** | "This command manages per-server settings and is only available in servers" (FR-25). |
-| 13.20 | `!health` | The MCP line shows "listening at http://0.0.0.0:2525/mcp" (or the disabled state) — the endpoint state joins the report (FR-105). |
-| 13.21 | `/agenttier` (slash surface on) | Same show/set/clear behavior as the text surface, reply visible only to the invoker. |
+| 13.1 | Enabled but **no** key | "MCP endpoint disabled: … no Mcp:ApiKey"; nothing listens; `!health` agrees. |
+| 13.2 | `MCP_ENABLED=false` | "MCP endpoint disabled: Mcp:Enabled is false". |
+| 13.3 | POST without / with a wrong `Authorization` | 401 both times. |
+| 13.4 | `bot_status` / `list_guilds` / `list_channels` / `list_commands` | Version, uptime, gateway, guild count, presence, bio; the test server; its channels (id, name, type); every command with tier/description/usage. |
+| 13.5 | `get_recent_messages` (limit 5) / `send_message` | The 5 newest messages; the message appears in the channel. |
+| 13.6 | `run_command` with `hello` | Reply returned as the tool result; **nothing** posted to any channel. |
+| 13.7 | `run_command` with a tier-4 line on a fresh guild | "You are not permitted…" — the default agent tier is the lowest. |
+| 13.8 | `!agenttier` (guild owner), then `!agenttier 4`, retry the tier-4 line | Shows tier 0 default; after raising, the command executes. |
+| 13.9 | `!agenttier 1`, retry a tier-2+ line | Denied again — the per-guild tier governs the agent. |
+| 13.10 | `run_command` with `agenttier 4` | "The operator agent cannot change its own tier in this server". |
+| 13.11 | `!agenttier` from a non-owner account; `!agenttier` in a DM | Permission denial; DM decline. `!agenttier clear` resets to the default. |
+| 13.12 | `!health` | The MCP line shows the endpoint state. |
+| 13.13 | `/agenttier` (slash on) | Same show/set/clear, reply visible only to the invoker. |
 
-## 14. User bot bans (FR-134–FR-138 / NFR-30)
+## 14. User bot bans
 
-Requires a second (non-owner) test account. Run as the guild owner unless noted.
+Needs a second (non-owner) test account; run as the guild owner unless noted.
 
 | # | Action | Expected |
 |---|---|---|
-| 14.1 | `!banuser <@second>` | "Banned user … from using the bot: permanent". |
-| 14.2 | Second account runs `!hello`, `!gibberish`, and a custom-response name | **No reply of any kind** — not even "The requested command is unavailable" (FR-135). |
-| 14.3 | `!banlist` | The ban appears: user id, permanent, banned-by. |
-| 14.4 | `!banuser <@second> 5m` (update) | "Updated the bot ban for user …"; `!banlist` shows the expiry time and remaining duration. |
-| 14.5 | Wait for the expiry to pass, then second account runs `!hello` | The command executes — the expired ban lifted itself (FR-137); `!banlist` no longer shows the user. |
-| 14.6 | `!banuser <@second> 1h`, second account sends a **DM** `!remindme 10m test` | The reminder is scheduled — bans never block direct messages (FR-134). |
-| 14.7 | `!unbanuser <@second>` then second account runs `!hello` | Unban confirmation; the command executes. `!unbanuser <@second>` again: "not banned" message. |
-| 14.8 | `!banuser <@guild-owner>` | "The guild owner and the bot owner cannot be banned from the bot" (FR-136). `!banuser <@self>`: self-ban rejected. |
-| 14.9 | Second account (default tier 0) runs `!banuser <@other> x` | "You are not permitted to use that command" (moderator default tier, FR-138). |
-| 14.10 | Moderator account (tier 1) runs `!banuser <@other-moderator>` (also tier 1) | "You can only ban users below your own tier from the bot" — the escalation guard (FR-36/FR-138). |
-| 14.11 | `!banuser <@second> because they were spamming` | In-channel "takes a user and an optional duration" error; nothing stored — the command takes no reason text. |
-| 14.12 | `!banuser`, `!banuser notanid`, `!unbanuser`, `!banlist` in a **DM** | "This command manages per-server state and is only available in servers" (FR-25). |
-| 14.13 | `!help` as a moderator | The ban commands appear under the **Moderation** group (FR-132). |
-| 14.14 | (Slash surface on) `/banuser` picking a user with duration `10m` | Same ban as the text surface; `/banlist` shows it; reply visible only to the invoker. |
+| 14.1 | `!banuser <@second>` | "Banned user … permanent"; `!banlist` shows it. |
+| 14.2 | Second account runs `!hello`, `!gibberish`, a custom-response name | **No reply of any kind** — not even "unavailable". |
+| 14.3 | `!banuser <@second> 5m` (update) | "Updated the bot ban…"; `!banlist` shows expiry and remaining time. |
+| 14.4 | Wait past the expiry, second account runs `!hello` | Executes — the ban lifted itself; `!banlist` no longer shows the user. |
+| 14.5 | Banned user sends a DM `!remindme 10m test` | Scheduled — bans never block DMs. |
+| 14.6 | `!unbanuser <@second>` twice; `!banuser <@guild-owner>`; `!banuser <@self>` | Unban then "not banned"; owner/self bans rejected. |
+| 14.7 | Tier-0 account runs `!banuser`; tier-1 account bans another tier-1 | Permission denial; escalation-guard denial ("only users below your own tier"). |
+| 14.8 | `!banuser <@second> because spam`; `!banuser notanid` | In-channel errors; nothing stored. |
+| 14.9 | The ban commands in a DM | "only available in servers". |
+| 14.10 | `!help` as a moderator; `/banuser` with duration `10m` (slash on) | Ban commands under the **Moderation** group; the slash form works, reply ephemeral. |
 
-## 15. Quote of the day (FR-127–FR-131 / NFR-29)
+## 15. Quote of the day
 
-Requires a test server with at least one saved quote and a channel the bot can post in. Run as the guild owner unless noted.
+Needs a test server with at least one quote and a channel the bot can post in; run as the guild owner.
 
 | # | Action | Expected |
 |---|---|---|
-| 15.1 | `!quoteoftheday` | "The quote of the day is off in this server — set a channel with !quoteoftheday channel <#channel>". |
-| 15.2 | `!quoteoftheday channel <#target>` | "…will now go to <#target> — the first one appears at the next schedule boundary". |
-| 15.3 | `!quoteoftheday 3m 2m` | Confirmation naming the computed UTC time; within ~3 minutes the configured channel receives "quote of the day: #N: <text>" — the default template with the number-prefixed quote (FR-128/FR-129). |
-| 15.4 | Wait ~2 more minutes | A second publication at the next boundary — 2 minutes after the first, no duplicates and no burst (FR-130). |
-| 15.5 | `!quoteoftheday` | Reports channel, interval, next due time (UTC), and template. |
-| 15.6 | `!quoteoftheday template best of the server: {quote}` then wait for the next boundary | "The publication template was saved"; the next publication uses the new wording (FR-128). |
-| 15.7 | `!quoteoftheday 5h 30s` (below the deployment default floor of 1 minute) | In-channel "The interval must be at least 1m"; nothing stored (FR-127). |
-| 15.8 | `!quoteoftheday banana 1d`, `!quoteoftheday 5h`, `!quoteoftheday 5h 90s`, `!quoteoftheday template no placeholder` | In-channel errors naming each problem; nothing stored (FR-128). |
-| 15.9 | `!quoteoftheday 5h 1d` | Confirmation naming the computed UTC time; the first publication appears at exactly that time, then every day at that time (FR-128/FR-130). |
-| 15.10 | Delete the target channel (or revoke Send Messages), wait past a boundary, then restore it | The boundary is skipped (no error loop, the feature stays on); the next publication arrives at the next boundary (FR-131). |
-| 15.11 | `!quoteoftheday channel clear` | "The quote of the day is now off in this server"; no further publications (FR-127). |
-| 15.12 | `!quoteoftheday` in a **DM** | "This command manages per-server state and is only available in servers" (FR-128). |
-| 15.13 | (Slash surface on) `/quoteoftheday` picking a channel | Same set as the text surface; reply visible only to the invoker (FR-110/FR-128). |
+| 15.1 | `!quoteoftheday` | "off in this server — set a channel with !quoteoftheday channel <#channel>". |
+| 15.2 | `!quoteoftheday channel <#target>` | Activated; first publication at the next schedule boundary. |
+| 15.3 | `!quoteoftheday 3m 2m` | Confirmation naming the UTC time; the channel receives "quote of the day: #N: <text>" within ~3 min, then a second publication 2 min later — no burst. |
+| 15.4 | `!quoteoftheday` | Reports channel, interval, next due time (UTC), template. |
+| 15.5 | `!quoteoftheday template best of the server: {quote}` | Saved; the next publication uses the new wording. |
+| 15.6 | `!quoteoftheday 5h 30s` (below the 1-minute floor); `!quoteoftheday banana 1d`, `5h`, `5h 90s`, `template no placeholder` | In-channel errors naming each problem; nothing stored. |
+| 15.7 | `!quoteoftheday 5h 1d` | First publication at exactly that UTC time, then daily. |
+| 15.8 | Delete the target channel (or revoke Send Messages), wait past a boundary, restore it | The boundary is skipped, the feature stays on; the next publication arrives at the next boundary. |
+| 15.9 | `!quoteoftheday channel clear`; `!quoteoftheday` in a DM | Off; DM decline. |
+| 15.10 | `/quoteoftheday` (slash on) | Same set as text; reply visible only to the invoker. |
