@@ -6,12 +6,11 @@ using HambotV2.Commands.SystemCommands;
 namespace HambotV2.SlashCommands
 {
     /// <summary>
-    /// Interactive help pagination: a button click on a multi-page help list
-    /// becomes a normal <c>help &lt;page&gt;</c> invocation through the same virtual-invocation
-    /// seam the slash surface uses — so paging shares the command pipeline's permission, cooldown,
-    /// and audit semantics — and the paginated message is then updated in place with the new page.
-    /// Attached unconditionally: the buttons ride on text-surface help messages too, so paging
-    /// works regardless of <c>SlashCommands:Enabled</c>.
+    /// Gateway glue for the interactive help pagination: subscribes the shared client's
+    /// button events and hands each help-button click to <see cref="HelpPagination.HandleClickAsync"/>
+    /// (invoker-owned paging through the virtual-invocation seam). Attached unconditionally:
+    /// the buttons ride on text-surface help messages too, so paging works regardless of
+    /// <c>SlashCommands:Enabled</c>.
     /// </summary>
     internal sealed class HelpPaginationService
     {
@@ -34,34 +33,9 @@ namespace HambotV2.SlashCommands
 
         private async Task OnButtonExecutedAsync(SocketMessageComponent component)
         {
-            if (!HelpPagination.TryGetTargetPage(component.Data.CustomId, out int targetPage))
-                return;
-
             try
             {
-                // Acknowledge within the interaction window; the update below resolves the deferred state.
-                await component.DeferAsync();
-
-                var invocation = new VirtualCommandInvocation(component.User, component.Channel, $"help {targetPage}", component.CreatedAt);
-                VirtualCommandResult result = await _virtualCommandRunner.RunAsync(invocation);
-
-                if (result.Outcome != CommandOutcome.Executed)
-                {
-                    // The pipeline declined the paging invocation (permission, cooldown, maintenance):
-                    // like the slash surface, the denial is ephemeral and the paginated message stays as it is.
-                    foreach (VirtualCommandReply reply in result.Replies)
-                        await component.FollowupAsync(reply.Text, ephemeral: true);
-                    return;
-                }
-
-                // The captured reply is the clicker's own page: their visible commands,
-                // with the buttons rebuilt by the pipeline for that page.
-                VirtualCommandReply page = result.Replies[0];
-                await component.ModifyOriginalResponseAsync(properties =>
-                {
-                    properties.Content = page.Text;
-                    properties.Components = page.Components;
-                });
+                await HelpPagination.HandleClickAsync(new SocketPaginationButton(component), _virtualCommandRunner);
             }
             catch (Exception ex)
             {
@@ -78,6 +52,41 @@ namespace HambotV2.SlashCommands
                 {
                     _logger.LogError(replyEx, "Failed to send the help pagination error reply.");
                 }
+            }
+        }
+
+        /// <summary>Adapts one gateway button click to the gateway-free pagination core.</summary>
+        private sealed class SocketPaginationButton : IHelpPaginationButton
+        {
+            private readonly SocketMessageComponent _component;
+
+            public SocketPaginationButton(SocketMessageComponent component)
+            {
+                _component = component;
+            }
+
+            public IUser User => _component.User;
+            public string CustomId => _component.Data.CustomId;
+            public IMessageChannel Channel => _component.Channel;
+            public DateTimeOffset CreatedAt => _component.CreatedAt;
+
+            public Task DeferAsync()
+            {
+                return _component.DeferAsync();
+            }
+
+            public Task SendEphemeralAsync(string text)
+            {
+                return _component.FollowupAsync(text, ephemeral: true);
+            }
+
+            public Task ModifyListInPlaceAsync(string content, MessageComponent components)
+            {
+                return _component.ModifyOriginalResponseAsync(properties =>
+                {
+                    properties.Content = content;
+                    properties.Components = components;
+                });
             }
         }
     }

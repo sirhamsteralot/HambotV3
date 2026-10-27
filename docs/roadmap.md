@@ -33,20 +33,6 @@ The remaining backlog is specified ahead of implementation and organised into ph
 - **Phase #2: LLM Integration** — LLM-driven presence and bio updates (FR-92–FR-95, FR-99, FR-102–FR-104, FR-114 / NFR-21, NFR-25; design §3.12), then LLM conversation participation & memory (a deliberately unspecced placeholder; design it after everything above is in production). The LLM-related watchdog conditions (design §3.13) activate when this phase lands.
 - **Phase #3: Extra features** — the automated hall of fame (per-guild reaction tracking and a scheduled digest of the community's best messages; FRs and design section to be authored when scheduled), the user bot-ban moderation feature (temporary or permanent; FRs and design section to be authored when scheduled), with room for further community-facing extras as they are proposed.
 
-## Bug fixes
-
-- [ ] **Help pagination buttons break the list when a lower-tier user pages through it**
-
-    **Problem**: the help list's previous/next buttons ride on a public bot message, and a click re-runs `help <page>` through the virtual-invocation seam **as the clicker** (`HelpPaginationService`), so the page is computed for the clicker's permission tier — a deliberate choice so a clicker only ever sees their own commands. But the button's target page comes from the message the *original invoker* generated. When an admin runs `!help` (their tier makes a multi-page list), a lower-tier user who clicks "Next ▶" requests a page that does not exist in their shorter single-page list: the help command's "There is no page N; the command list has 1 page(s)" validation reply is captured as a normal executed reply with no components, and the service then rewrites the admin's message in place with that error text and strips its buttons. The admin's paginated list is destroyed in-channel (error shown publicly instead of ephemerally), and the lower-tier user is left with a broken message they cannot page.
-
-    **Steps**:
-
-    1. Decide the ownership model when specifying the fix: either only the original invoker may page their own help message (the standard Discord pattern — anyone else's click gets an ephemeral denial), or any clicker may page but the message's content is then re-rendered for the clicker, with out-of-range clicks clamped or declined ephemerally and the original message left untouched.
-    2. Implement in `SlashCommands/HelpPaginationService.cs` (with `Commands/SystemCommands/HelpPagination.cs` and `HelpCommand.cs` as needed): a declined or out-of-range paging invocation must never reach `ModifyOriginalResponseAsync` — it gets an ephemeral reply, like the existing permission/cooldown denial path — and the public message stays exactly as it was.
-    3. Cover with unit tests: an invoker's own button clicks keep updating the message; another user's click on a page beyond their visible list (the admin/lower-role case) neither modifies the message nor posts a public error; the denial (or clamped page) is ephemeral; the buttons remain functional afterwards.
-
-    **Acceptance criteria**: an admin's multi-page help list survives clicks from lower-tier users, out-of-range or unauthorized clicks get an ephemeral reply only, and the build stays warning-free with tests green.
-
 ## Phase #2: LLM Integration
 
 - [ ] **LLM integration, phase 1 — automatic presence and bio updates, including the bot's persona (FR-92–FR-95, FR-99, FR-102–FR-104, FR-114 / NFR-21, NFR-25; design §3.12)**

@@ -2,6 +2,7 @@ using Discord;
 using HambotV2.Commands;
 using HambotV2.Commands.SystemCommands;
 using HambotV2.Connections;
+using Moq;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 
@@ -305,38 +306,139 @@ namespace BotTests
         [TestMethod]
         public void Pagination_Buttons_Target_Adjacent_Pages_And_Disable_At_The_Bounds()
         {
-            var middle = HelpPagination.GetButtons(currentPage: 2, pageCount: 3);
-            Assert.AreEqual("help:page:1", middle!.Value.PreviousId);
+            const ulong invokerId = 77;
+
+            var middle = HelpPagination.GetButtons(invokerId, currentPage: 2, pageCount: 3);
+            Assert.AreEqual("help:page:77:1", middle!.Value.PreviousId);
             Assert.IsFalse(middle.Value.PreviousDisabled);
-            Assert.AreEqual("help:page:3", middle.Value.NextId);
+            Assert.AreEqual("help:page:77:3", middle.Value.NextId);
             Assert.IsFalse(middle.Value.NextDisabled);
 
-            var first = HelpPagination.GetButtons(1, 3);
+            var first = HelpPagination.GetButtons(invokerId, 1, 3);
             Assert.IsTrue(first!.Value.PreviousDisabled, "The previous button is disabled on the first page");
             Assert.IsFalse(first.Value.NextDisabled);
 
-            var last = HelpPagination.GetButtons(3, 3);
+            var last = HelpPagination.GetButtons(invokerId, 3, 3);
             Assert.IsFalse(last!.Value.PreviousDisabled);
             Assert.IsTrue(last.Value.NextDisabled, "The next button is disabled on the last page");
 
-            Assert.IsNotNull(HelpPagination.BuildButtons(2, 3), "A multi-page list builds a button pair");
+            Assert.IsNotNull(HelpPagination.BuildButtons(invokerId, 2, 3), "A multi-page list builds a button pair");
         }
 
         [TestMethod]
         public void Pagination_SinglePage_List_Has_No_Buttons()
         {
-            Assert.IsNull(HelpPagination.GetButtons(1, 1));
-            Assert.IsNull(HelpPagination.BuildButtons(1, 1));
+            Assert.IsNull(HelpPagination.GetButtons(77, 1, 1));
+            Assert.IsNull(HelpPagination.BuildButtons(77, 1, 1));
         }
 
         [TestMethod]
-        public void Pagination_CustomId_Parses_Back_To_The_Target_Page()
+        public void Pagination_CustomId_Parses_Back_To_The_Owner_And_Target_Page()
         {
-            Assert.IsTrue(HelpPagination.TryGetTargetPage(HelpPagination.CustomId(7), out int page));
+            Assert.IsTrue(HelpPagination.TryGetTargetPage(HelpPagination.CustomId(77, 7), out ulong invokerId, out int page));
+            Assert.AreEqual(77UL, invokerId);
             Assert.AreEqual(7, page);
 
-            foreach (string foreign in new[] { "", "help:page:", "help:page:zero", "help:page:-1", "other:page:2", "helppage:3" })
-                Assert.IsFalse(HelpPagination.TryGetTargetPage(foreign, out _), $"Foreign custom id '{foreign}' must not parse as a help button");
+            // The pre-ownership button format carries no invoker id: it parses as owned by nobody.
+            Assert.IsTrue(HelpPagination.TryGetTargetPage("help:page:7", out ulong legacyInvokerId, out int legacyPage));
+            Assert.AreEqual(0UL, legacyInvokerId);
+            Assert.AreEqual(7, legacyPage);
+
+            foreach (string foreign in new[] { "", "help:page:", "help:page:zero", "help:page:-1", "help:page:77:zero", "help:page:77:-1", "other:page:77:2", "helppage:77:3" })
+                Assert.IsFalse(HelpPagination.TryGetTargetPage(foreign, out _, out _), $"Foreign custom id '{foreign}' must not parse as a help button");
+        }
+
+        /// <summary>Moq double of one pagination button click, wired for the click-handling tests.</summary>
+        private static IHelpPaginationButton CreateButtonClick(ulong clickerId, string customId, out Mock<IHelpPaginationButton> button)
+        {
+            var user = new Mock<IUser>();
+            user.SetupGet(u => u.Id).Returns(clickerId);
+
+            button = new Mock<IHelpPaginationButton>();
+            button.SetupGet(b => b.User).Returns(user.Object);
+            button.SetupGet(b => b.CustomId).Returns(customId);
+            button.SetupGet(b => b.Channel).Returns(new Mock<IMessageChannel>().Object);
+            button.SetupGet(b => b.CreatedAt).Returns(DateTimeOffset.UnixEpoch);
+            button.Setup(b => b.DeferAsync()).Returns(Task.CompletedTask);
+            button.Setup(b => b.SendEphemeralAsync(It.IsAny<string>())).Returns(Task.CompletedTask);
+            button.Setup(b => b.ModifyListInPlaceAsync(It.IsAny<string>(), It.IsAny<MessageComponent>())).Returns(Task.CompletedTask);
+            return button.Object;
+        }
+
+        [TestMethod]
+        public async Task Pagination_Click_By_The_Invoker_Updates_The_Message_In_Place()
+        {
+            var button = CreateButtonClick(clickerId: 77, customId: HelpPagination.CustomId(77, 2), out Mock<IHelpPaginationButton> click);
+            var runner = new Mock<IVirtualCommandRunner>();
+            MessageComponent components = HelpPagination.BuildButtons(77, 2, 3)!;
+            runner
+                .Setup(r => r.RunAsync(It.IsAny<VirtualCommandInvocation>()))
+                .ReturnsAsync(new VirtualCommandResult(CommandOutcome.Executed, [new VirtualCommandReply("page 2 text", components)]));
+
+            await HelpPagination.HandleClickAsync(button, runner.Object);
+
+            click.Verify(b => b.DeferAsync(), Times.Once);
+            click.Verify(b => b.ModifyListInPlaceAsync("page 2 text", components), Times.Once);
+            click.Verify(b => b.SendEphemeralAsync(It.IsAny<string>()), Times.Never);
+        }
+
+        [TestMethod]
+        public async Task Pagination_Click_By_Another_User_Is_Declined_Ephemerally_And_Leaves_The_Message_Alone()
+        {
+            var button = CreateButtonClick(clickerId: 300, customId: HelpPagination.CustomId(77, 2), out Mock<IHelpPaginationButton> click);
+            var runner = new Mock<IVirtualCommandRunner>();
+
+            await HelpPagination.HandleClickAsync(button, runner.Object);
+
+            click.Verify(b => b.DeferAsync(), Times.Once);
+            click.Verify(b => b.SendEphemeralAsync(HelpPagination.ForeignClickerReply), Times.Once);
+            click.Verify(b => b.ModifyListInPlaceAsync(It.IsAny<string>(), It.IsAny<MessageComponent>()), Times.Never);
+            runner.Verify(r => r.RunAsync(It.IsAny<VirtualCommandInvocation>()), Times.Never,
+                "A foreign click must not run the pipeline — no cooldown consumption, no audit event, no reply to capture");
+        }
+
+        [TestMethod]
+        public async Task Pagination_Legacy_Button_Without_An_Owner_Is_Declined_For_Everyone()
+        {
+            var button = CreateButtonClick(clickerId: 77, customId: "help:page:2", out Mock<IHelpPaginationButton> click);
+            var runner = new Mock<IVirtualCommandRunner>();
+
+            await HelpPagination.HandleClickAsync(button, runner.Object);
+
+            click.Verify(b => b.SendEphemeralAsync(HelpPagination.ForeignClickerReply), Times.Once);
+            click.Verify(b => b.ModifyListInPlaceAsync(It.IsAny<string>(), It.IsAny<MessageComponent>()), Times.Never);
+            runner.Verify(r => r.RunAsync(It.IsAny<VirtualCommandInvocation>()), Times.Never);
+        }
+
+        [TestMethod]
+        public async Task Pagination_Out_Of_Range_Click_Of_The_Invoker_Gets_An_Ephemeral_Reply_And_Keeps_The_Message()
+        {
+            var button = CreateButtonClick(clickerId: 77, customId: HelpPagination.CustomId(77, 5), out Mock<IHelpPaginationButton> click);
+            var runner = new Mock<IVirtualCommandRunner>();
+            runner
+                .Setup(r => r.RunAsync(It.IsAny<VirtualCommandInvocation>()))
+                .ReturnsAsync(new VirtualCommandResult(CommandOutcome.Executed, [new VirtualCommandReply("There is no page 5; the command list has 1 page(s)", null)]));
+
+            await HelpPagination.HandleClickAsync(button, runner.Object);
+
+            click.Verify(b => b.SendEphemeralAsync("There is no page 5; the command list has 1 page(s)"), Times.Once);
+            click.Verify(b => b.ModifyListInPlaceAsync(It.IsAny<string>(), It.IsAny<MessageComponent>()), Times.Never,
+                "The out-of-range error must never replace the paginated message");
+        }
+
+        [TestMethod]
+        public async Task Pagination_Declined_Pipeline_Invocation_Is_Ephemeral_And_Keeps_The_Message()
+        {
+            var button = CreateButtonClick(clickerId: 77, customId: HelpPagination.CustomId(77, 2), out Mock<IHelpPaginationButton> click);
+            var runner = new Mock<IVirtualCommandRunner>();
+            runner
+                .Setup(r => r.RunAsync(It.IsAny<VirtualCommandInvocation>()))
+                .ReturnsAsync(new VirtualCommandResult(CommandOutcome.Throttled, [new VirtualCommandReply("You're using commands too quickly — please wait 3 more seconds.", null)]));
+
+            await HelpPagination.HandleClickAsync(button, runner.Object);
+
+            click.Verify(b => b.SendEphemeralAsync("You're using commands too quickly — please wait 3 more seconds."), Times.Once);
+            click.Verify(b => b.ModifyListInPlaceAsync(It.IsAny<string>(), It.IsAny<MessageComponent>()), Times.Never);
         }
 
         [TestMethod]

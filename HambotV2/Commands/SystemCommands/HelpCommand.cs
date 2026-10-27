@@ -80,8 +80,9 @@ namespace HambotV2.Commands.SystemCommands
                 pageText += Environment.NewLine + $"Use {context.CommandIdentifier}help <pageNumber> to see another page.";
 
             // The buttons ride along on every surface: a real channel renders them, the
-            // virtual channel captures them for the interaction reply.
-            await message.Channel.SendMessageAsync(pageText, components: HelpPagination.BuildButtons(requestedPage, pages.Count));
+            // virtual channel captures them for the interaction reply. They encode the
+            // invoker, so only they can page through their own list.
+            await message.Channel.SendMessageAsync(pageText, components: HelpPagination.BuildButtons(message.Author.Id, requestedPage, pages.Count));
         }
 
         /// <summary>The alphabetized <c>!name — description</c> lines for the commands the user's tier permits.</summary>
