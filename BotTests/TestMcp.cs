@@ -134,6 +134,43 @@ namespace BotTests
         }
 
         [TestMethod]
+        public void ListChannels_ListsIdNameAndTypePerChannel()
+        {
+            var harness = new ToolHarness();
+            harness.Discord.Channels =
+            [
+                new DiscordChannelSummary(7, "general", "text"),
+                new DiscordChannelSummary(8, "Lounge", "voice")
+            ];
+
+            McpToolResult result = harness.CreateTools().ListChannels(GuildId);
+
+            Assert.IsFalse(result.IsError);
+            Assert.AreEqual("7 general (text)\n8 Lounge (voice)", result.Text);
+        }
+
+        [TestMethod]
+        public void ListChannels_UnknownGuildIsAnError()
+        {
+            McpToolResult result = new ToolHarness().CreateTools().ListChannels(GuildId + 1);
+
+            Assert.IsTrue(result.IsError, "An unknown guild is an error result.");
+            StringAssert.Contains(result.Text, "no accessible guild");
+        }
+
+        [TestMethod]
+        public void ListChannels_NoChannelsReportsIt()
+        {
+            var harness = new ToolHarness();
+            harness.Discord.Channels = [];
+
+            McpToolResult result = harness.CreateTools().ListChannels(GuildId);
+
+            Assert.IsFalse(result.IsError);
+            StringAssert.Contains(result.Text, "no accessible channels");
+        }
+
+        [TestMethod]
         public void ListCommands_ListsNameTierDescriptionAndUsage()
         {
             var harness = new ToolHarness();
@@ -523,6 +560,7 @@ namespace BotTests
         {
             public IUser? CurrentUser { get; set; }
             public IReadOnlyList<DiscordGuildSummary> Guilds { get; set; } = [];
+            public IReadOnlyList<DiscordChannelSummary>? Channels { get; set; } = [];
             public IReadOnlyList<DiscordChannelMessage>? RecentMessages { get; set; } = [];
             public bool SendResult { get; set; } = true;
             public bool ThrowOnRecentMessages { get; set; }
@@ -537,6 +575,8 @@ namespace BotTests
             public IMessageChannel? Channel { get; set; }
 
             public IReadOnlyList<DiscordGuildSummary> GetGuilds() => Guilds;
+
+            public IReadOnlyList<DiscordChannelSummary>? GetGuildChannels(ulong guildId) => guildId == KnownGuildId ? Channels : null;
 
             public IMessageChannel? GetGuildTextChannel(ulong guildId) => guildId == KnownGuildId ? Channel : null;
 

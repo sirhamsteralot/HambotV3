@@ -6,6 +6,9 @@ namespace HambotV2.Mcp
     /// <summary>One guild of the shared client's cache, as reported by the <c>list_guilds</c> tool.</summary>
     internal sealed record DiscordGuildSummary(ulong Id, string Name);
 
+    /// <summary>One channel of a guild's cache, as reported by the <c>list_channels</c> tool.</summary>
+    internal sealed record DiscordChannelSummary(ulong Id, string Name, string Type);
+
     /// <summary>One channel message, as reported by the <c>get_recent_messages</c> tool.</summary>
     internal sealed record DiscordChannelMessage(ulong AuthorId, string AuthorName, DateTimeOffset Timestamp, string Content);
 
@@ -20,6 +23,9 @@ namespace HambotV2.Mcp
         IUser? CurrentUser { get; }
 
         IReadOnlyList<DiscordGuildSummary> GetGuilds();
+
+        /// <summary>The guild's cached channels; null when the guild is unknown.</summary>
+        IReadOnlyList<DiscordChannelSummary>? GetGuildChannels(ulong guildId);
 
         /// <summary>A text channel of the given guild the bot can read; null when the guild is unknown or has no accessible text channel.</summary>
         IMessageChannel? GetGuildTextChannel(ulong guildId);
@@ -49,6 +55,32 @@ namespace HambotV2.Mcp
                 .Select(guild => new DiscordGuildSummary(guild.Id, guild.Name))
                 .ToList();
         }
+
+        public IReadOnlyList<DiscordChannelSummary>? GetGuildChannels(ulong guildId)
+        {
+            SocketGuild? guild = _client.GetGuild(guildId);
+            if (guild is null)
+                return null;
+
+            return guild.Channels
+                .OrderBy(channel => channel.Position)
+                .Select(channel => new DiscordChannelSummary(channel.Id, channel.Name, DescribeChannelType(channel)))
+                .ToList();
+        }
+
+        // Specific before base: threads/news/stages are text or voice channels, and media channels are forums.
+        private static string DescribeChannelType(SocketGuildChannel channel) => channel switch
+        {
+            SocketThreadChannel => "thread",
+            SocketStageChannel => "stage",
+            SocketVoiceChannel => "voice",
+            SocketNewsChannel => "news",
+            SocketMediaChannel => "media",
+            SocketForumChannel => "forum",
+            SocketTextChannel => "text",
+            SocketCategoryChannel => "category",
+            _ => "other"
+        };
 
         public IMessageChannel? GetGuildTextChannel(ulong guildId)
         {

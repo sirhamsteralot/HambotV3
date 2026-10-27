@@ -28,6 +28,10 @@ namespace HambotV2.Mcp
         [Description("The guilds the bot is a member of, one '<id> <name>' per line.")]
         public CallToolResult ListGuilds() => ToToolResult(_tools.ListGuilds());
 
+        [McpServerTool(Name = "list_channels")]
+        [Description("The guild's cached channels, one '<id> <name> (<type>)' per line — the discoverable channel ids for get_recent_messages and send_message.")]
+        public CallToolResult ListChannels(ulong guildId) => ToToolResult(_tools.ListChannels(guildId));
+
         [McpServerTool(Name = "list_commands")]
         [Description("The bot's registered commands — name, default permission tier, description, and usage — for use with run_command, which takes the command line without the identifier.")]
         public CallToolResult ListCommands() => ToToolResult(_tools.ListCommands());

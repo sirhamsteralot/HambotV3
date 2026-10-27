@@ -74,6 +74,20 @@ namespace HambotV2.Mcp
             });
         }
 
+        public McpToolResult ListChannels(ulong guildId)
+        {
+            return Invoke("list_channels", () =>
+            {
+                IReadOnlyList<DiscordChannelSummary>? channels = _discord.GetGuildChannels(guildId);
+                if (channels is null)
+                    return McpToolResult.Error($"The bot has no accessible guild with id {guildId}.");
+
+                return McpToolResult.Ok(channels.Count == 0
+                    ? "The guild has no accessible channels."
+                    : string.Join("\n", channels.Select(channel => $"{channel.Id} {channel.Name} ({channel.Type})")));
+            });
+        }
+
         public McpToolResult ListCommands()
         {
             return Invoke("list_commands", () =>

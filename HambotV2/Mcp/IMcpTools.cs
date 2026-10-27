@@ -15,6 +15,8 @@ namespace HambotV2.Mcp
 
         McpToolResult ListGuilds();
 
+        McpToolResult ListChannels(ulong guildId);
+
         McpToolResult ListCommands();
 
         Task<McpToolResult> SetPresenceAsync(string type, string text);

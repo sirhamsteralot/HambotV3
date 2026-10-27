@@ -353,6 +353,7 @@ The random fetch draws the guild's quote count and skips a `Random.Shared`-chose
 |---|---|
 | `bot_status` | `BotVersion.Current` (§3.9), uptime, gateway state (the §3.13 `IGatewayStatus` view), connected guild count, `IPresenceService.CurrentActivity`/`CurrentBio` (§3.10) |
 | `list_guilds` | the shared client's guild cache |
+| `list_channels(guildId)` | the guild's channel cache — every cached channel's id, name, and type (text, voice, category, forum, thread, …), by channel position, for channel-id discovery; an unknown guild is an error result |
 | `list_commands` | the shared `ICommandService` registry — every command's name, default permission tier, description, and usage, in name order, for `run_command` discovery (guilds may override the required tier) |
 | `get_recent_messages(channelId, limit)` | Discord REST (`GetChannelAsync` + `GetMessagesAsync`), capped at 50, within the bot's existing channel access |
 | `send_message(channelId, text)` | plain-text channel send, ≤ 2000 chars, no files/embeds (consistent with FR-60) |
