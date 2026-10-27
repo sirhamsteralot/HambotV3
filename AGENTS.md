@@ -26,7 +26,7 @@ dotnet test HambotV2.sln
 
 - Building requires the .NET 10 SDK (`10.0.x`).
 
-- Tests run without a database or Discord token; they use Moq and in-memory configuration. All tests are in `BotTests/` (`TestCommandInfrastructure.cs`, `TestCommands.cs`, `TestPermissions.cs`, `TestCommandHandler.cs`, `TestConfigurationValidator.cs`, `TestPermissionCommands.cs`, `TestHelp.cs`, `TestCommandArguments.cs`, `TestGuildSettings.cs`, `TestCooldowns.cs`, `TestQuotes.cs`, `TestCustomResponses.cs`, `TestReminders.cs`, `TestVersion.cs`, `TestBackups.cs`, `TestWatchdog.cs`, `TestPresence.cs`, `TestProfileImages.cs`, `TestMcp.cs`, `TestAgentTier.cs`, `TestBotBans.cs`, plus the shared `DiscordTestDoubles.cs`).
+- Tests run without a database or Discord token; they use Moq and in-memory configuration. All tests are in `BotTests/` (`TestCommandInfrastructure.cs`, `TestCommands.cs`, `TestPermissions.cs`, `TestCommandHandler.cs`, `TestConfigurationValidator.cs`, `TestPermissionCommands.cs`, `TestHelp.cs`, `TestCommandArguments.cs`, `TestGuildSettings.cs`, `TestCooldowns.cs`, `TestQuotes.cs`, `TestCustomResponses.cs`, `TestReminders.cs`, `TestQuoteOfTheDay.cs`, `TestVersion.cs`, `TestBackups.cs`, `TestWatchdog.cs`, `TestPresence.cs`, `TestProfileImages.cs`, `TestMcp.cs`, `TestAgentTier.cs`, `TestBotBans.cs`, plus the shared `DiscordTestDoubles.cs`).
 - The build is warning-free; keep it that way and avoid introducing new warnings.
 
 ## Docker

@@ -4,7 +4,8 @@ using System.Text.RegularExpressions;
 namespace HambotV2.Commands.ReminderCommands
 {
     /// <summary>
-    /// Parses the leading duration tokens of a <c>remindme</c> invocation:
+    /// The shared duration parser for the duration-taking commands (<c>remindme</c>'s one-shot and
+    /// recurring forms, the quote-of-the-day's due time and interval):
     /// number+unit tokens in compact (<c>10d</c>) and spaced (<c>10 d</c>) form — units
     /// <c>s</c>/<c>m</c>/<c>h</c>/<c>d</c>/<c>w</c> accepted case-insensitively, with common
     /// abbreviations (<c>sec</c>, <c>min</c>, <c>hr</c>, <c>wk</c>, and their plurals) and long

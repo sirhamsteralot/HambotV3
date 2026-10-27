@@ -3,7 +3,7 @@ namespace HambotV2.QuoteOfTheDay
     /// <summary>
     /// The deployment-level quote-of-the-day limit from the optional <c>QuoteOfTheDay</c>
     /// configuration section: the minimum publication interval
-    /// (<c>QuoteOfTheDay:MinIntervalMinutes</c>, default 1) every guild's <c>every</c> setting is
+    /// (<c>QuoteOfTheDay:MinIntervalMinutes</c>, default 1) every guild's interval setting is
     /// validated against. A null or invalid entry falls back to the default, so a typo in
     /// configuration degrades to the shipped value instead of breaking the command — the same
     /// treatment <c>ReminderSettings</c> gets.
