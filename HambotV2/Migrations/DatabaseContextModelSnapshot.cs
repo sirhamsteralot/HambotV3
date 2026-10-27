@@ -123,6 +123,18 @@ namespace HambotV2.Migrations
                     b.Property<int?>("OperatorAgentTier")
                         .HasColumnType("integer");
 
+                    b.Property<DateTimeOffset?>("QuoteOfTheDayAnchorUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<decimal?>("QuoteOfTheDayChannelId")
+                        .HasColumnType("numeric(20,0)");
+
+                    b.Property<int?>("QuoteOfTheDayIntervalMinutes")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("QuoteOfTheDayTemplate")
+                        .HasColumnType("text");
+
                     b.HasKey("GuildId");
 
                     b.ToTable("GuildSettings");

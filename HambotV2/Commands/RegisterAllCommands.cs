@@ -6,6 +6,7 @@ using HambotV2.Commands.ResponseCommands;
 using HambotV2.Commands.SystemCommands;
 using HambotV2.Connections;
 using HambotV2.Maintenance;
+using HambotV2.QuoteOfTheDay;
 using HambotV2.Scheduling;
 using HambotV2.Watchdog;
 
@@ -30,10 +31,11 @@ namespace HambotV2.Commands
             IHealthSnapshotProvider? healthSnapshotProvider = null,
             IPresenceService? presenceService = null,
             IImageContentDownloader? imageContentDownloader = null,
-            ReminderSettings? reminderSettings = null)
+            ReminderSettings? reminderSettings = null,
+            QuoteOfTheDaySettings? quoteOfTheDaySettings = null)
         {
             RegisterSystemCommands.RegisterCommands(commandService, notificationChannelStore, healthSnapshotProvider, presenceService, imageContentDownloader);
-            RegisterQuoteCommands.RegisterCommands(commandService);
+            RegisterQuoteCommands.RegisterCommands(commandService, quoteOfTheDaySettings);
             RegisterResponseCommands.RegisterCommands(commandService);
             RegisterReminderCommands.RegisterCommands(commandService, deliverySignal, reminderSettings);
             RegisterBackupCommands.RegisterCommands(commandService, backupManager, maintenanceMode, notificationPublisher);

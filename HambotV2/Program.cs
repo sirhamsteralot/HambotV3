@@ -5,6 +5,7 @@ using HambotV2.Commands;
 using HambotV2.Connections;
 using HambotV2.Maintenance;
 using HambotV2.Mcp;
+using HambotV2.QuoteOfTheDay;
 using HambotV2.Reminders;
 using HambotV2.Scheduling;
 using HambotV2.SlashCommands;
@@ -73,6 +74,14 @@ namespace HambotV2
                 serviceProvider.GetRequiredService<ILogger<ScheduledMessageDeliveryService<ScheduledReminderMessage>>>(),
                 serviceProvider.GetRequiredService<IMaintenanceMode>(),
                 serviceProvider.GetRequiredService<INotificationPublisher>()));
+
+            // Quote of the day: the publication loop posts each configured guild's random quote
+            // into its channel at the guild's schedule boundaries. The sender resolves the
+            // channel by id on the shared gateway client at publication time; a deleted or
+            // unavailable channel is a per-boundary failure, not a configuration-time check.
+            builder.Services.AddSingleton<IQuoteOfTheDayChannelSender>(serviceProvider =>
+                new DiscordQuoteOfTheDayChannelSender(serviceProvider.GetRequiredService<DiscordSocketClient>()));
+            builder.Services.AddHostedService<QuoteOfTheDayPublicationService>();
 
             // Singleton so the per-guild command identifiers stay cached for the gateway
             // pre-filter and command parsing.

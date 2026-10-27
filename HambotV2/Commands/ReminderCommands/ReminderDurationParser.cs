@@ -30,6 +30,28 @@ namespace HambotV2.Commands.ReminderCommands
         }
 
         /// <summary>
+        /// Parses exactly one duration token (compact <c>10d</c> or spaced <c>10 d</c>) without
+        /// summing what follows — the single-duration form a command needs when a second duration
+        /// comes after it, e.g. the quote-of-the-day's <c>&lt;due time&gt; &lt;interval&gt;</c>
+        /// arguments. The total is positive; <paramref name="consumedTokens"/> counts from the
+        /// arguments' start.
+        /// </summary>
+        public static bool TryParseFirst(CommandArguments arguments, int startIndex, out TimeSpan duration, out int consumedTokens)
+        {
+            duration = TimeSpan.Zero;
+            consumedTokens = 0;
+
+            if (!TryParseDurationToken(arguments, startIndex, out double seconds, out int tokens)
+                || seconds <= 0
+                || seconds > TimeSpan.MaxValue.TotalSeconds)
+                return false;
+
+            duration = TimeSpan.FromSeconds(seconds);
+            consumedTokens = tokens;
+            return true;
+        }
+
+        /// <summary>
         /// Same parse starting at <paramref name="startIndex"/> — the recurring form's interval
         /// begins after the leading <c>every</c> token. <paramref name="consumedTokens"/>
         /// counts from the arguments' start, so the message still starts at

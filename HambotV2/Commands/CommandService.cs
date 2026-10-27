@@ -3,6 +3,7 @@ using HambotV2.Backups;
 using HambotV2.Commands.ReminderCommands;
 using HambotV2.Connections;
 using HambotV2.Maintenance;
+using HambotV2.QuoteOfTheDay;
 using HambotV2.Scheduling;
 using HambotV2.Watchdog;
 
@@ -31,6 +32,12 @@ namespace HambotV2.Commands
         private readonly ReminderSettings _reminderSettings;
 
         /// <summary>
+        /// The quote-of-the-day deployment limit, parsed from the optional <c>QuoteOfTheDay</c>
+        /// configuration section; defaults apply when no configuration is supplied (tests).
+        /// </summary>
+        private readonly QuoteOfTheDaySettings _quoteOfTheDaySettings;
+
+        /// <summary>
         /// The signal defaults to an isolated instance, and the backup & stability and presence dependencies to null, which
         /// keeps the registry usable in tests that do not exercise those features (the affected
         /// commands then report "not configured" if actually executed).
@@ -55,6 +62,7 @@ namespace HambotV2.Commands
             _presenceService = presenceService;
             _imageContentDownloader = imageContentDownloader;
             _reminderSettings = ReminderSettings.FromConfiguration(configuration);
+            _quoteOfTheDaySettings = QuoteOfTheDaySettings.FromConfiguration(configuration);
         }
 
         public Dictionary<string, ICommand> Commands { get; } = new();
@@ -64,7 +72,7 @@ namespace HambotV2.Commands
 
         public void RegisterCommands()
         {
-            RegisterAllCommands.RegisterCommands(this, _deliverySignal, _backupManager, _maintenanceMode, _notificationPublisher, _notificationChannelStore, _healthSnapshotProvider, _presenceService, _imageContentDownloader, _reminderSettings);
+            RegisterAllCommands.RegisterCommands(this, _deliverySignal, _backupManager, _maintenanceMode, _notificationPublisher, _notificationChannelStore, _healthSnapshotProvider, _presenceService, _imageContentDownloader, _reminderSettings, _quoteOfTheDaySettings);
             CommandsRegistered = true;
         }
 

@@ -251,3 +251,23 @@ Requires a second (non-owner) test account. Run as the guild owner unless noted.
 | 14.12 | `!banuser`, `!banuser notanid`, `!unbanuser`, `!banlist` in a **DM** | "This command manages per-server state and is only available in servers" (FR-25). |
 | 14.13 | `!help` as a moderator | The ban commands appear under the **Moderation** group (FR-132). |
 | 14.14 | (Slash surface on) `/banuser` picking a user with duration `10m` | Same ban as the text surface; `/banlist` shows it; reply visible only to the invoker. |
+
+## 15. Quote of the day (FR-127–FR-131 / NFR-29)
+
+Requires a test server with at least one saved quote and a channel the bot can post in. Run as the guild owner unless noted.
+
+| # | Action | Expected |
+|---|---|---|
+| 15.1 | `!quoteoftheday` | "The quote of the day is off in this server — set a channel with !quoteoftheday channel <#channel>". |
+| 15.2 | `!quoteoftheday channel <#target>` | "…will now go to <#target> — the first one appears at the next schedule boundary". |
+| 15.3 | `!quoteoftheday 3m 2m` | Confirmation naming the computed UTC time; within ~3 minutes the configured channel receives "quote of the day: #N: <text>" — the default template with the number-prefixed quote (FR-128/FR-129). |
+| 15.4 | Wait ~2 more minutes | A second publication at the next boundary — 2 minutes after the first, no duplicates and no burst (FR-130). |
+| 15.5 | `!quoteoftheday` | Reports channel, interval, next due time (UTC), and template. |
+| 15.6 | `!quoteoftheday template best of the server: {quote}` then wait for the next boundary | "The publication template was saved"; the next publication uses the new wording (FR-128). |
+| 15.7 | `!quoteoftheday 5h 30s` (below the deployment default floor of 1 minute) | In-channel "The interval must be at least 1m"; nothing stored (FR-127). |
+| 15.8 | `!quoteoftheday banana 1d`, `!quoteoftheday 5h`, `!quoteoftheday 5h 90s`, `!quoteoftheday template no placeholder` | In-channel errors naming each problem; nothing stored (FR-128). |
+| 15.9 | `!quoteoftheday 5h 1d` | Confirmation naming the computed UTC time; the first publication appears at exactly that time, then every day at that time (FR-128/FR-130). |
+| 15.10 | Delete the target channel (or revoke Send Messages), wait past a boundary, then restore it | The boundary is skipped (no error loop, the feature stays on); the next publication arrives at the next boundary (FR-131). |
+| 15.11 | `!quoteoftheday channel clear` | "The quote of the day is now off in this server"; no further publications (FR-127). |
+| 15.12 | `!quoteoftheday` in a **DM** | "This command manages per-server state and is only available in servers" (FR-128). |
+| 15.13 | (Slash surface on) `/quoteoftheday` picking a channel | Same set as the text surface; reply visible only to the invoker (FR-110/FR-128). |

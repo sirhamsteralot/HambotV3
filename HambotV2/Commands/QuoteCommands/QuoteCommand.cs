@@ -63,29 +63,44 @@ namespace HambotV2.Commands.QuoteCommands
         /// </summary>
         internal static async Task SendFittedAsync(IMessage message, string reply)
         {
-            if (reply.Length > MaxTextLength)
-                reply = reply[..(MaxTextLength - 1)] + "…";
-
-            await message.Channel.SendMessageAsync(reply);
+            await message.Channel.SendMessageAsync(TrimToMessageLimit(reply));
         }
 
-        private static async Task SendRandomQuote(IMessage message, ICommandContext context, ulong guildId)
+        /// <summary>Trims a reply to Discord's message limit, with a trailing ellipsis — the shared cap for quote replies and quote-of-the-day publications.</summary>
+        internal static string TrimToMessageLimit(string reply)
         {
-            // One count query plus one offset fetch: provider-agnostic, so the InMemory test
-            // provider exercises the same path as Npgsql.
-            int count = await context.DbContext.Quotes.CountAsync(quote => quote.GuildId == guildId);
+            return reply.Length > MaxTextLength
+                ? reply[..(MaxTextLength - 1)] + "…"
+                : reply;
+        }
+
+        /// <summary>
+        /// The guild's random quote — the shared fetch behind <c>!quote</c> and the quote of the
+        /// day: one count query plus one offset fetch, provider-agnostic, so the InMemory test
+        /// provider exercises the same path as Npgsql. Null when the guild has no quotes.
+        /// </summary>
+        internal static async Task<DatabaseContext.Quote?> GetRandomQuoteAsync(IDatabaseContext database, ulong guildId)
+        {
+            int count = await database.Quotes.CountAsync(quote => quote.GuildId == guildId);
             if (count == 0)
-            {
-                await message.Channel.SendMessageAsync("There are no quotes yet in this server — add one with !quote <text>");
-                return;
-            }
+                return null;
 
             int offset = Random.Shared.Next(count);
-            var quote = await context.DbContext.Quotes
+            return await database.Quotes
                 .Where(item => item.GuildId == guildId)
                 .OrderBy(item => item.Number)
                 .Skip(offset)
                 .FirstAsync();
+        }
+
+        private static async Task SendRandomQuote(IMessage message, ICommandContext context, ulong guildId)
+        {
+            var quote = await GetRandomQuoteAsync(context.DbContext, guildId);
+            if (quote is null)
+            {
+                await message.Channel.SendMessageAsync("There are no quotes yet in this server — add one with !quote <text>");
+                return;
+            }
 
             await SendFittedAsync(message, FormatQuote(quote));
         }

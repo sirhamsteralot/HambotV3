@@ -237,6 +237,7 @@ If the token is wrong/missing you'll instead see a critical message naming the m
 | `!searchquotes <text...>` | Searches this server's quotes (up to 10 results). |
 | `!removequote <number>` | Removes one of this server's quotes. |
 | `!importquotes` | Imports the old bot's quotes: attach its `quoteSettings.json` to the message. |
+| `!quoteoftheday [<due time> <interval> \| channel <#channel\|clear> \| template <text...>]` | Shows or configures this server's scheduled quote of the day: a random quote published into the configured channel, all in UTC. The schedule is set as `<due time> <interval>` — e.g. `!quoteoftheday 5h 1d` publishes the first quote in 5 hours, then every day at that time (default until set: daily at 00:00 UTC). The message wording comes from the template (default `quote of the day: {quote}`); the interval floor is deployment configuration (`QuoteOfTheDay:MinIntervalMinutes`, default 1 minute). Admin-only by default. |
 | `!addresponse <name> <text...>` | Creates or updates a custom response for this server — afterwards `!<name>` replies with the stored text (dispatched like any command: same permission and cooldown checks). |
 | `!listresponses` / `!removeresponse <name>` | Lists this server's custom response names / removes one. |
 | `!commandpermission <name> [tier]` | Prints a command's required tier, or sets/creates it. Admin-only by default. |

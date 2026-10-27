@@ -62,6 +62,18 @@ namespace HambotV2.Connections
             /// <summary>The tier the MCP operator agent acts at in this guild; null = the lowest-tier default.</summary>
             public int? OperatorAgentTier { get; set; }
 
+            /// <summary>The channel the scheduled quote of the day publishes to; null = the feature is off for this guild.</summary>
+            public ulong? QuoteOfTheDayChannelId { get; set; }
+
+            /// <summary>The publication message template; null = the default wording.</summary>
+            public string? QuoteOfTheDayTemplate { get; set; }
+
+            /// <summary>The publication interval in minutes; null = 24 hours.</summary>
+            public int? QuoteOfTheDayIntervalMinutes { get; set; }
+
+            /// <summary>The UTC instant the schedule is anchored to; null = 00:00 UTC (epoch-aligned).</summary>
+            public DateTimeOffset? QuoteOfTheDayAnchorUtc { get; set; }
+
             /// <summary>Per-tier cooldown overrides in seconds; null = inherit the global default.</summary>
             public int? CooldownSecondsTier0 { get; set; }
             public int? CooldownSecondsTier1 { get; set; }
