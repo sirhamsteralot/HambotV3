@@ -17,6 +17,9 @@ namespace HambotV2.Commands
         /// <summary>Required permission tier when no CommandMetaData override exists in the database.</summary>
         int DefaultPermissionTier { get; }
 
+        /// <summary>The group the command is listed under in the help list; presentation-only.</summary>
+        CommandCategory Category { get; }
+
         /// <summary>
         /// Slash-surface declaration: null — the default — keeps the command text-only;
         /// an instance opts the command into the Discord application-command surface. Only

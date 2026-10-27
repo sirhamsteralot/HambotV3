@@ -14,6 +14,7 @@ namespace HambotV2.Commands.SystemCommands
         public string Description => "Shows the bot's version";
         public string Usage => "version";
         public int DefaultPermissionTier => PermissionTier.Everyone;
+        public CommandCategory Category => CommandCategory.General;
 
         public async Task ExecuteCommand(IMessage message, ICommandContext context)
         {

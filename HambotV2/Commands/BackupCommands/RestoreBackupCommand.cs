@@ -36,6 +36,7 @@ namespace HambotV2.Commands.BackupCommands
         public string Description => "Restores a database backup (destructive — requires an explicit confirm step)";
         public string Usage => "restorebackup <name> [confirm]";
         public int DefaultPermissionTier => PermissionTier.BotOwner;
+        public CommandCategory Category => CommandCategory.BackupsAndStability;
 
         /// <summary>
         /// Slash surface: the two-step confirmation stays free-form so

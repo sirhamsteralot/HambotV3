@@ -22,6 +22,7 @@ namespace HambotV2.Commands.SystemCommands
         public string Description => "Shows, sets, or clears the bot's activity (playing/watching/listening/competing)";
         public string Usage => "presence [<type> <text...> | clear]";
         public int DefaultPermissionTier => PermissionTier.BotOwner;
+        public CommandCategory Category => CommandCategory.BotProfile;
 
         /// <summary>
         /// Slash surface: the activity argument line stays free-form so

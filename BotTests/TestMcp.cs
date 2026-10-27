@@ -679,6 +679,7 @@ namespace BotTests
             public string Description => "Replies with a fixed text for testing";
             public string Usage => "say";
             public int DefaultPermissionTier { get; }
+            public CommandCategory Category => CommandCategory.General;
 
             public Task ExecuteCommand(IMessage message, ICommandContext context)
                 => message.Channel.SendMessageAsync(_reply);

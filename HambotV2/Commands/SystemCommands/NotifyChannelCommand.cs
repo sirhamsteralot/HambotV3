@@ -24,6 +24,7 @@ namespace HambotV2.Commands.SystemCommands
         public string Description => "Shows, sets, or clears the channel the bot posts error and failure notifications to";
         public string Usage => "notifychannel [<channel mention or id> | clear]";
         public int DefaultPermissionTier => PermissionTier.BotOwner;
+        public CommandCategory Category => CommandCategory.BackupsAndStability;
 
         /// <summary>
         /// Slash surface: the operation stays free-form so <c>clear</c> and a raw

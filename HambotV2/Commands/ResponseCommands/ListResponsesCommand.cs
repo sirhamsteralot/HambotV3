@@ -14,6 +14,7 @@ namespace HambotV2.Commands.ResponseCommands
         public string Description => "List this server's custom response names";
         public string Usage => "listresponses";
         public int DefaultPermissionTier => PermissionTier.Everyone;
+        public CommandCategory Category => CommandCategory.CustomResponses;
 
         public async Task ExecuteCommand(IMessage message, ICommandContext context)
         {

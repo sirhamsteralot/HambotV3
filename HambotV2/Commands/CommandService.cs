@@ -87,6 +87,9 @@ namespace HambotV2.Commands
             if (!PermissionTier.IsValid(command.DefaultPermissionTier))
                 throw new ArgumentException($"Command '{commandName}' declares invalid default permission tier {command.DefaultPermissionTier}.", nameof(command));
 
+            if (!CommandCategories.IsValid(command.Category))
+                throw new ArgumentException($"Command '{commandName}' declares an undefined category.", nameof(command));
+
             Commands.Add(commandName, command);
         }
 

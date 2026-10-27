@@ -485,6 +485,7 @@ namespace BotTests
             public string Description => "Throws for testing the failure path";
             public string Usage => "kaboom";
             public int DefaultPermissionTier => PermissionTier.Everyone;
+            public CommandCategory Category => CommandCategory.General;
 
             public Task ExecuteCommand(IMessage message, ICommandContext context)
                 => throw new InvalidOperationException("kaboom");
@@ -575,6 +576,7 @@ namespace BotTests
             public string Description { get; set; } = "A stub command for the definition contract";
             public string Usage => _name;
             public int DefaultPermissionTier => PermissionTier.Everyone;
+            public CommandCategory Category => CommandCategory.General;
             public ApplicationCommandDeclaration? ApplicationCommand => _declaration;
 
             public Task ExecuteCommand(IMessage message, ICommandContext context) => Task.CompletedTask;

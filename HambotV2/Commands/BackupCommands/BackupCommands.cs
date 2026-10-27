@@ -24,6 +24,7 @@ namespace HambotV2.Commands.BackupCommands
         public string Description => "Creates a database backup immediately and replies with its name and size";
         public string Usage => "backup";
         public int DefaultPermissionTier => PermissionTier.BotOwner;
+        public CommandCategory Category => CommandCategory.BackupsAndStability;
 
         /// <summary>Slash surface: administrative, no arguments.</summary>
         public ApplicationCommandDeclaration? ApplicationCommand => ApplicationCommandDeclaration.NoArguments;
@@ -70,6 +71,7 @@ namespace HambotV2.Commands.BackupCommands
         public string Description => "Lists the available database backups, newest first";
         public string Usage => "backups";
         public int DefaultPermissionTier => PermissionTier.BotOwner;
+        public CommandCategory Category => CommandCategory.BackupsAndStability;
 
         /// <summary>Slash surface: administrative, no arguments.</summary>
         public ApplicationCommandDeclaration? ApplicationCommand => ApplicationCommandDeclaration.NoArguments;

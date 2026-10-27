@@ -13,6 +13,7 @@ namespace HambotV2.Commands.ResponseCommands
         public string Description => "Remove one of this server's custom responses by its name";
         public string Usage => "removeresponse <name>";
         public int DefaultPermissionTier => PermissionTier.Moderator;
+        public CommandCategory Category => CommandCategory.CustomResponses;
 
         public async Task ExecuteCommand(IMessage message, ICommandContext context)
         {

@@ -13,6 +13,7 @@ namespace HambotV2.Commands.QuoteCommands
         public string Description => "Remove one of this server's quotes by its number";
         public string Usage => "removequote <number>";
         public int DefaultPermissionTier => PermissionTier.Moderator;
+        public CommandCategory Category => CommandCategory.Quotes;
 
         public async Task ExecuteCommand(IMessage message, ICommandContext context)
         {

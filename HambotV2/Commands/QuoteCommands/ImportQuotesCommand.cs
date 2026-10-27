@@ -24,6 +24,7 @@ namespace HambotV2.Commands.QuoteCommands
         public string Description => "Import the old bot's quotes into this server by attaching its quoteSettings.json file to the message";
         public string Usage => "importquotes";
         public int DefaultPermissionTier => PermissionTier.BotOwner;
+        public CommandCategory Category => CommandCategory.Quotes;
 
         public async Task ExecuteCommand(IMessage message, ICommandContext context)
         {

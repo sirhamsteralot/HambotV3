@@ -19,6 +19,7 @@ namespace HambotV2.Commands.QuoteCommands
         public string Description => "Show a random quote, show a quote by its number, or add new text as a quote";
         public string Usage => "quote [number|text...]";
         public int DefaultPermissionTier => PermissionTier.Everyone;
+        public CommandCategory Category => CommandCategory.Quotes;
 
         public async Task ExecuteCommand(IMessage message, ICommandContext context)
         {

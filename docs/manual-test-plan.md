@@ -45,7 +45,7 @@ Run this against a **test deployment** before rolling a build out to production:
 |---|---|---|
 | 1.1 | `!version` in the test server | Reply with the version (e.g. `1.2.3+1639324`; local builds show `0.0.0+unknown` — fine). |
 | 1.2 | `!hello` | `Hello World` |
-| 1.3 | `!help` | Lists all commands, one per line, with descriptions. |
+| 1.3 | `!help` | Lists the account's commands grouped by category under bold headers (General, Quotes, Custom responses, Reminders, Permissions & settings, Backups & stability, Bot profile), alphabetized within each group; categories with nothing visible to the account are omitted (FR-38/FR-132/FR-133). |
 | 1.4 | `!help backup` | Detailed help: description, usage, required tier. |
 | 1.5 | `!help nonexistentcommand` | Generic "The requested command is unavailable" — no error, no reveal. |
 | 1.6 | Any command from a **second, non-owner test account** (default tier) | `You are not permitted to use that command` for admin/owner-tier commands. |

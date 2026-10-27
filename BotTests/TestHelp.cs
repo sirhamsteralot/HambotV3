@@ -441,40 +441,135 @@ namespace BotTests
             click.Verify(b => b.ModifyListInPlaceAsync(It.IsAny<string>(), It.IsAny<MessageComponent>()), Times.Never);
         }
 
+        private static List<string> Lines(int count) => Enumerable.Range(1, count).Select(number => $"!command{number} — description").ToList();
+
         [TestMethod]
-        public void BuildPages_Caps_At_Ten_Commands_Per_Page()
+        public void Every_Registered_Command_Carries_A_Defined_Category()
         {
-            var lines = Enumerable.Range(1, 25).Select(number => $"!command{number} — description").ToList();
+            var commandService = CreateRegisteredService();
 
-            List<string> pages = HelpCommand.BuildPages(lines);
-
-            Assert.AreEqual(3, pages.Count, "25 commands split into 10 + 10 + 5");
-            Assert.AreEqual(10, pages[0].Split(Environment.NewLine).Length);
-            Assert.AreEqual(10, pages[1].Split(Environment.NewLine).Length);
-            Assert.AreEqual(5, pages[2].Split(Environment.NewLine).Length);
+            foreach (ICommand command in commandService.Commands.Values)
+                Assert.IsTrue(CommandCategories.IsValid(command.Category), $"Command '{command.Name}' must belong to exactly one defined category");
         }
 
         [TestMethod]
-        public void BuildPages_Splits_Lines_By_Character_Budget_In_Order()
+        public async Task Help_List_Shows_All_Groups_In_Category_Order_Alphabetized_Within()
         {
-            var lines = new List<string> { new string('a', 100), new string('b', 100), new string('c', 100) };
+            var commandService = CreateRegisteredService();
+            var database = DiscordTestDoubles.CreateDatabase();
 
-            List<string> pages = HelpCommand.BuildPages(lines, maxPageLength: 250);
+            string reply = await ExecuteHelpAllPages(commandService, database, authorId: BotOwnerUser, guildOwnerId: GuildOwner, botOwnerId: BotOwnerUser);
 
-            Assert.AreEqual(2, pages.Count, "Two 100-char lines fit into a 250-char page, the third starts a new one");
-            Assert.AreEqual(new string('a', 100) + Environment.NewLine + new string('b', 100), pages[0]);
-            Assert.AreEqual(new string('c', 100), pages[1]);
+            string[] headers = ["**General**", "**Quotes**", "**Custom responses**", "**Reminders**", "**Permissions & settings**", "**Backups & stability**", "**Bot profile**"];
+            int previous = -1;
+            foreach (string header in headers)
+            {
+                int position = reply.IndexOf(header, StringComparison.Ordinal);
+                Assert.IsTrue(position >= 0, $"The bot owner sees every command, so the group '{header}' must render");
+                Assert.IsTrue(position > previous, $"The group '{header}' must render after the previous category's group");
+                previous = position;
+            }
+
+            Assert.IsTrue(reply.IndexOf("!importquotes", StringComparison.Ordinal) < reply.IndexOf("!quote —", StringComparison.Ordinal), "Commands within a group are alphabetized");
+            Assert.IsTrue(reply.IndexOf("!quote —", StringComparison.Ordinal) < reply.IndexOf("!removequote", StringComparison.Ordinal), "Commands within a group are alphabetized");
+            Assert.IsTrue(reply.IndexOf("!removequote", StringComparison.Ordinal) < reply.IndexOf("!searchquotes", StringComparison.Ordinal), "Commands within a group are alphabetized");
         }
 
         [TestMethod]
-        public void BuildPages_Oversized_Line_Still_Forms_Own_Page()
+        public async Task Help_List_Omits_Group_Headers_With_No_Visible_Commands()
         {
-            var lines = new List<string> { new string('a', 300) };
+            var commandService = CreateRegisteredService();
+            var database = DiscordTestDoubles.CreateDatabase();
 
-            List<string> pages = HelpCommand.BuildPages(lines, maxPageLength: 100);
+            string reply = await ExecuteHelpAllPages(commandService, database, authorId: RandomUser, guildOwnerId: GuildOwner);
 
-            Assert.AreEqual(1, pages.Count);
-            Assert.AreEqual(new string('a', 300), pages[0]);
+            StringAssert.Contains(reply, "**General**");
+            StringAssert.Contains(reply, "**Quotes**");
+            StringAssert.Contains(reply, "**Custom responses**");
+            StringAssert.Contains(reply, "**Reminders**");
+            Assert.IsFalse(reply.Contains("**Permissions & settings**"), "A group with no command visible to the user must not render its header");
+            Assert.IsFalse(reply.Contains("**Backups & stability**"), "A group with no command visible to the user must not render its header");
+            Assert.IsFalse(reply.Contains("**Bot profile**"), "A group with no command visible to the user must not render its header");
+        }
+
+        [TestMethod]
+        public async Task Help_List_Empties_A_Group_When_Tier_Filtering_Removes_Its_Last_Command()
+        {
+            var commandService = CreateRegisteredService();
+            var database = DiscordTestDoubles.CreateDatabase();
+            database.Commands.Add(new DatabaseContext.CommandMetaData { GuildId = DiscordTestDoubles.DefaultGuildId, CommandName = "quote", PermissionTier = PermissionTier.Owner });
+            database.Commands.Add(new DatabaseContext.CommandMetaData { GuildId = DiscordTestDoubles.DefaultGuildId, CommandName = "searchquotes", PermissionTier = PermissionTier.Owner });
+            database.SaveChanges();
+
+            string reply = await ExecuteHelp(commandService, database, "!help", authorId: RandomUser, guildOwnerId: GuildOwner);
+
+            Assert.IsFalse(reply.Contains("!quote"), "Raised-tier commands stay hidden");
+            Assert.IsFalse(reply.Contains("**Quotes**"), "The Quotes group is emptied entirely and must not render its header");
+        }
+
+        [TestMethod]
+        public void BuildPages_Keeps_A_Group_Whole_When_It_Fits_A_Page()
+        {
+            var groups = new List<CommandGroup>
+            {
+                new(CommandCategory.General, Lines(6)),
+                new(CommandCategory.Quotes, Lines(5)),
+            };
+
+            List<string> pages = HelpCommand.BuildPages(groups);
+
+            Assert.AreEqual(2, pages.Count, "6 + 5 commands do not fit one 10-command page, so the second group moves whole to the next page");
+            Assert.IsTrue(pages[0].Contains("**General**", StringComparison.Ordinal));
+            Assert.IsFalse(pages[0].Contains("**Quotes**", StringComparison.Ordinal), "A page break must not split a group that fits whole");
+            Assert.IsTrue(pages[1].StartsWith("**Quotes**", StringComparison.Ordinal));
+        }
+
+        [TestMethod]
+        public void BuildPages_Fills_A_Page_With_Whole_Groups()
+        {
+            var groups = new List<CommandGroup>
+            {
+                new(CommandCategory.General, Lines(3)),
+                new(CommandCategory.Quotes, Lines(4)),
+                new(CommandCategory.CustomResponses, Lines(3)),
+                new(CommandCategory.Reminders, Lines(3)),
+            };
+
+            List<string> pages = HelpCommand.BuildPages(groups);
+
+            Assert.AreEqual(2, pages.Count, "3 + 4 + 3 = 10 commands fill the first page; the fourth group starts the next");
+            StringAssert.Contains(pages[0], "**Custom responses**");
+            Assert.IsFalse(pages[0].Contains("**Reminders**", StringComparison.Ordinal));
+            Assert.IsTrue(pages[1].StartsWith("**Reminders**", StringComparison.Ordinal));
+        }
+
+        [TestMethod]
+        public void BuildPages_Moves_A_Group_To_The_Next_Page_On_Character_Overflow()
+        {
+            var groups = new List<CommandGroup>
+            {
+                new(CommandCategory.General, [new string('a', 100)]),
+                new(CommandCategory.Quotes, [new string('b', 100), new string('c', 100)]),
+            };
+
+            List<string> pages = HelpCommand.BuildPages(groups, maxPageLength: 250);
+
+            Assert.AreEqual(2, pages.Count, "The second group does not fit the remaining character budget and moves whole to the next page");
+            Assert.AreEqual($"**General**{Environment.NewLine}{new string('a', 100)}", pages[0]);
+            Assert.AreEqual($"**Quotes**{Environment.NewLine}{new string('b', 100)}{Environment.NewLine}{new string('c', 100)}", pages[1]);
+        }
+
+        [TestMethod]
+        public void BuildPages_Splits_An_Oversized_Group_And_Repeats_Its_Header()
+        {
+            var group = new CommandGroup(CommandCategory.General, Lines(15));
+
+            List<string> pages = HelpCommand.BuildPages([group]);
+
+            Assert.AreEqual(2, pages.Count, "A group that alone exceeds a page's command budget spans two pages");
+            Assert.AreEqual(11, pages[0].Split(Environment.NewLine).Length, "Header plus the 10 commands that fit");
+            Assert.AreEqual(6, pages[1].Split(Environment.NewLine).Length, "Header repeated, plus the remaining commands");
+            Assert.IsTrue(pages[1].StartsWith("**General**", StringComparison.Ordinal), "A group spanning pages repeats its header on each continuation page");
         }
 
         [TestMethod]

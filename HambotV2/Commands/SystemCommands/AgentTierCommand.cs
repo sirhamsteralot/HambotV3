@@ -15,6 +15,7 @@ namespace HambotV2.Commands.SystemCommands
         public string Description => "Shows, sets, or clears the tier the operator agent (the MCP integration) acts at in this server";
         public string Usage => "agenttier [<tier 0-4> | clear]";
         public int DefaultPermissionTier => PermissionTier.Owner;
+        public CommandCategory Category => CommandCategory.PermissionsAndSettings;
 
         /// <summary>
         /// Slash surface: the argument stays free-form so <c>&lt;tier&gt;</c> and <c>clear</c>

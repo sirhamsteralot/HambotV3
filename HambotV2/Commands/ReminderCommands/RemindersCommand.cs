@@ -17,6 +17,7 @@ namespace HambotV2.Commands.ReminderCommands
         public string Description => "List your pending reminders, soonest first";
         public string Usage => "reminders";
         public int DefaultPermissionTier => PermissionTier.Everyone;
+        public CommandCategory Category => CommandCategory.Reminders;
 
         /// <summary>Slash surface: user-scoped, no arguments.</summary>
         public ApplicationCommandDeclaration? ApplicationCommand => ApplicationCommandDeclaration.NoArguments;

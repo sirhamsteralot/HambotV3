@@ -25,6 +25,7 @@ namespace HambotV2.Commands.ReminderCommands
         public string Description => "Cancel one of your pending reminders by its number";
         public string Usage => "cancelreminder <number>";
         public int DefaultPermissionTier => PermissionTier.Everyone;
+        public CommandCategory Category => CommandCategory.Reminders;
 
         /// <summary>Slash surface: the reminder number picked as an integer.</summary>
         public ApplicationCommandDeclaration? ApplicationCommand => new(

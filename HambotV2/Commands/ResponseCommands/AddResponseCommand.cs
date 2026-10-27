@@ -26,6 +26,7 @@ namespace HambotV2.Commands.ResponseCommands
         public string Description => "Create a custom response for this server, or update an existing one's text";
         public string Usage => "addresponse <name> <content...>";
         public int DefaultPermissionTier => PermissionTier.Moderator;
+        public CommandCategory Category => CommandCategory.CustomResponses;
 
         public async Task ExecuteCommand(IMessage message, ICommandContext context)
         {

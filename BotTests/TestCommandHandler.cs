@@ -20,6 +20,7 @@ namespace BotTests
             public string Description => "Throws for testing the failure path";
             public string Usage => "boom";
             public int DefaultPermissionTier => 0;
+            public CommandCategory Category => CommandCategory.General;
 
             public Task ExecuteCommand(IMessage socketMessage, ICommandContext context)
                 => throw new InvalidOperationException("kaboom");

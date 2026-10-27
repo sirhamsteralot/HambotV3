@@ -18,6 +18,7 @@ namespace HambotV2.Commands.SystemCommands
         public string Description => "Show this server's bot settings, or set the command identifier or per-tier cooldown overrides";
         public string Usage => "settings [commandidentifier <value>|commandidentifier reset|cooldown <tier> <seconds>|cooldown <tier> reset]";
         public int DefaultPermissionTier => PermissionTier.Admin;
+        public CommandCategory Category => CommandCategory.PermissionsAndSettings;
 
         /// <summary>
         /// Slash surface: the operation stays free-form — the subcommands

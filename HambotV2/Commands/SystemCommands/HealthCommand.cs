@@ -24,6 +24,7 @@ namespace HambotV2.Commands.SystemCommands
         public string Description => "Reports the bot's operational state (version, gateway, database, backups, reminders)";
         public string Usage => "health";
         public int DefaultPermissionTier => PermissionTier.BotOwner;
+        public CommandCategory Category => CommandCategory.BackupsAndStability;
 
         /// <summary>Slash surface: administrative, no arguments.</summary>
         public ApplicationCommandDeclaration? ApplicationCommand => ApplicationCommandDeclaration.NoArguments;

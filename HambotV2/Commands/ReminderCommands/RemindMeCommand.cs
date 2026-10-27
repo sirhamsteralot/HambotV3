@@ -38,6 +38,7 @@ namespace HambotV2.Commands.ReminderCommands
         public string Description => "Set a personal reminder the bot sends you as a direct message when it is due";
         public string Usage => "remindme <duration> <message...> | remindme every <duration> <message...> (durations use s/m/h/d/w units, e.g. remindme 1d 12h water the plants, or remindme every 1d take vitamins for a recurring one)";
         public int DefaultPermissionTier => PermissionTier.Everyone;
+        public CommandCategory Category => CommandCategory.Reminders;
 
         /// <summary>
         /// Slash surface: the argument line stays free-form so the recurring

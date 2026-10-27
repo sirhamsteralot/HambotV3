@@ -23,6 +23,7 @@ namespace HambotV2.Commands.SystemCommands
         public string Description => "Shows, sets, or clears the bot's profile \"About Me\" text";
         public string Usage => "bio [<text...> | clear]";
         public int DefaultPermissionTier => PermissionTier.BotOwner;
+        public CommandCategory Category => CommandCategory.BotProfile;
 
         /// <summary>
         /// Slash surface: the bio text stays free-form so <c>clear</c> and multi-line

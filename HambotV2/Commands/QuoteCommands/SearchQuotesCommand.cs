@@ -16,6 +16,7 @@ namespace HambotV2.Commands.QuoteCommands
         public string Description => "Search this server's quotes for a text (up to 10 results)";
         public string Usage => "searchquotes <text...>";
         public int DefaultPermissionTier => PermissionTier.Everyone;
+        public CommandCategory Category => CommandCategory.Quotes;
 
         public async Task ExecuteCommand(IMessage message, ICommandContext context)
         {

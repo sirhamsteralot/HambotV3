@@ -15,6 +15,7 @@ namespace HambotV2.Commands.SystemCommands
         public string Description => "Show or set a user's permission tier (0 everyone, 1 moderator, 2 admin, 3 owner)";
         public string Usage => "userpermission <user> [tier]";
         public int DefaultPermissionTier => PermissionTier.Admin;
+        public CommandCategory Category => CommandCategory.PermissionsAndSettings;
 
         /// <summary>Slash surface: the target picked from Discord's user picker, the tier as an integer.</summary>
         public ApplicationCommandDeclaration? ApplicationCommand => new(

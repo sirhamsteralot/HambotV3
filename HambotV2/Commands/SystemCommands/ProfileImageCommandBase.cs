@@ -26,6 +26,7 @@ namespace HambotV2.Commands.SystemCommands
         public abstract string Description { get; }
         public abstract string Usage { get; }
         public int DefaultPermissionTier => PermissionTier.BotOwner;
+        public CommandCategory Category => CommandCategory.BotProfile;
 
         /// <summary>
         /// Slash surface: the argument line stays free-form (attachments are a
