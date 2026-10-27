@@ -19,13 +19,10 @@ namespace HambotV2.Commands.SystemCommands
     }
 
     /// <summary>
-    /// The interactive pagination of the multi-page help list: the help
-    /// command attaches a previous/next button pair to a multi-page list — on text messages and
-    /// interaction replies alike — and each button's custom id encodes the invoker it belongs to
-    /// and the page it requests. A click is owned paging: only the invoker the list was rendered
-    /// for may page it, and their click runs that page as a normal help invocation through the
-    /// virtual-invocation seam, so paging shares the command pipeline's permission, cooldown,
-    /// and audit semantics.
+    /// The interactive pagination of the multi-page help list: the help command attaches a
+    /// previous/next button pair (each custom id encodes its owner and target page), and paging
+    /// is invoker-owned — a click runs its page as a normal help invocation through the
+    /// virtual-invocation seam, sharing the pipeline's permission, cooldown, and audit semantics.
     /// </summary>
     internal static class HelpPagination
     {
@@ -88,13 +85,11 @@ namespace HambotV2.Commands.SystemCommands
         }
 
         /// <summary>
-        /// Handles one pagination button click. The list was rendered for its invoker's visible
-        /// commands, so a click by anyone else is declined ephemerally without running the
-        /// pipeline — a foreign clicker must neither page the message nor have their own
-        /// (shorter) list replace it. The invoker's click runs <c>help &lt;page&gt;</c> through the
-        /// virtual-invocation seam; only a real page reply — a page of a multi-page list always
-        /// carries its rebuilt buttons — may rewrite the public message. Declined and out-of-range
-        /// invocations get their reply ephemerally and the message stays exactly as it was.
+        /// Handles one pagination button click. A foreign clicker is declined ephemerally without
+        /// running the pipeline; the invoker's click runs <c>help &lt;page&gt;</c> through the
+        /// virtual-invocation seam, and only a real page reply — a multi-page page always carries
+        /// its rebuilt buttons — rewrites the public message; everything else goes to the clicker
+        /// ephemerally.
         /// </summary>
         internal static async Task HandleClickAsync(IHelpPaginationButton button, IVirtualCommandRunner virtualCommandRunner)
         {
