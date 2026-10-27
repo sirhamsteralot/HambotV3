@@ -32,7 +32,7 @@ Everything specified so far is implemented and in production:
 The remaining backlog is specified ahead of implementation and organised into phases:
 
 - **Phase #2: LLM Integration** — LLM-driven presence and bio updates (FR-92–FR-95, FR-99, FR-102–FR-104, FR-114 / NFR-21, NFR-25; design §3.12), then LLM conversation participation & memory (a deliberately unspecced placeholder; design it after everything above is in production). The LLM-related watchdog conditions (design §3.13) activate when this phase lands.
-- **Phase #3: Extra features** — the automated hall of fame (per-guild reaction tracking and a scheduled digest of the community's best messages; FRs and design section to be authored when scheduled), the user bot-ban moderation feature (temporary or permanent; FRs and design section to be authored when scheduled), the quote-of-the-day scheduled publication of a random quote into a guild-configured channel with configurable wording and cadence (FR-127–FR-131 / NFR-29; design section to be authored when scheduled), with room for further community-facing extras as they are proposed.
+- **Phase #3: Extra features** — the automated hall of fame (per-guild reaction tracking and a scheduled digest of the community's best messages; FRs and design section to be authored when scheduled), the quote-of-the-day scheduled publication of a random quote into a guild-configured channel with configurable wording and cadence (FR-127–FR-131 / NFR-29; design section to be authored when scheduled), with room for further community-facing extras as they are proposed.
 
 ## Phase #2: LLM Integration
 
@@ -82,20 +82,6 @@ The remaining backlog is specified ahead of implementation and organised into ph
     6. Decide and document the interaction with quotes when specifying the FRs (e.g. a one-command promote-to-quote from the digest) so the two features complement rather than duplicate each other.
 
     **Acceptance criteria**: none yet — specifying this task (FRs, design section, test NFR) is the first step once it is scheduled; after that, the criteria mirror the requirement set: with a guild opted in, the digest appears on schedule with the right messages ranked by community reactions, a message is never repeated, non-opted-in guilds see nothing, and the build stays warning-free with tests green.
-
-- [ ] **User bot-bans — moderator-level ban of a user from using the bot, temporary or permanent (FRs and design section to be authored when this task is scheduled)**
-
-    **Problem**: a user who abuses the bot — spamming commands, farming cooldowns, harassing it into flooding a channel — can currently only be stopped by guild-level Discord moderation (kicking or banning them from the server entirely), which is disproportionate when the problem is bot usage, not presence. There is no way for a moderator to say "this person may not use the bot" for a while, or for good, without removing them from the server.
-
-    **Steps** (initial plan; the full FR set and design section are authored as the first step once this task is scheduled):
-
-    1. Add a per-guild ban record (new nested entity in `Connections/DatabaseContext.cs` with an EF Core migration; likely composite key `GuildId` + `DiscordId`, with the banned-by user, reason, and a nullable `ExpiresAtUtc` — null = permanent), plus an EF Core migration.
-    2. Enforce the ban in `Commands/CommandHandler.cs` before any command resolution, permission check, or custom-response dispatch: a banned user's messages are ignored (optionally with a single explanatory reply or none at all, to avoid giving an abuser a spam surface — to be decided when the FRs are authored). The check must cover both surfaces: text commands and slash-command invocations through the virtual-invocation seam, since they share the pipeline.
-    3. Add the moderation commands (system commands, tier-appropriate default — moderator or higher): `!banuser`/`!unbanuser` (or equivalent) with a duration argument for temporary bans (reusing the existing duration parsing from the reminder commands), plus a way to list current bans (including remaining time for temporary ones).
-    4. Decide and document the boundary questions when authoring the FRs: whether bans block DM-surfaced features (e.g. reminders) or only guild commands; whether tier-4 users can be banned (and whether the bot owner/bot-owner is exempt); whether expired bans are cleaned up lazily on check or by a scheduled job; and whether the MCP `run_command` tool acting as a banned user is even possible (it acts as the operator agent, so likely exempt).
-    5. Wire the feature with help text and usage entries (per the command registration contract), and cover with unit tests: ban enforcement in the pipeline (banned users' commands and custom responses ignored, unbanned users unaffected), temporary-ban expiry (using the fake-time pattern), command permission tiers, and the list output.
-
-    **Acceptance criteria**: none yet — specifying this task (FRs, design section, test NFR) is the first step once it is scheduled; after that, the criteria mirror the requirement set: a moderator can ban a user from the bot temporarily or permanently, the banned user's invocations are ignored on both the text and slash surfaces, an expired temporary ban lifts itself without operator action, and the build stays warning-free with tests green.
 
 - [ ] **Quote of the day — scheduled publication of a random quote into a guild-configured channel (FR-127–FR-131 / NFR-29; design section to be authored when this task is scheduled)**
 

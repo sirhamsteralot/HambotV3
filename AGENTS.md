@@ -26,7 +26,7 @@ dotnet test HambotV2.sln
 
 - Building requires the .NET 10 SDK (`10.0.x`).
 
-- Tests run without a database or Discord token; they use Moq and in-memory configuration. All tests are in `BotTests/` (`TestCommandInfrastructure.cs`, `TestCommands.cs`, `TestPermissions.cs`, `TestCommandHandler.cs`, `TestConfigurationValidator.cs`, `TestPermissionCommands.cs`, `TestHelp.cs`, `TestCommandArguments.cs`, `TestGuildSettings.cs`, `TestCooldowns.cs`, `TestQuotes.cs`, `TestCustomResponses.cs`, `TestReminders.cs`, `TestVersion.cs`, `TestBackups.cs`, `TestWatchdog.cs`, `TestPresence.cs`, `TestProfileImages.cs`, `TestMcp.cs`, `TestAgentTier.cs`, plus the shared `DiscordTestDoubles.cs`).
+- Tests run without a database or Discord token; they use Moq and in-memory configuration. All tests are in `BotTests/` (`TestCommandInfrastructure.cs`, `TestCommands.cs`, `TestPermissions.cs`, `TestCommandHandler.cs`, `TestConfigurationValidator.cs`, `TestPermissionCommands.cs`, `TestHelp.cs`, `TestCommandArguments.cs`, `TestGuildSettings.cs`, `TestCooldowns.cs`, `TestQuotes.cs`, `TestCustomResponses.cs`, `TestReminders.cs`, `TestVersion.cs`, `TestBackups.cs`, `TestWatchdog.cs`, `TestPresence.cs`, `TestProfileImages.cs`, `TestMcp.cs`, `TestAgentTier.cs`, `TestBotBans.cs`, plus the shared `DiscordTestDoubles.cs`).
 - The build is warning-free; keep it that way and avoid introducing new warnings.
 
 ## Docker
@@ -64,7 +64,7 @@ Entry point is `HambotV2/Program.cs`: a generic host registers `DatabaseContext`
 
 1. `Connections/DiscordClient.cs` (BackgroundService) connects to Discord with the token from `Secrets:BotToken`. Messages starting with the configured `BotConfiguration:CommandIdentifier` (default `!`) are forwarded to `ICommandHandler`.
    - **Gateway intents**: request only what the bot uses — currently `Guilds | GuildMessages | DirectMessages | MessageContent` in `DiscordClient.cs`. Do NOT switch back to `GatewayIntents.AllUnprivileged`: it triggers Discord.Net "using intent without listening to any events" warnings on every connect. When adding a feature that needs a new intent (e.g. reactions, members), add it explicitly and keep this list current.
-2. `Commands/CommandHandler.cs` resolves the command via `ICommandService.TryGetCommand` (the command name is the first space-delimited token minus the identifier, lowercased), checks permissions via `IPermissionsService`, then executes the command with a `CommandContext` wrapping the `DatabaseContext`.
+2. `Commands/CommandHandler.cs` resolves the command via `ICommandService.TryGetCommand` (the command name is the first space-delimited token minus the identifier, lowercased), checks permissions via `IPermissionsService`, then executes the command with a `CommandContext` wrapping the `DatabaseContext`. Before any of that, a per-guild bot-ban check (`Commands/BotBans.cs`, backed by the `BotBan` entity) drops a banned user's invocation silently on both surfaces — the guild owner, the bot owner, and MCP operator-agent invocations are exempt, and expired temporary bans are deleted on sight.
 3. Commands implement `Commands/ICommand.cs` (`Name`, `Description`, `Usage`, `DefaultPermissionTier`, `Category` + `ExecuteCommand(IMessage, ICommandContext)`).
 4. Opt-in via `SlashCommands:Enabled` (default false), the `SlashCommands/SlashCommandService` singleton exposes the administrative/configuration, user-scoped, and help commands as Discord application commands: it registers definitions with a bulk global overwrite after the gateway connects and executes interactions through the real `CommandHandler` via the shared virtual-invocation seam (`Commands/VirtualCommandRunner.cs` — the same seam the MCP `run_command` tool reuses, design §3.11). Slash eligibility is declared per command via the optional `ICommand.ApplicationCommand` property (`SlashCommands/ApplicationCommandMetadata.cs`); the remaining community-facing commands stay text-only. `!help` is exposed as `/help`, and a multi-page help list carries interactive previous/next buttons: `SlashCommands/HelpPaginationService` (attached unconditionally — the buttons ride on text-surface messages too) turns a click back into a `help <page>` invocation through the same seam and updates the message in place. See `docs/software-design.md` §3.15.
 
@@ -81,7 +81,7 @@ Tiered integer permission system (`Commands/PermissionsService.cs`): a user may 
 
 ### Data model
 
-`Connections/DatabaseContext.cs` defines seven DbSets with nested entity classes — five scoped per guild, one per user, one global:
+`Connections/DatabaseContext.cs` defines eight DbSets with nested entity classes — six scoped per guild, one per user, one global:
 
 - `User` (composite key `GuildId` + `DiscordId`, `PermissionTier`)
 - `CommandMetaData` (composite key `GuildId` + `CommandName`, `PermissionTier`)
@@ -90,6 +90,7 @@ Tiered integer permission system (`Commands/PermissionsService.cs`): a user may 
 - `CustomResponse` (composite key `GuildId` + `Name`; `Content`, `LastModifiedByDiscordId`, timestamps — managed by the `Commands/ResponseCommands/` commands and dispatched by `CommandHandler` on unknown tokens)
 - `Reminder` (composite key `OwnerDiscordId` + `Number`; `Message`, `DueAtUtc`, nullable `RecurrenceInterval` (null = one-shot; the `!remindme every <duration>` recurring form, re-scheduled from the delivery time), nullable `GuildId`, `CreatedAt`, `FailedAtUtc` — per-user reminders managed by the `Commands/ReminderCommands/` commands and delivered as DMs by the `Scheduling/ScheduledMessageDeliveryService` engine fed by `Reminders/ReminderMessageSource`)
 - `BotSetting` (key `Key`; `Value` — global key-value settings, first key: the operator notification channel id managed by `!notifychannel`)
+- `BotBan` (composite key `GuildId` + `DiscordId`; `BannedByDiscordId`, `CreatedAt`, nullable `ExpiresAtUtc` — null = permanent — the per-guild user bot bans managed by the `Commands/SystemCommands/` ban commands and enforced by the pipeline via `Commands/BotBans.cs`, with lazy on-sight expiry cleanup)
 
 EF Core migrations live in `HambotV2/Migrations/`. Regenerate with `dotnet ef migrations add <Name>` from the `HambotV2/` project directory (a `DesignTimeDatabaseContextFactory` lets the tools scaffold without running startup; connection string comes from `appsecrets.json`, see below).
 

@@ -147,7 +147,7 @@ Opt-in, agent-facing API for the operator's tooling (design §3.11): a [Model Co
 
 ## Slash commands
 
-Opt-in via `SLASH_COMMANDS_ENABLED=true` (default false), exposed when the bot was invited with the `applications.commands` scope: the administrative/configuration commands (`/settings`, `/backup`, `/userpermission`, ...), the personal reminder commands (`/remindme`, `/reminders`, `/cancelreminder`), and `/help` are available as Discord application commands. They run through the same command pipeline — identical permission tiers, cooldowns, and reply text — but every reply is **ephemeral** (visible only to the invoker); a multi-page `/help` list carries previous/next buttons that page it in place. The community-facing commands (`!quote` & co., the custom responses, `!version`) stay text-only, and text commands keep working either way. Global commands can take up to an hour to appear after the first registration.
+Opt-in via `SLASH_COMMANDS_ENABLED=true` (default false), exposed when the bot was invited with the `applications.commands` scope: the administrative/configuration commands (`/settings`, `/backup`, `/userpermission`, `/banuser`, ...), the personal reminder commands (`/remindme`, `/reminders`, `/cancelreminder`), and `/help` are available as Discord application commands. They run through the same command pipeline — identical permission tiers, cooldowns, and reply text — but every reply is **ephemeral** (visible only to the invoker); a multi-page `/help` list carries previous/next buttons that page it in place. The community-facing commands (`!quote` & co., the custom responses, `!version`) stay text-only, and text commands keep working either way. Global commands can take up to an hour to appear after the first registration.
 
 ## Building & running locally (from source)
 
@@ -241,6 +241,9 @@ If the token is wrong/missing you'll instead see a critical message naming the m
 | `!listresponses` / `!removeresponse <name>` | Lists this server's custom response names / removes one. |
 | `!commandpermission <name> [tier]` | Prints a command's required tier, or sets/creates it. Admin-only by default. |
 | `!userpermission <user> [tier]` | Prints a user's tier, or sets/creates it. `<user>` is a raw Discord id or an @mention. Admin-only by default. |
+| `!banuser <user> [duration]` | Bans a user from using the bot in this server — permanently, or temporarily with reminder-style duration tokens (`!banuser @user 1d 12h`). The banned user's invocations are ignored silently (no reply at all); DM features like reminders stay usable. Moderator-only by default; only users below your own tier, never the guild/bot owner. |
+| `!unbanuser <user>` | Lifts a user's bot ban in this server. Moderator-only by default. |
+| `!banlist` | Lists this server's current bot bans (user, lifetime, banned-by). Moderator-only by default. |
 | `!settings` | Shows the server's effective command identifier and per-tier cooldown overrides. Admin-only by default. |
 | `!settings commandidentifier <value>` / `reset` | Sets or clears the server's command identifier override (≤ 5 chars; `reset` reverts to the global default). |
 | `!settings cooldown <tier> <seconds>` / `reset` | Sets or clears the server's per-tier cooldown override (tiers 0–3; `0` disables throttling for that tier). |
@@ -271,7 +274,7 @@ Bootstrap administrator: the **guild owner** automatically acts at owner tier in
 
 The **bot owner** is configured in `.env` as `BOT_OWNER_DISCORD_ID` (wired through to `Permissions:BotOwnerDiscordId`). They hold tier 4 in every guild — the highest permission level of all, above guild owners — and are the designated operator for things that apply across guilds (e.g. managing any guild's settings by running `!settings` there). The tier comes from configuration only: it can never be granted through commands, not even by the bot owner themselves.
 
-Permission tiers and bot settings are **scoped per guild**: a user's tier or a command's required tier in one server has no effect in any other, and each server can override the global command identifier with `!settings commandidentifier <value>` (admins; `!settings commandidentifier reset` reverts to the global default). In **direct messages**, commands run in a DM scope: you act at owner tier and commands require their built-in default tiers — no per-server state is read or written. Commands that manage per-server state (`!userpermission`, `!commandpermission`, `!settings`, `!agenttier`) are only available in servers.
+Permission tiers and bot settings are **scoped per guild**: a user's tier or a command's required tier in one server has no effect in any other, and each server can override the global command identifier with `!settings commandidentifier <value>` (admins; `!settings commandidentifier reset` reverts to the global default). In **direct messages**, commands run in a DM scope: you act at owner tier and commands require their built-in default tiers — no per-server state is read or written. Commands that manage per-server state (`!userpermission`, `!commandpermission`, `!settings`, `!agenttier`, the bot-ban commands) are only available in servers.
 
 Tiers are then managed at runtime, e.g.:
 

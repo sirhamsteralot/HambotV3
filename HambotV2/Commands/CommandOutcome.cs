@@ -27,5 +27,8 @@ namespace HambotV2.Commands
 
         /// <summary>The command was declined because a backup restore is in progress.</summary>
         MaintenanceMode,
+
+        /// <summary>The invocation was dropped because the user is banned from the bot in this guild.</summary>
+        Banned,
     }
 }

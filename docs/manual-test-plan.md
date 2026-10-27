@@ -187,7 +187,7 @@ Set `SlashCommands__Enabled: true` (or `SLASH_COMMANDS_ENABLED=true` in Compose)
 
 | # | Action | Expected |
 |---|---|---|
-| 12.1 | Type `/` in the test server | The bot's `/` picker shows exactly the administrative/configuration, user-scoped, and help commands (agenttier, backup, backups, bio, cancelreminder, commandpermission, health, help, notifychannel, presence, remindme, reminders, restorebackup, settings, userpermission, avatar, banner) — **no** quote, response, or `version` commands (FR-110/FR-119). |
+| 12.1 | Type `/` in the test server | The bot's `/` picker shows exactly the administrative/configuration, user-scoped, and help commands (agenttier, backup, backups, banlist, banuser, bio, cancelreminder, commandpermission, health, help, notifychannel, presence, remindme, reminders, restorebackup, settings, unbanuser, userpermission, avatar, banner) — **no** quote, response, or `version` commands (FR-110/FR-119). |
 | 12.2 | `/remindme` with arguments `10m water the plants` | Confirmation reply identical to the text surface, visible **only to the invoker** (ephemeral, FR-112). |
 | 12.3 | `/reminders` | Lists your pending reminders, visible only to the invoker. |
 | 12.4 | `/userpermission` picking a user and tier 1 (as guild owner) | Same reply as `!userpermission <@user> 1`; the tier is set. |
@@ -230,3 +230,24 @@ Any MCP-capable client works; with raw HTTP, each call is a POST with the header
 | 13.18 | `!agenttier` in a **DM** | "This command manages per-server settings and is only available in servers" (FR-25). |
 | 13.19 | `!health` | The MCP line shows "listening at http://0.0.0.0:2525/mcp" (or the disabled state) — the endpoint state joins the report (FR-105). |
 | 13.20 | `/agenttier` (slash surface on) | Same show/set/clear behavior as the text surface, reply visible only to the invoker. |
+
+## 14. User bot bans (FR-134–FR-138 / NFR-30)
+
+Requires a second (non-owner) test account. Run as the guild owner unless noted.
+
+| # | Action | Expected |
+|---|---|---|
+| 14.1 | `!banuser <@second>` | "Banned user … from using the bot: permanent". |
+| 14.2 | Second account runs `!hello`, `!gibberish`, and a custom-response name | **No reply of any kind** — not even "The requested command is unavailable" (FR-135). |
+| 14.3 | `!banlist` | The ban appears: user id, permanent, banned-by. |
+| 14.4 | `!banuser <@second> 5m` (update) | "Updated the bot ban for user …"; `!banlist` shows the expiry time and remaining duration. |
+| 14.5 | Wait for the expiry to pass, then second account runs `!hello` | The command executes — the expired ban lifted itself (FR-137); `!banlist` no longer shows the user. |
+| 14.6 | `!banuser <@second> 1h`, second account sends a **DM** `!remindme 10m test` | The reminder is scheduled — bans never block direct messages (FR-134). |
+| 14.7 | `!unbanuser <@second>` then second account runs `!hello` | Unban confirmation; the command executes. `!unbanuser <@second>` again: "not banned" message. |
+| 14.8 | `!banuser <@guild-owner>` | "The guild owner and the bot owner cannot be banned from the bot" (FR-136). `!banuser <@self>`: self-ban rejected. |
+| 14.9 | Second account (default tier 0) runs `!banuser <@other> x` | "You are not permitted to use that command" (moderator default tier, FR-138). |
+| 14.10 | Moderator account (tier 1) runs `!banuser <@other-moderator>` (also tier 1) | "You can only ban users below your own tier from the bot" — the escalation guard (FR-36/FR-138). |
+| 14.11 | `!banuser <@second> because they were spamming` | In-channel "takes a user and an optional duration" error; nothing stored — the command takes no reason text. |
+| 14.12 | `!banuser`, `!banuser notanid`, `!unbanuser`, `!banlist` in a **DM** | "This command manages per-server state and is only available in servers" (FR-25). |
+| 14.13 | `!help` as a moderator | The ban commands appear under the **Moderation** group (FR-132). |
+| 14.14 | (Slash surface on) `/banuser` picking a user with duration `10m` | Same ban as the text surface; `/banlist` shows it; reply visible only to the invoker. |

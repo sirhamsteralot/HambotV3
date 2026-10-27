@@ -25,6 +25,7 @@ namespace HambotV2.Commands
         private readonly ILogger<CommandHandler> _logger;
         private readonly IMaintenanceMode? _maintenanceMode;
         private readonly INotificationPublisher? _notificationPublisher;
+        private readonly TimeProvider _timeProvider;
 
         public CommandHandler(
             ICommandService commandService,
@@ -35,7 +36,8 @@ namespace HambotV2.Commands
             IConfiguration configuration,
             ILogger<CommandHandler> logger,
             IMaintenanceMode? maintenanceMode = null,
-            INotificationPublisher? notificationPublisher = null)
+            INotificationPublisher? notificationPublisher = null,
+            TimeProvider? timeProvider = null)
         {
             _commandService = commandService;
             _guildSettingsService = guildSettingsService;
@@ -46,6 +48,7 @@ namespace HambotV2.Commands
             _logger = logger;
             _maintenanceMode = maintenanceMode;
             _notificationPublisher = notificationPublisher;
+            _timeProvider = timeProvider ?? TimeProvider.System;
         }
 
         public async Task<CommandOutcome> HandleCommand(IMessage message)
@@ -90,6 +93,20 @@ namespace HambotV2.Commands
                             ? _guildSettingsService.GetOperatorAgentTier(agentGuild)
                             : null
                     };
+                }
+
+                // A bot ban silences the user entirely in this guild: the invocation is dropped
+                // before any resolution, permission check, or dispatch — and without a reply, so
+                // an abuser gets no surface. The implicit owner tiers and the operator agent are
+                // exempt: their records would be inert and a lockout unfixable from chat.
+                if (guildId is ulong banGuildId
+                    && message is not VirtualCommandMessage { OperatorAgentUserId: not null }
+                    && message.Author.Id != overrides.GuildOwnerId
+                    && message.Author.Id != overrides.BotOwnerId
+                    && await BotBans.FindActiveAsync(_databaseContext, banGuildId, message.Author.Id, _timeProvider.GetUtcNow()) is not null)
+                {
+                    outcome = CommandOutcome.Banned;
+                    return outcome;
                 }
 
                 if (_commandService.TryGetCommand(message.Content, identifier, out command))

@@ -16,6 +16,9 @@ namespace HambotV2.Commands.SystemCommands
             commandService.RegisterCommand("help", new HelpCommand(commandService, new PermissionsService()));
             commandService.RegisterCommand("commandpermission", new CommandPermission());
             commandService.RegisterCommand("userpermission", new UserPermission());
+            commandService.RegisterCommand("banuser", new BanUserCommand());
+            commandService.RegisterCommand("unbanuser", new UnbanUserCommand());
+            commandService.RegisterCommand("banlist", new BanListCommand());
             commandService.RegisterCommand("settings", new SettingsCommand());
             commandService.RegisterCommand("agenttier", new AgentTierCommand());
             commandService.RegisterCommand("version", new VersionCommand());

@@ -12,6 +12,7 @@ namespace HambotV2.Commands
         CustomResponses,
         Reminders,
         PermissionsAndSettings,
+        Moderation,
         BackupsAndStability,
         BotProfile
     }
@@ -31,6 +32,7 @@ namespace HambotV2.Commands
             CommandCategory.CustomResponses => "Custom responses",
             CommandCategory.Reminders => "Reminders",
             CommandCategory.PermissionsAndSettings => "Permissions & settings",
+            CommandCategory.Moderation => "Moderation",
             CommandCategory.BackupsAndStability => "Backups & stability",
             CommandCategory.BotProfile => "Bot profile",
             _ => "Unknown"

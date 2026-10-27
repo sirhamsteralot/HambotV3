@@ -20,6 +20,8 @@ namespace HambotV2.Connections
 
         public DbSet<BotSetting> BotSettings { get; set; }
 
+        public DbSet<BotBan> BotBans { get; set; }
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             // Per-guild scoping: tiers and settings are keyed per guild.
@@ -33,6 +35,7 @@ namespace HambotV2.Connections
             modelBuilder.Entity<Reminder>().HasKey(reminder => new { reminder.OwnerDiscordId, reminder.Number });
             // Global key-value settings: the global analog of GuildSetting.
             modelBuilder.Entity<BotSetting>().HasKey(setting => setting.Key);
+            modelBuilder.Entity<BotBan>().HasKey(ban => new { ban.GuildId, ban.DiscordId });
         }
 
         public class User
@@ -159,6 +162,25 @@ namespace HambotV2.Connections
         {
             public string Key { get; set; } = string.Empty;
             public string? Value { get; set; }
+        }
+
+        /// <summary>
+        /// A user's ban from using the bot, scoped per guild: while an unexpired record exists,
+        /// the pipeline drops the user's invocations in that guild. Expiry null = permanent.
+        /// </summary>
+        public class BotBan
+        {
+            public ulong GuildId { get; set; }
+
+            public ulong DiscordId { get; set; }
+
+            /// <summary>Discord ID of the user who created (or last updated) the ban.</summary>
+            public ulong BannedByDiscordId { get; set; }
+
+            public DateTime CreatedAt { get; set; }
+
+            /// <summary>When a temporary ban lifts itself; null = permanent.</summary>
+            public DateTimeOffset? ExpiresAtUtc { get; set; }
         }
     }
 }

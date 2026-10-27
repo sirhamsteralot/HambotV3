@@ -23,6 +23,8 @@ namespace HambotV2.Connections
 
         DbSet<DatabaseContext.BotSetting> BotSettings { get; }
 
+        DbSet<DatabaseContext.BotBan> BotBans { get; }
+
         Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
     }
 }

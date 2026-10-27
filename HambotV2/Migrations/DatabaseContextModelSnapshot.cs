@@ -22,6 +22,28 @@ namespace HambotV2.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("HambotV2.Connections.DatabaseContext+BotBan", b =>
+                {
+                    b.Property<decimal>("GuildId")
+                        .HasColumnType("numeric(20,0)");
+
+                    b.Property<decimal>("DiscordId")
+                        .HasColumnType("numeric(20,0)");
+
+                    b.Property<decimal>("BannedByDiscordId")
+                        .HasColumnType("numeric(20,0)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("ExpiresAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("GuildId", "DiscordId");
+
+                    b.ToTable("BotBans");
+                });
+
             modelBuilder.Entity("HambotV2.Connections.DatabaseContext+BotSetting", b =>
                 {
                     b.Property<string>("Key")
