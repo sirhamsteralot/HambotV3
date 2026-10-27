@@ -11,7 +11,7 @@ namespace HambotV2.QuoteOfTheDay
     /// same random-fetch semantics as <c>!quote</c> — rendered through the guild's template into
     /// its target channel. The schedule is fixed wall-clock state derived from the configuration,
     /// never from the last post: boundaries are the anchor time plus whole multiples of the
-    /// interval in the guild's time zone, and the per-guild boundary memory lives in process
+    /// interval, all in UTC, and the per-guild boundary memory lives in process
     /// state only, so a restart re-baselines every guild and boundaries that passed while the
     /// bot was down are skipped — one publication at the next boundary, never a catch-up burst.
     /// A failed post consumes its boundary and leaves the schedule unchanged; maintenance mode
