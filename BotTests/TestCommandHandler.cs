@@ -315,6 +315,25 @@ namespace BotTests
         }
 
         [TestMethod]
+        [DataRow("! quote")]
+        [DataRow("! quote hello")]
+        [DataRow("!   quote hello")]
+        public async Task HandleCommand_SpacedCommandName_IsAnsweredUnavailableAndStoresNothing(string content)
+        {
+            var pipeline = new TestPipeline(content);
+            pipeline.AllowPermissions();
+
+            await pipeline.CreateHandler().HandleCommand(pipeline.Message.Object);
+
+            Assert.AreEqual(1, pipeline.SentMessages.Count);
+            Assert.AreEqual("The requested command is unavailable", pipeline.SentMessages[0]);
+            Assert.AreEqual(0, await pipeline.Database.Quotes.CountAsync(), "A spaced spelling must never reach command execution");
+            pipeline.Permissions.Verify(
+                p => p.CheckUserPermissions(It.IsAny<ulong>(), It.IsAny<ulong?>(), It.IsAny<TierOverrides>(), It.IsAny<ICommand>(), It.IsAny<IDatabaseContext>()),
+                Times.Never);
+        }
+
+        [TestMethod]
         [DataRow("!")]
         [DataRow("!    ")]
         public async Task HandleCommand_BareIdentifier_IsIgnoredSilently(string content)

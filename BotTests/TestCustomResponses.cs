@@ -364,6 +364,15 @@ namespace BotTests
         }
 
         [TestMethod]
+        public async Task Dispatch_SpacedCommandName_IsNotACustomResponseEither()
+        {
+            var pipeline = new PipelineHarness();
+            await pipeline.StoreResponse(GuildId, "poke", "go away");
+
+            CollectionAssert.AreEqual(new List<string> { "The requested command is unavailable" }, await pipeline.Handle("! poke"));
+        }
+
+        [TestMethod]
         public async Task Dispatch_CustomResponse_OnlyAppliesInItsOwnGuild()
         {
             var pipeline = new PipelineHarness();

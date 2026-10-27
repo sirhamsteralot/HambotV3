@@ -93,15 +93,28 @@ namespace BotTests
         [DataRow("!hello")]
         [DataRow("!hello world")]
         [DataRow("   !hello   ")]
-        [DataRow("!   hello")]
         [DataRow("!HELLO")]
-        public void CommandService_Parses_Command_Regardless_Of_Whitespace_And_Case(string content)
+        public void CommandService_Parses_Command_Regardless_Of_Surrounding_Whitespace_And_Case(string content)
         {
             ICommandService commandService = CreateService();
             commandService.RegisterCommands();
 
             Assert.IsTrue(commandService.TryGetCommand(content, "!", out ICommand? command), $"'{content}' must resolve to the hello command");
             Assert.AreEqual("hello", command.Name);
+        }
+
+        [TestMethod]
+        [DataRow("! hello")]
+        [DataRow("!   hello")]
+        [DataRow("! hello world")]
+        [DataRow("//   hello")]
+        public void CommandService_Spaced_Command_Name_Is_Not_A_Command(string content)
+        {
+            ICommandService commandService = CreateService();
+            commandService.RegisterCommands();
+
+            Assert.IsFalse(commandService.TryGetCommand(content, content.StartsWith("//") ? "//" : "!", out ICommand? command), $"'{content}' must not resolve to a command");
+            Assert.IsNull(command);
         }
 
         [TestMethod]

@@ -3,15 +3,16 @@ namespace HambotV2.Commands
     /// <summary>
     /// Shared command-message parsing. Rules, also documented in software-design.md:
     /// the command identifier is matched case-sensitively as an exact prefix of the trimmed
-    /// message; any run of whitespace separates tokens; the command name is the first token
-    /// after the identifier, lowercased.
+    /// message; the command name immediately follows it and runs to the next whitespace,
+    /// lowercased; any run of whitespace separates the tokens after it.
     /// </summary>
     internal static class CommandParsing
     {
         /// <summary>
         /// Extracts the lowercased command name from a message. Returns false for messages that
         /// are not commands at all, for identifier-only messages (e.g. a bare "!", possibly
-        /// surrounded by whitespace), and for empty input.
+        /// surrounded by whitespace), for empty input, and for spaced spellings: the command
+        /// name must immediately follow the identifier, so "! quote" is not the "quote" command.
         /// </summary>
         public static bool TryGetCommandName(string content, string identifier, out string commandName)
         {
@@ -24,11 +25,10 @@ namespace HambotV2.Commands
             if (!trimmed.StartsWith(identifier, StringComparison.Ordinal))
                 return false;
 
-            string remainder = trimmed.Substring(identifier.Length).Trim();
-            if (remainder.Length == 0)
+            if (trimmed.Length == identifier.Length || char.IsWhiteSpace(trimmed[identifier.Length]))
                 return false;
 
-            commandName = remainder.Split(' ', StringSplitOptions.RemoveEmptyEntries)[0].ToLowerInvariant();
+            commandName = trimmed.Substring(identifier.Length).Split(' ', StringSplitOptions.RemoveEmptyEntries)[0].ToLowerInvariant();
             return commandName.Length > 0;
         }
 
