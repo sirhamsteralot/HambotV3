@@ -56,3 +56,19 @@ Each task carries: **Problem** (what's missing today), **Steps** (ordered checkl
 - [ ] **Further extra features — placeholder (not yet specified)**
 
     Candidates get their own entry here (Problem / Steps / Acceptance criteria) once proposed and agreed, then are fully specified in the requirements and design docs before implementation.
+
+## Phase #4: Operator tooling
+
+- [ ] **MCP member lookup tools — look up one specific member (FR-139–FR-143; design §3.11)**
+
+    **Problem**: the operator agent (FR-86–FR-91, FR-120) can act on a guild but cannot look anyone up: to investigate a specific member it has no way to resolve a name to a user id, see who they are on Discord, what standing they hold with the bot (tier, ban), what they said recently, or which quotes they added.
+
+    **Steps**:
+
+    1. `get_user_profile(guildId, userId)` (FR-139): member identity via one new `IMcpDiscordClient` member read (username/display name, nickname, roles, join date; graceful degradation when the member left) plus the bot's per-guild records — stored tier (default 0), active bot-ban record (expired ones lift on sight), quote count with the most recent quote, last-modified custom responses. Reminders stay private (FR-61).
+    2. `search_users(guildId, query, limit ≤ 25)` (FR-143): the discovery step — Discord's REST member search over username/display name/nickname, resolving a name the agent encountered to a user id (a full member list is unnecessary; current members only).
+    3. `get_user_quotes(guildId, userId)` (FR-140): the member's quotes, newest first, number-prefixed, capped at 50 with a "+N more" count.
+    4. `get_user_messages(guildId, userId, limit)` (FR-141): the member's recent messages across the bot's readable guild channels, newest first, capped at 50, reusing the `get_recent_messages` REST path filtered by author.
+    5. Wire the tool definitions into `McpToolEndpoints.cs`; keep them read-only (no writes, no pipeline, no posting — the operator-agent tier FR-120 does not gate them; they decline during maintenance mode); unit tests per NFR-20 (EF InMemory through `IDatabaseContext`, fake Discord REST).
+
+    **Acceptance criteria**: FR-139–FR-143 hold — the tools resolve a name to a user id and return the member's Discord identity, bot standing, quotes, and recent messages within the bot's existing access, all read-only behind the endpoint's authentication and tracing; nothing is written, posted, or compiled; tests green and warning-free; §3.11's member-lookup block loses its **(planned)** marker.
