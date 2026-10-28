@@ -53,6 +53,18 @@ Each task carries: **Problem** (what's missing today), **Steps** (ordered checkl
 
     **Acceptance criteria**: none yet — specifying this task is the first step once scheduled; after that, the criteria mirror the requirement set: opted-in guilds get the digest on schedule with the right messages ranked by community reactions, never repeated, non-opted-in guilds see nothing, build warning-free and tests green.
 
+- [ ] **Unknown-command suggestions — "did you mean?" on lookup failure (FRs and design section to be authored when scheduled)**
+
+    **Problem**: when a message uses the command identifier but names an unknown command, the pipeline only reports the failure — the user gets no pointer toward the intended command, so typos are dead ends.
+
+    **Steps** (initial plan; full FR set and design authored as the first step once scheduled):
+
+    1. On unknown-command resolution in `CommandHandler`, fuzzy-match the attempted name against the registered commands (case-insensitive; a small edit-distance or prefix/substring match, exact behavior decided in the spec).
+    2. Append a suggestion line to the unknown-command failure reply (e.g. "Did you mean `!quote`?"), only when a sufficiently close match exists; no suggestion when nothing is close. The suggestion must be part of the channel reply itself, so the MCP `run_command` path picks it up for free via the virtual invocation seam's captured replies.
+    3. Unit tests: typo → suggestion, unrelated garbage → plain unknown-command reply, exact-name edge cases (e.g. a close match that is actually a known command), and a virtual `run_command` invocation of a typo returning the suggestion in its captured replies.
+
+    **Acceptance criteria**: none yet — specifying this task is the first step once scheduled; after that, the criteria mirror the requirement set: a close typo yields one helpful suggestion naming the intended command, distant names yield the existing reply unchanged, build warning-free and tests green.
+
 - [ ] **Further extra features — placeholder (not yet specified)**
 
     Candidates get their own entry here (Problem / Steps / Acceptance criteria) once proposed and agreed, then are fully specified in the requirements and design docs before implementation.
