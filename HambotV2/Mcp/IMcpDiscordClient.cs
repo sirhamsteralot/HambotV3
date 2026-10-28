@@ -1,4 +1,5 @@
 using Discord;
+using Discord.Net;
 using Discord.WebSocket;
 
 namespace HambotV2.Mcp
@@ -110,15 +111,23 @@ namespace HambotV2.Mcp
             if (await _client.GetChannelAsync(channelId) is not IMessageChannel channel)
                 return null;
 
-            // Newest first, exactly as Discord returns them; only the messages the bot can already read.
-            IEnumerable<IMessage> messages = await channel.GetMessagesAsync(limit).FlattenAsync();
-            return messages
-                .Select(message => new DiscordChannelMessage(
-                    message.Author?.Id ?? 0,
-                    message.Author?.Username ?? "unknown",
-                    message.Timestamp,
-                    message.Content))
-                .ToList();
+            try
+            {
+                // Newest first, exactly as Discord returns them; only the messages the bot can already read.
+                IEnumerable<IMessage> messages = await channel.GetMessagesAsync(limit).FlattenAsync();
+                return messages
+                    .Select(message => new DiscordChannelMessage(
+                        message.Author?.Id ?? 0,
+                        message.Author?.Username ?? "unknown",
+                        message.Timestamp,
+                        message.Content))
+                    .ToList();
+            }
+            // A channel visible in the cache but closed to the bot answers 50001 "Missing Access".
+            catch (HttpException ex) when (ex.DiscordCode == (DiscordErrorCode)50001)
+            {
+                return null;
+            }
         }
 
         public async Task<bool> TrySendMessageAsync(ulong channelId, string text)

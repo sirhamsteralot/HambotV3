@@ -773,6 +773,23 @@ namespace BotTests
         }
 
         [TestMethod]
+        public async Task GetUserMessages_SkipsAChannelThatFailsToLoad()
+        {
+            var harness = new ToolHarness();
+            harness.Discord.MessageChannelIds = [100, 200];
+            harness.Discord.PerChannelMessages[100] =
+            [
+                new DiscordChannelMessage(MemberId, "alice", DateTimeOffset.UnixEpoch, "only from a")
+            ];
+            harness.Discord.ThrowingChannels.Add(200);
+
+            McpToolResult result = await harness.CreateTools().GetUserMessagesAsync(GuildId, MemberId, 10);
+
+            Assert.IsFalse(result.IsError, "A channel that fails to load is skipped, not a failed call.");
+            StringAssert.Contains(result.Text, "only from a");
+        }
+
+        [TestMethod]
         public async Task GetUserMessages_ReportsNoMessagesAndErrorsOnUnknownGuild()
         {
             var tools = new ToolHarness().CreateTools();
@@ -871,6 +888,9 @@ namespace BotTests
             /// <summary>Per-channel message pages for <c>get_user_messages</c>; channels absent from the dictionary fall back to <see cref="RecentMessages"/>.</summary>
             public Dictionary<ulong, IReadOnlyList<DiscordChannelMessage>> PerChannelMessages { get; } = new();
 
+            /// <summary>Channels whose message read throws, like a channel closed to the bot (Discord 50001).</summary>
+            public HashSet<ulong> ThrowingChannels { get; } = [];
+
             /// <summary>The guild whose text channel resolves; other guild ids return null like the cache would.</summary>
             public ulong KnownGuildId { get; set; } = GuildId;
 
@@ -889,7 +909,7 @@ namespace BotTests
             public async Task<IReadOnlyList<DiscordChannelMessage>?> GetRecentMessagesAsync(ulong channelId, int limit)
             {
                 RequestedLimit = limit;
-                if (ThrowOnRecentMessages)
+                if (ThrowOnRecentMessages || ThrowingChannels.Contains(channelId))
                     await Task.FromException(new InvalidOperationException("Discord is down"));
                 if (PerChannelMessages.TryGetValue(channelId, out IReadOnlyList<DiscordChannelMessage>? page))
                     return page;

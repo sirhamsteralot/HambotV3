@@ -376,7 +376,17 @@ namespace HambotV2.Mcp
                 var matches = new List<(DiscordChannelMessage Message, ulong ChannelId)>();
                 foreach (ulong channelId in channelIds)
                 {
-                    IReadOnlyList<DiscordChannelMessage>? messages = await _discord.GetRecentMessagesAsync(channelId, capped);
+                    IReadOnlyList<DiscordChannelMessage>? messages;
+                    try
+                    {
+                        messages = await _discord.GetRecentMessagesAsync(channelId, capped);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "MCP tool get_user_messages skipped channel {ChannelId}", channelId);
+                        continue;
+                    }
+
                     if (messages is null)
                         continue;
 
