@@ -61,6 +61,26 @@ namespace HambotV2.Mcp
         public Task<CallToolResult> RunCommandAsync(ulong guildId, string commandLine)
             => ToToolResultAsync(_tools.RunCommandAsync(guildId, commandLine));
 
+        [McpServerTool(Name = "search_users")]
+        [Description("Searches a guild's members by username, display name, or nickname (case-insensitive), returning up to 25 '<id> <username>' matches; use the id with the member lookup tools.")]
+        public Task<CallToolResult> SearchUsersAsync(ulong guildId, string query, int limit)
+            => ToToolResultAsync(_tools.SearchUsersAsync(guildId, query, limit));
+
+        [McpServerTool(Name = "get_user_profile")]
+        [Description("A read-only overview of one member: Discord identity (username, nickname, roles, join date) plus the bot's records in that guild — permission tier, active bot ban, quotes added, and last-modified custom responses. Reminders are never included.")]
+        public Task<CallToolResult> GetUserProfileAsync(ulong guildId, ulong userId)
+            => ToToolResultAsync(_tools.GetUserProfileAsync(guildId, userId));
+
+        [McpServerTool(Name = "get_user_quotes")]
+        [Description("The quotes one member added in a guild, newest first, number-prefixed, capped at 50 entries.")]
+        public Task<CallToolResult> GetUserQuotesAsync(ulong guildId, ulong userId)
+            => ToToolResultAsync(_tools.GetUserQuotesAsync(guildId, userId));
+
+        [McpServerTool(Name = "get_user_messages")]
+        [Description("A member's most recent messages across the guild's bot-readable channels, newest first, capped at 50.")]
+        public Task<CallToolResult> GetUserMessagesAsync(ulong guildId, ulong userId, int limit)
+            => ToToolResultAsync(_tools.GetUserMessagesAsync(guildId, userId, limit));
+
         private static CallToolResult ToToolResult(McpToolResult result) => new()
         {
             Content = [new TextContentBlock { Text = result.Text }],

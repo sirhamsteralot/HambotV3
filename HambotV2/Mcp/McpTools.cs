@@ -1,16 +1,19 @@
 using Discord;
 using HambotV2.Commands;
 using HambotV2.Connections;
+using HambotV2.Maintenance;
 using HambotV2.Watchdog;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace HambotV2.Mcp
 {
     /// <summary>
     /// The MCP tool implementations: thin wrappers over the existing components —
-    /// the shared client's status and guild cache, the presence service, the REST message surface,
-    /// and the virtual invocation seam — so nothing re-implements command or data logic. Every
-    /// call logs one structured event with the tool name and outcome, without message content;
-    /// failures are contained and returned as error results.
+    /// the shared client's status, guild, and member caches, the presence service, the REST
+    /// message surface, and the virtual invocation seam — so nothing re-implements command or
+    /// data logic. Every call logs one structured event with the tool name and outcome, without
+    /// message content; failures are contained and returned as error results.
     /// </summary>
     internal sealed class McpTools : IMcpTools
     {
@@ -20,11 +23,25 @@ namespace HambotV2.Mcp
         /// <summary>The cap of <c>send_message</c>, Discord's own plain-text limit.</summary>
         internal const int MaxSendMessageLength = 2000;
 
+        /// <summary>The cap of <c>get_user_quotes</c>.</summary>
+        internal const int MaxUserQuotes = 50;
+
+        /// <summary>The cap of <c>get_user_messages</c>.</summary>
+        internal const int MaxUserMessages = 50;
+
+        /// <summary>The cap of <c>search_users</c>.</summary>
+        internal const int MaxUserSearchResults = 25;
+
+        /// <summary>How many custom-response names <c>get_user_profile</c> lists before the "+N more" count.</summary>
+        internal const int MaxModifiedResponsesListed = 10;
+
         private readonly IMcpDiscordClient _discord;
         private readonly IPresenceService _presence;
         private readonly IGatewayStatus _gateway;
         private readonly ICommandService _commands;
         private readonly IVirtualCommandRunner _commandRunner;
+        private readonly IMaintenanceMode _maintenanceMode;
+        private readonly IServiceProvider _services;
         private readonly TimeProvider _timeProvider;
         private readonly ILogger<McpTools> _logger;
         private readonly DateTimeOffset _startedAtUtc;
@@ -35,6 +52,8 @@ namespace HambotV2.Mcp
             IGatewayStatus gateway,
             ICommandService commands,
             IVirtualCommandRunner commandRunner,
+            IMaintenanceMode maintenanceMode,
+            IServiceProvider services,
             TimeProvider timeProvider,
             ILogger<McpTools> logger)
         {
@@ -43,6 +62,8 @@ namespace HambotV2.Mcp
             _gateway = gateway;
             _commands = commands;
             _commandRunner = commandRunner;
+            _maintenanceMode = maintenanceMode;
+            _services = services;
             _timeProvider = timeProvider;
             _logger = logger;
             _startedAtUtc = timeProvider.GetUtcNow();
@@ -80,7 +101,7 @@ namespace HambotV2.Mcp
             {
                 IReadOnlyList<DiscordChannelSummary>? channels = _discord.GetGuildChannels(guildId);
                 if (channels is null)
-                    return McpToolResult.Error($"The bot has no accessible guild with id {guildId}.");
+                    return McpToolResult.Error(UnknownGuild(guildId));
 
                 return McpToolResult.Ok(channels.Count == 0
                     ? "The guild has no accessible channels."
@@ -157,7 +178,7 @@ namespace HambotV2.Mcp
         {
             return InvokeAsync("get_recent_messages", async () =>
             {
-                int capped = limit <= 0 ? MaxRecentMessages : Math.Min(limit, MaxRecentMessages);
+                int capped = CapLimit(limit, MaxRecentMessages);
 
                 IReadOnlyList<DiscordChannelMessage>? messages = await _discord.GetRecentMessagesAsync(channelId, capped);
                 if (messages is null)
@@ -216,10 +237,175 @@ namespace HambotV2.Mcp
             });
         }
 
+        public Task<McpToolResult> SearchUsersAsync(ulong guildId, string query, int limit)
+        {
+            return InvokeAsync("search_users", async () =>
+            {
+                if (_maintenanceMode.IsActive)
+                    return McpToolResult.Error(CommandHandler.MaintenanceNotice);
+
+                string trimmed = query.Trim();
+                if (trimmed.Length == 0)
+                    return McpToolResult.Error("The search query is missing.");
+
+                int capped = CapLimit(limit, MaxUserSearchResults);
+
+                IReadOnlyList<DiscordUserSummary>? users = await _discord.SearchUsersAsync(guildId, trimmed, capped);
+                if (users is null)
+                    return McpToolResult.Error(UnknownGuild(guildId));
+
+                return McpToolResult.Ok(users.Count == 0
+                    ? $"No members of guild {guildId} match '{trimmed}'."
+                    : string.Join("\n", users.Select(user =>
+                        $"{user.Id} {user.Username}" +
+                        (user.DisplayName is string display && display != user.Username ? $" ({display})" : "") +
+                        (user.Nickname is string nickname ? $" [nickname: {nickname}]" : ""))));
+            });
+        }
+
+        public Task<McpToolResult> GetUserProfileAsync(ulong guildId, ulong userId)
+        {
+            return InvokeAsync("get_user_profile", async () =>
+            {
+                if (_maintenanceMode.IsActive)
+                    return McpToolResult.Error(CommandHandler.MaintenanceNotice);
+
+                if (_discord.GetGuildChannels(guildId) is null)
+                    return McpToolResult.Error(UnknownGuild(guildId));
+
+                DiscordMemberSummary? member = await _discord.GetGuildMemberAsync(guildId, userId);
+
+                // A fresh scoped transient context per call — the singleton tool layer never holds a DbContext.
+                using IServiceScope scope = _services.CreateScope();
+                IDatabaseContext database = scope.ServiceProvider.GetRequiredService<IDatabaseContext>();
+                DateTimeOffset now = _timeProvider.GetUtcNow();
+
+                var user = await database.Users.FindAsync(guildId, userId);
+                DatabaseContext.BotBan? ban = await BotBans.FindActiveAsync(database, guildId, userId, now);
+                var quotes = database.Quotes.Where(quote => quote.GuildId == guildId && quote.AddedByDiscordId == userId);
+                int quoteCount = await quotes.CountAsync();
+                DatabaseContext.Quote? latestQuote = await quotes.OrderByDescending(quote => quote.Number).FirstOrDefaultAsync();
+                var responses = database.CustomResponses
+                    .Where(response => response.GuildId == guildId && response.LastModifiedByDiscordId == userId)
+                    .OrderByDescending(response => response.UpdatedAt);
+                int responseCount = await responses.CountAsync();
+                List<string> responseNames = await responses
+                    .Take(MaxModifiedResponsesListed)
+                    .Select(response => response.Name)
+                    .ToListAsync();
+
+                List<string> lines = [];
+                if (member is null)
+                {
+                    lines.Add($"Member {userId} is no longer in guild {guildId} (Discord identity unavailable).");
+                }
+                else
+                {
+                    lines.Add($"Member {userId}: {member.Username}" +
+                        (member.DisplayName is string display && display != member.Username ? $" ({display})" : "") +
+                        (member.Nickname is string nickname ? $" [nickname: {nickname}]" : ""));
+                    if (member.Roles.Count > 0)
+                        lines.Add($"Roles: {string.Join(", ", member.Roles)}");
+                    if (member.JoinedAt is DateTimeOffset joinedAt)
+                        lines.Add($"Joined: {joinedAt:yyyy-MM-dd HH:mm} UTC");
+                }
+
+                lines.Add($"Permission tier: {user?.PermissionTier ?? 0}");
+                lines.Add(ban is null
+                    ? "Bot ban: none"
+                    : $"Bot ban: by {ban.BannedByDiscordId} on {ban.CreatedAt:yyyy-MM-dd HH:mm} UTC, {BotBans.DescribeLifetime(ban, now)}");
+                lines.Add(latestQuote is null
+                    ? "Quotes added: 0"
+                    : $"Quotes added: {quoteCount}; most recent: #{latestQuote.Number} on {latestQuote.CreatedAt:yyyy-MM-dd HH:mm} UTC");
+                lines.Add(responseCount == 0
+                    ? "Custom responses last modified: none"
+                    : $"Custom responses last modified: {responseCount}" +
+                        (responseNames.Count < responseCount ? $" (+{responseCount - responseNames.Count} more)" : "") +
+                        $": {string.Join(", ", responseNames)}");
+
+                return McpToolResult.Ok(string.Join("\n", lines));
+            });
+        }
+
+        public Task<McpToolResult> GetUserQuotesAsync(ulong guildId, ulong userId)
+        {
+            return InvokeAsync("get_user_quotes", async () =>
+            {
+                if (_maintenanceMode.IsActive)
+                    return McpToolResult.Error(CommandHandler.MaintenanceNotice);
+
+                if (_discord.GetGuildChannels(guildId) is null)
+                    return McpToolResult.Error(UnknownGuild(guildId));
+
+                using IServiceScope scope = _services.CreateScope();
+                IDatabaseContext database = scope.ServiceProvider.GetRequiredService<IDatabaseContext>();
+
+                List<DatabaseContext.Quote> quotes = await database.Quotes
+                    .Where(quote => quote.GuildId == guildId && quote.AddedByDiscordId == userId)
+                    .OrderByDescending(quote => quote.Number)
+                    .ToListAsync();
+
+                if (quotes.Count == 0)
+                    return McpToolResult.Ok($"Member {userId} has not added any quotes in guild {guildId}.");
+
+                IEnumerable<string> lines = quotes
+                    .Take(MaxUserQuotes)
+                    .Select(quote => $"#{quote.Number}: {quote.Text}");
+                if (quotes.Count > MaxUserQuotes)
+                    lines = lines.Append($"+{quotes.Count - MaxUserQuotes} more");
+
+                return McpToolResult.Ok(string.Join("\n", lines));
+            });
+        }
+
+        public Task<McpToolResult> GetUserMessagesAsync(ulong guildId, ulong userId, int limit)
+        {
+            return InvokeAsync("get_user_messages", async () =>
+            {
+                if (_maintenanceMode.IsActive)
+                    return McpToolResult.Error(CommandHandler.MaintenanceNotice);
+
+                IReadOnlyList<ulong>? channelIds = _discord.GetGuildMessageChannelIds(guildId);
+                if (channelIds is null)
+                    return McpToolResult.Error(UnknownGuild(guildId));
+
+                int capped = CapLimit(limit, MaxUserMessages);
+
+                // One page per readable channel; a channel that fails to load is skipped,
+                // so a partial result beats a failed call.
+                var matches = new List<(DiscordChannelMessage Message, ulong ChannelId)>();
+                foreach (ulong channelId in channelIds)
+                {
+                    IReadOnlyList<DiscordChannelMessage>? messages = await _discord.GetRecentMessagesAsync(channelId, capped);
+                    if (messages is null)
+                        continue;
+
+                    matches.AddRange(messages
+                        .Where(message => message.AuthorId == userId)
+                        .Select(message => (message, channelId)));
+                }
+
+                if (matches.Count == 0)
+                    return McpToolResult.Ok($"Member {userId} has no recent messages in the bot's readable channels of guild {guildId}.");
+
+                IEnumerable<string> lines = matches
+                    .OrderByDescending(match => match.Message.Timestamp)
+                    .Take(capped)
+                    .Select(match => $"[{match.Message.Timestamp:yyyy-MM-dd HH:mm} UTC] (channel {match.ChannelId}) {match.Message.Content}");
+
+                return McpToolResult.Ok(string.Join("\n", lines));
+            });
+        }
+
         private static string FormatMessage(DiscordChannelMessage message)
         {
             return $"[{message.Timestamp:yyyy-MM-dd HH:mm} UTC] {message.AuthorName} ({message.AuthorId}): {message.Content}";
         }
+
+        /// <summary>The guild access every lookup reports when the guild is not in the bot's cache.</summary>
+        private static string UnknownGuild(ulong guildId) => $"The bot has no accessible guild with id {guildId}.";
+
+        private static int CapLimit(int limit, int cap) => limit <= 0 ? cap : Math.Min(limit, cap);
 
         private static string FormatUptime(TimeSpan uptime) => uptime.Days > 0
             ? $"{uptime.Days}d {uptime.Hours}h {uptime.Minutes}m"

@@ -130,6 +130,8 @@ namespace HambotV2
                 serviceProvider.GetRequiredService<IGatewayStatus>(),
                 serviceProvider.GetRequiredService<ICommandService>(),
                 serviceProvider.GetRequiredService<IVirtualCommandRunner>(),
+                serviceProvider.GetRequiredService<IMaintenanceMode>(),
+                serviceProvider,
                 serviceProvider.GetRequiredService<TimeProvider>(),
                 serviceProvider.GetRequiredService<ILogger<McpTools>>()));
             builder.Services.AddSingleton<McpEndpointStatus>();

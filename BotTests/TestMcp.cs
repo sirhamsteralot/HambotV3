@@ -1,10 +1,12 @@
 using Discord;
 using HambotV2.Commands;
 using HambotV2.Connections;
+using HambotV2.Maintenance;
 using HambotV2.Mcp;
 using HambotV2.Watchdog;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
@@ -539,6 +541,271 @@ namespace BotTests
             return user.Object;
         }
 
+        [TestMethod]
+        public async Task SearchUsers_ResolvesNamesToMemberIds()
+        {
+            var harness = new ToolHarness();
+            harness.Discord.SearchResults =
+            [
+                new DiscordUserSummary(11, "alice", "Alice", "ali"),
+                new DiscordUserSummary(12, "bob", null, null)
+            ];
+
+            McpToolResult result = await harness.CreateTools().SearchUsersAsync(GuildId, "a", 10);
+
+            Assert.IsFalse(result.IsError);
+            StringAssert.Contains(result.Text, "11 alice (Alice) [nickname: ali]");
+            StringAssert.Contains(result.Text, "\n12 bob", "A member without display name or nickname is listed bare.");
+        }
+
+        [TestMethod]
+        public async Task SearchUsers_ErrorsOnMissingQueryAndUnknownGuild()
+        {
+            var tools = new ToolHarness().CreateTools();
+
+            Assert.IsTrue((await tools.SearchUsersAsync(GuildId, "   ", 10)).IsError, "A blank query is an error result.");
+            Assert.IsTrue((await tools.SearchUsersAsync(GuildId + 1, "a", 10)).IsError, "An unknown guild is an error result.");
+        }
+
+        [TestMethod]
+        public async Task SearchUsers_CapsTheResultLimit()
+        {
+            var harness = new ToolHarness();
+            var tools = harness.CreateTools();
+
+            await tools.SearchUsersAsync(GuildId, "a", 0);
+            Assert.AreEqual(McpTools.MaxUserSearchResults, harness.Discord.SearchLimit, "A missing limit falls back to the cap.");
+
+            await tools.SearchUsersAsync(GuildId, "a", 500);
+            Assert.AreEqual(McpTools.MaxUserSearchResults, harness.Discord.SearchLimit, "An over-limit request is capped.");
+        }
+
+        [TestMethod]
+        public async Task SearchUsers_ReportsNoMatches()
+        {
+            var result = await new ToolHarness().CreateTools().SearchUsersAsync(GuildId, "nobody", 10);
+
+            Assert.IsFalse(result.IsError);
+            StringAssert.Contains(result.Text, "No members");
+        }
+
+        [TestMethod]
+        public async Task GetUserProfile_ReportsMemberIdentityAndBotRecords()
+        {
+            var harness = new ToolHarness();
+            harness.Discord.Member = new DiscordMemberSummary("alice", "Alice", "ali", ["Mods"], DateTime.UnixEpoch);
+            await harness.SeedAsync(database =>
+            {
+                database.Users.Add(new DatabaseContext.User { GuildId = GuildId, DiscordId = MemberId, PermissionTier = 2 });
+                database.BotBans.Add(new DatabaseContext.BotBan { GuildId = GuildId, DiscordId = MemberId, BannedByDiscordId = 99, CreatedAt = DateTime.UnixEpoch });
+                database.Quotes.Add(new DatabaseContext.Quote { GuildId = GuildId, Number = 0, Text = "first", AddedByDiscordId = MemberId, CreatedAt = DateTime.UnixEpoch });
+                database.Quotes.Add(new DatabaseContext.Quote { GuildId = GuildId, Number = 1, Text = "second", AddedByDiscordId = MemberId, CreatedAt = DateTime.UnixEpoch.AddHours(1) });
+                database.CustomResponses.Add(new DatabaseContext.CustomResponse { GuildId = GuildId, Name = "poke", Content = "hi", LastModifiedByDiscordId = MemberId, CreatedAt = DateTime.UnixEpoch, UpdatedAt = DateTime.UnixEpoch });
+            });
+
+            McpToolResult result = await harness.CreateTools().GetUserProfileAsync(GuildId, MemberId);
+
+            Assert.IsFalse(result.IsError);
+            StringAssert.Contains(result.Text, "Member 21: alice (Alice) [nickname: ali]");
+            StringAssert.Contains(result.Text, "Roles: Mods");
+            StringAssert.Contains(result.Text, "Joined: 1970-01-01 00:00 UTC");
+            StringAssert.Contains(result.Text, "Permission tier: 2");
+            StringAssert.Contains(result.Text, "Bot ban: by 99 on 1970-01-01 00:00 UTC, permanent");
+            StringAssert.Contains(result.Text, "Quotes added: 2; most recent: #1");
+            StringAssert.Contains(result.Text, "Custom responses last modified: 1: poke");
+        }
+
+        [TestMethod]
+        public async Task GetUserProfile_DegradesWhenTheMemberLeftAndDefaultsToZeroTier()
+        {
+            McpToolResult result = await new ToolHarness().CreateTools().GetUserProfileAsync(GuildId, MemberId);
+
+            Assert.IsFalse(result.IsError);
+            StringAssert.Contains(result.Text, "is no longer in guild");
+            StringAssert.Contains(result.Text, "Permission tier: 0");
+            StringAssert.Contains(result.Text, "Bot ban: none");
+            StringAssert.Contains(result.Text, "Quotes added: 0");
+            StringAssert.Contains(result.Text, "Custom responses last modified: none");
+        }
+
+        [TestMethod]
+        public async Task GetUserProfile_AnExpiredBanLiftsItselfOnSight()
+        {
+            var harness = new ToolHarness();
+            await harness.SeedAsync(database =>
+            {
+                database.BotBans.Add(new DatabaseContext.BotBan
+                {
+                    GuildId = GuildId,
+                    DiscordId = MemberId,
+                    BannedByDiscordId = 99,
+                    CreatedAt = DateTime.UnixEpoch,
+                    ExpiresAtUtc = DateTime.UnixEpoch.AddHours(-1)
+                });
+            });
+
+            McpToolResult result = await harness.CreateTools().GetUserProfileAsync(GuildId, MemberId);
+
+            Assert.IsFalse(result.IsError);
+            StringAssert.Contains(result.Text, "Bot ban: none");
+            Assert.AreEqual(0, harness.Query(database => database.BotBans.Count()), "The expired record is deleted on sight.");
+        }
+
+        [TestMethod]
+        public async Task GetUserProfile_CapsTheModifiedResponseNames()
+        {
+            var harness = new ToolHarness();
+            await harness.SeedAsync(database =>
+            {
+                for (int index = 0; index < 12; index++)
+                {
+                    database.CustomResponses.Add(new DatabaseContext.CustomResponse
+                    {
+                        GuildId = GuildId,
+                        Name = $"r{index}",
+                        Content = "hi",
+                        LastModifiedByDiscordId = MemberId,
+                        CreatedAt = DateTime.UnixEpoch,
+                        UpdatedAt = DateTime.UnixEpoch.AddDays(index)
+                    });
+                }
+            });
+
+            McpToolResult result = await harness.CreateTools().GetUserProfileAsync(GuildId, MemberId);
+
+            Assert.IsFalse(result.IsError);
+            StringAssert.Contains(result.Text, "Custom responses last modified: 12 (+2 more):");
+            StringAssert.Contains(result.Text, "r11");
+            Assert.IsFalse(result.Text.Contains("r1,"), "Only the ten most recent names are listed.");
+        }
+
+        [TestMethod]
+        public async Task GetUserProfile_ErrorsOnUnknownGuild()
+        {
+            McpToolResult result = await new ToolHarness().CreateTools().GetUserProfileAsync(GuildId + 1, MemberId);
+
+            Assert.IsTrue(result.IsError);
+            StringAssert.Contains(result.Text, "no accessible guild");
+        }
+
+        [TestMethod]
+        public async Task GetUserQuotes_ListsNewestFirstAndCapsAtFifty()
+        {
+            var harness = new ToolHarness();
+            await harness.SeedAsync(database =>
+            {
+                for (int number = 0; number < 55; number++)
+                {
+                    database.Quotes.Add(new DatabaseContext.Quote
+                    {
+                        GuildId = GuildId,
+                        Number = number,
+                        Text = $"quote {number}",
+                        AddedByDiscordId = MemberId,
+                        CreatedAt = DateTime.UnixEpoch
+                    });
+                }
+            });
+
+            McpToolResult result = await harness.CreateTools().GetUserQuotesAsync(GuildId, MemberId);
+
+            Assert.IsFalse(result.IsError);
+            string[] lines = result.Text.Split('\n');
+            Assert.AreEqual(McpTools.MaxUserQuotes + 1, lines.Length, "Fifty quotes plus the '+N more' count.");
+            StringAssert.Contains(lines[0], "#54: quote 54", "The newest quote (highest number) comes first.");
+            StringAssert.Contains(lines[^1], "+5 more");
+        }
+
+        [TestMethod]
+        public async Task GetUserQuotes_ReportsEmptyAndErrorsOnUnknownGuild()
+        {
+            var tools = new ToolHarness().CreateTools();
+
+            McpToolResult empty = await tools.GetUserQuotesAsync(GuildId, MemberId);
+            Assert.IsFalse(empty.IsError);
+            StringAssert.Contains(empty.Text, "has not added any quotes");
+
+            Assert.IsTrue((await tools.GetUserQuotesAsync(GuildId + 1, MemberId)).IsError, "An unknown guild is an error result.");
+        }
+
+        [TestMethod]
+        public async Task GetUserMessages_FiltersByAuthorAcrossChannelsNewestFirst()
+        {
+            var harness = new ToolHarness();
+            harness.Discord.MessageChannelIds = [100, 200];
+            harness.Discord.PerChannelMessages[100] =
+            [
+                new DiscordChannelMessage(MemberId, "alice", DateTimeOffset.UnixEpoch.AddHours(2), "newest from a"),
+                new DiscordChannelMessage(OtherId, "bob", DateTimeOffset.UnixEpoch.AddHours(3), "not the member")
+            ];
+            harness.Discord.PerChannelMessages[200] =
+            [
+                new DiscordChannelMessage(MemberId, "alice", DateTimeOffset.UnixEpoch.AddHours(1), "older from b")
+            ];
+
+            McpToolResult result = await harness.CreateTools().GetUserMessagesAsync(GuildId, MemberId, 10);
+
+            Assert.IsFalse(result.IsError);
+            string[] lines = result.Text.Split('\n');
+            Assert.AreEqual(2, lines.Length, "Only the member's messages, merged across channels.");
+            StringAssert.Contains(lines[0], "(channel 100) newest from a", "Newest first across channels.");
+            StringAssert.Contains(lines[1], "(channel 200) older from b");
+        }
+
+        [TestMethod]
+        public async Task GetUserMessages_SkipsInaccessibleChannelsAndCapsAtFifty()
+        {
+            var harness = new ToolHarness();
+            harness.Discord.MessageChannelIds = [100, 200];
+            harness.Discord.RecentMessages = null; // channel 200 returns nothing: inaccessible, skipped
+            var page = new List<DiscordChannelMessage>();
+            for (int index = 0; index < 60; index++)
+            {
+                page.Add(new DiscordChannelMessage(MemberId, "alice", DateTimeOffset.UnixEpoch.AddMinutes(index), $"message {index}"));
+            }
+
+            harness.Discord.PerChannelMessages[100] = page;
+
+            McpToolResult result = await harness.CreateTools().GetUserMessagesAsync(GuildId, MemberId, 0);
+
+            Assert.IsFalse(result.IsError);
+            Assert.AreEqual(McpTools.MaxUserMessages, result.Text.Split('\n').Length, "The result is capped, and the skipped channel contributes nothing.");
+        }
+
+        [TestMethod]
+        public async Task GetUserMessages_ReportsNoMessagesAndErrorsOnUnknownGuild()
+        {
+            var tools = new ToolHarness().CreateTools();
+
+            McpToolResult empty = await tools.GetUserMessagesAsync(GuildId, MemberId, 10);
+            Assert.IsFalse(empty.IsError);
+            StringAssert.Contains(empty.Text, "no recent messages");
+
+            Assert.IsTrue((await tools.GetUserMessagesAsync(GuildId + 1, MemberId, 10)).IsError, "An unknown guild is an error result.");
+        }
+
+        [TestMethod]
+        public async Task LookupTools_DeclineDuringMaintenanceMode()
+        {
+            var harness = new ToolHarness();
+            harness.Maintenance.Enter();
+            var tools = harness.CreateTools();
+
+            McpToolResult profile = await tools.GetUserProfileAsync(GuildId, MemberId);
+            McpToolResult search = await tools.SearchUsersAsync(GuildId, "a", 10);
+            McpToolResult quotes = await tools.GetUserQuotesAsync(GuildId, MemberId);
+            McpToolResult messages = await tools.GetUserMessagesAsync(GuildId, MemberId, 10);
+
+            foreach (McpToolResult result in new[] { profile, search, quotes, messages })
+            {
+                Assert.IsTrue(result.IsError, "A restore in progress declines the lookup tools.");
+                StringAssert.Contains(result.Text, "maintenance");
+            }
+        }
+
+        private const ulong MemberId = 21;
+        private const ulong OtherId = 22;
+
         /// <summary>The fakes behind the non-command tools: everything injected into <see cref="McpTools"/> except the runner.</summary>
         private sealed class ToolHarness
         {
@@ -547,12 +814,44 @@ namespace BotTests
             public Mock<IGatewayStatus> Gateway { get; } = new();
             public CommandService CommandService { get; } = new();
             public FakeTimeProvider Time { get; } = new(DateTimeOffset.UnixEpoch);
+            public MaintenanceMode Maintenance { get; } = new();
+            public string DatabaseStoreName { get; } = Guid.NewGuid().ToString();
+
+            private readonly ServiceProvider _services;
+
+            public ToolHarness()
+            {
+                // The same shape as the production container: transient DatabaseContext
+                // (InMemory here) behind IDatabaseContext, resolved per tool call from a scope.
+                var services = new ServiceCollection();
+                services.AddDbContext<DatabaseContext>(
+                    options => options.UseInMemoryDatabase(DatabaseStoreName),
+                    ServiceLifetime.Transient,
+                    ServiceLifetime.Transient);
+                services.AddTransient<IDatabaseContext>(provider => provider.GetRequiredService<DatabaseContext>());
+                _services = services.BuildServiceProvider();
+            }
+
+            public async Task SeedAsync(Action<DatabaseContext> seed)
+            {
+                using IServiceScope scope = _services.CreateScope();
+                var database = scope.ServiceProvider.GetRequiredService<DatabaseContext>();
+                seed(database);
+                await database.SaveChangesAsync();
+            }
+
+            public T Query<T>(Func<DatabaseContext, T> query)
+            {
+                using IServiceScope scope = _services.CreateScope();
+                var database = scope.ServiceProvider.GetRequiredService<DatabaseContext>();
+                return query(database);
+            }
 
             public McpTools CreateTools()
             {
                 return new McpTools(
                     Discord, Presence.Object, Gateway.Object, CommandService,
-                    Mock.Of<IVirtualCommandRunner>(), Time, NullLogger<McpTools>.Instance);
+                    Mock.Of<IVirtualCommandRunner>(), Maintenance, _services, Time, NullLogger<McpTools>.Instance);
             }
         }
 
@@ -564,6 +863,13 @@ namespace BotTests
             public IReadOnlyList<DiscordChannelMessage>? RecentMessages { get; set; } = [];
             public bool SendResult { get; set; } = true;
             public bool ThrowOnRecentMessages { get; set; }
+
+            public DiscordMemberSummary? Member { get; set; }
+            public IReadOnlyList<DiscordUserSummary>? SearchResults { get; set; } = [];
+            public IReadOnlyList<ulong>? MessageChannelIds { get; set; } = [];
+
+            /// <summary>Per-channel message pages for <c>get_user_messages</c>; channels absent from the dictionary fall back to <see cref="RecentMessages"/>.</summary>
+            public Dictionary<ulong, IReadOnlyList<DiscordChannelMessage>> PerChannelMessages { get; } = new();
 
             /// <summary>The guild whose text channel resolves; other guild ids return null like the cache would.</summary>
             public ulong KnownGuildId { get; set; } = GuildId;
@@ -585,8 +891,24 @@ namespace BotTests
                 RequestedLimit = limit;
                 if (ThrowOnRecentMessages)
                     await Task.FromException(new InvalidOperationException("Discord is down"));
+                if (PerChannelMessages.TryGetValue(channelId, out IReadOnlyList<DiscordChannelMessage>? page))
+                    return page;
                 return RecentMessages;
             }
+
+            public Task<DiscordMemberSummary?> GetGuildMemberAsync(ulong guildId, ulong userId)
+                => Task.FromResult(guildId == KnownGuildId ? Member : null);
+
+            public int SearchLimit { get; private set; }
+
+            public Task<IReadOnlyList<DiscordUserSummary>?> SearchUsersAsync(ulong guildId, string query, int limit)
+            {
+                SearchLimit = limit;
+                return Task.FromResult<IReadOnlyList<DiscordUserSummary>?>(guildId == KnownGuildId ? SearchResults : null);
+            }
+
+            public IReadOnlyList<ulong>? GetGuildMessageChannelIds(ulong guildId)
+                => guildId == KnownGuildId ? MessageChannelIds : null;
 
             public Task<bool> TrySendMessageAsync(ulong channelId, string text)
             {
@@ -605,6 +927,10 @@ namespace BotTests
             public FakeTimeProvider Time { get; } = new(DateTimeOffset.UnixEpoch);
             public RecordingLogger<CommandHandler> HandlerLog { get; } = new();
             public string DatabaseStoreName { get; } = Guid.NewGuid().ToString();
+
+            // The lookup tools are not exercised through this harness; empty stubs satisfy the constructor.
+            public MaintenanceMode Maintenance { get; } = new();
+            public ServiceProvider Services { get; } = new ServiceCollection().BuildServiceProvider();
 
             public McpPipeline()
             {
@@ -634,7 +960,7 @@ namespace BotTests
             {
                 return new McpTools(
                     discord, Mock.Of<IPresenceService>(), Mock.Of<IGatewayStatus>(), CommandService,
-                    CreateRunner(), Time, NullLogger<McpTools>.Instance);
+                    CreateRunner(), Maintenance, Services, Time, NullLogger<McpTools>.Instance);
             }
         }
 
