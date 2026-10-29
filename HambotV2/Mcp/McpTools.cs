@@ -254,12 +254,33 @@ namespace HambotV2.Mcp
                 if (users is null)
                     return McpToolResult.Error(UnknownGuild(guildId));
 
-                return McpToolResult.Ok(users.Count == 0
+                // Discord's relevance order does not guarantee the closest name first, so the
+                // candidates are ranked locally by distance to the closest of the member's
+                // names — closest first, ties broken alphabetically by username.
+                string lowercasedQuery = trimmed.ToLowerInvariant();
+                List<DiscordUserSummary> ranked = users
+                    .Select(user => (User: user, Distance: NameDistance(lowercasedQuery, user)))
+                    .OrderBy(match => match.Distance)
+                    .ThenBy(match => match.User.Username, StringComparer.OrdinalIgnoreCase)
+                    .Select(match => match.User)
+                    .ToList();
+
+                return McpToolResult.Ok(ranked.Count == 0
                     ? $"No members of guild {guildId} match '{trimmed}'."
-                    : string.Join("\n", users.Select(user =>
+                    : string.Join("\n", ranked.Select(user =>
                         $"{user.Id} {user.Username}" +
                         (user.DisplayName is string display && display != user.Username ? $" ({display})" : "") +
                         (user.Nickname is string nickname ? $" [nickname: {nickname}]" : ""))));
+
+                static int NameDistance(string lowercasedQuery, DiscordUserSummary user)
+                {
+                    int distance = FuzzyMatcher.Distance(lowercasedQuery, user.Username.ToLowerInvariant());
+                    if (user.DisplayName is string display)
+                        distance = Math.Min(distance, FuzzyMatcher.Distance(lowercasedQuery, display.ToLowerInvariant()));
+                    if (user.Nickname is string nickname)
+                        distance = Math.Min(distance, FuzzyMatcher.Distance(lowercasedQuery, nickname.ToLowerInvariant()));
+                    return distance;
+                }
             });
         }
 

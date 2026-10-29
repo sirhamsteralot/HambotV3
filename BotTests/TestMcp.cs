@@ -395,6 +395,20 @@ namespace BotTests
         }
 
         [TestMethod]
+        public async Task RunCommand_ATypoReturnsTheCapturedSuggestion()
+        {
+            var pipeline = new McpPipeline();
+            var harness = new RunCommandHarness(pipeline);
+
+            McpToolResult result = await harness.Tools.RunCommandAsync(GuildId, "quoe");
+
+            Assert.IsFalse(result.IsError);
+            StringAssert.Contains(result.Text, "Did you mean !quote?",
+                "The suggestion is part of the channel reply, so the capture picks it up for free.");
+            Assert.AreEqual(0, harness.Channel.Sent.Count, "The suggestion is never posted to the origin channel.");
+        }
+
+        [TestMethod]
         public async Task RunCommand_ActsAtTheGuildsGrantedTierWithoutADatabaseEntry()
         {
             var pipeline = new McpPipeline();
@@ -587,6 +601,48 @@ namespace BotTests
 
             Assert.IsFalse(result.IsError);
             StringAssert.Contains(result.Text, "No members");
+        }
+
+        [TestMethod]
+        public async Task SearchUsers_RanksTheClosestNameFirst()
+        {
+            var harness = new ToolHarness();
+            harness.Discord.SearchResults =
+            [
+                new DiscordUserSummary(3, "carol", null, null),
+                new DiscordUserSummary(1, "bob", null, null),
+                new DiscordUserSummary(2, "rob", null, null),
+                new DiscordUserSummary(4, "susan", null, "boba")
+            ];
+
+            McpToolResult result = await harness.CreateTools().SearchUsersAsync(GuildId, "bob", 10);
+
+            Assert.IsFalse(result.IsError);
+            string[] lines = result.Text.Split('\n');
+            Assert.AreEqual(4, lines.Length);
+            Assert.IsTrue(lines[0].StartsWith("1 bob"), "The exact name match leads.");
+            Assert.IsTrue(lines[1].StartsWith("2 rob"), "Distance 1 outranks carol; the tie with susan breaks alphabetically (rob < susan).");
+            Assert.IsTrue(lines[2].StartsWith("4 susan"), "A nickname can be the closest name.");
+            Assert.IsTrue(lines[3].StartsWith("3 carol"));
+        }
+
+        [TestMethod]
+        public async Task SearchUsers_BreaksDistanceTiesAlphabetically()
+        {
+            var harness = new ToolHarness();
+            harness.Discord.SearchResults =
+            [
+                new DiscordUserSummary(2, "ac", null, null),
+                new DiscordUserSummary(1, "ab", null, null)
+            ];
+
+            McpToolResult result = await harness.CreateTools().SearchUsersAsync(GuildId, "ax", 10);
+
+            Assert.IsFalse(result.IsError);
+            string[] lines = result.Text.Split('\n');
+            Assert.AreEqual(2, lines.Length);
+            Assert.IsTrue(lines[0].StartsWith("1 ab"), "An equal distance is broken alphabetically by username.");
+            Assert.IsTrue(lines[1].StartsWith("2 ac"));
         }
 
         [TestMethod]

@@ -53,22 +53,6 @@ Each task carries: **Problem** (what's missing today), **Steps** (ordered checkl
 
     **Acceptance criteria**: none yet — specifying this task is the first step once scheduled; after that, the criteria mirror the requirement set: opted-in guilds get the digest on schedule with the right messages ranked by community reactions, never repeated, non-opted-in guilds see nothing, build warning-free and tests green.
 
-- [ ] **Unknown-command suggestions — "did you mean?" on lookup failure (specified: FR-144–FR-148, NFR-31, design §3.18; implementation outstanding)**
-
-    **Problem**: when a message uses the command identifier but names an unknown command, the pipeline only reports the failure — the user gets no pointer toward the intended command, so typos are dead ends.
-
-    **Steps**: implement per the existing spec — the shared `FuzzyMatcher` and its `CommandSuggestions` consumer, and the `CommandHandler` fallthrough placement, are described in design §3.18; the behavior (candidate set, closeness rule, tier filtering, reply shape) is FR-144–FR-148.
-
-    **Acceptance criteria**: a close typo of a runnable name yields exactly one suggestion naming the intended command (with the effective identifier), distant names and candidates above the invoker's tier yield the existing reply unchanged, DMs suggest built-ins only, a custom-response typo is suggested in its guild, `run_command` captures the suggestion, and the build stays warning-free with the tests of NFR-31 green.
-
-- [ ] **Fuzzy search — typo tolerance in `!searchquotes` and `search_users` via the shared suggestion matcher (specified: FR-149–FR-151, NFR-32, design §3.6/§3.11/§3.18; implementation outstanding)**
-
-    **Problem**: search is typo-hostile — `!searchquotes` misses a quote whenever the term is misspelled, and `search_users` returns Discord's relevance order, which does not guarantee the closest name first.
-
-    **Steps**: implement per the existing spec, building on the shared `FuzzyMatcher` of the suggestions task — quote-search word-level matches and ranking are FR-150 (design §3.6), member-search local ranking is FR-151 (design §3.11), and the shared-matcher/no-duplication rule is FR-149/NFR-32 (design §3.18). Implement together with the suggestions task or after it; the matcher is the shared piece.
-
-    **Acceptance criteria**: a misspelled `!searchquotes` term still finds the quote (substring matches keep precedence), `search_users` puts the closest name first, everything else is unchanged (caps, no-match/empty replies, result sets, scopes), no second fuzzy implementation exists, and the build stays warning-free with the tests of NFR-32 green.
-
 - [ ] **Further extra features — placeholder (not yet specified)**
 
     Candidates get their own entry here (Problem / Steps / Acceptance criteria) once proposed and agreed, then are fully specified in the requirements and design docs before implementation.

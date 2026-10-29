@@ -69,7 +69,7 @@ HamBot is a Discord chat bot. It recognizes messages starting with a configurabl
 - **FR-43**: Per-guild sequential numbering, **0-based like the old bot** (`MAX(Number) + 1`); removal never renumbers.
 - **FR-44**: `!quote` replies with a random guild quote, number-prefixed; empty guild → friendly "no quotes yet".
 - **FR-45**: `!quote <number>` fetches that quote; unknown numbers are in-channel errors; non-numeric arguments are treated as text to add (FR-47).
-- **FR-46**: `!searchquotes <text...>` — case-insensitive substring match, number-prefixed, ≤ 10 results; no matches → friendly reply; empty term → in-channel error.
+- **FR-46**: `!searchquotes <text...>` — case-insensitive substring match, plus word-level near misses ranked behind the substring hits (FR-150); number-prefixed, ≤ 10 results; no matches → friendly reply; empty term → in-channel error.
 - **FR-47**: `!quote <text...>` adds the text (≤ 2000 chars, longer rejected) and replies with the number; over-limit replies are trimmed with an ellipsis, stored text never modified.
 - **FR-48**: `!removequote <number>` removes and confirms; tier moderator. `quote` and `searchquotes` default to tier 0.
 - **FR-49**: Quote commands are subject to the standard pipeline behavior (tier adjustment, cooldowns, shared argument parsing, help text, lowercase names).
@@ -148,7 +148,7 @@ HamBot is a Discord chat bot. It recognizes messages starting with a configurabl
 - **FR-139**: A member-lookup tool `get_user_profile(guildId, userId)` — a read-only overview of one specific member: Discord identity (username/display name, nickname, roles, join date, degraded gracefully when the member is no longer resolvable) plus the bot's records for them in that guild: permission tier (default 0), active bot-ban record (expired ones lift on sight, FR-137), quote count with the most recent quote, and last-modified custom responses. Reminders are excluded — they are the member's private state (FR-61).
 - **FR-140**: `get_user_quotes(guildId, userId)` — the quotes that member added in the guild, newest first, number-prefixed like the `!quote` reply (FR-44), capped at 50 entries with a "+N more" count.
 - **FR-141**: `get_user_messages(guildId, userId, limit ≤ 50)` — the member's most recent messages across the guild's bot-readable channels, newest first, filtered by author; content appears in the result but never in routine logs (FR-91).
-- **FR-143**: `search_users(guildId, query, limit ≤ 25)` — a case-insensitive member search over username, display name, and server nickname, resolving a name the agent encountered (a message author, "who is X") to a user id for the other lookup tools; backed by Discord's REST member search within the bot's existing guild access. A missing query is an error; members who left are not findable (current members only).
+- **FR-143**: `search_users(guildId, query, limit ≤ 25)` — a case-insensitive member search over username, display name, and server nickname, resolving a name the agent encountered (a message author, "who is X") to a user id for the other lookup tools; backed by Discord's REST member search within the bot's existing guild access, its candidate set ranked closest-first locally (FR-151). A missing query is an error; members who left are not findable (current members only).
 - **FR-142**: The lookup tools (FR-139–FR-143) are read-only: nothing is written, executed, or posted, so the operator-agent tier (FR-120) does not gate them; they share the endpoint's authentication (FR-87), tracing, and error semantics, and read only what the bot already holds or can already read (no new gateway intents, no external data enrichment). During maintenance mode (FR-98) they decline with the same captured notice as `run_command`. The bot compiles and stores nothing — interpreting the records is the calling agent's job.
 
 ### 2.14 LLM integration (phase 1: presence updates) *(planned)*
@@ -213,7 +213,7 @@ HamBot is a Discord chat bot. It recognizes messages starting with a configurabl
 - **FR-137**: Temporary bans lift lazily at read time — an expired record is deleted on sight; no scheduled job.
 - **FR-138**: Server-scoped moderator-tier commands (declining in DMs, Moderation category, slash-eligible): `!banuser <user> [duration]` (reminder duration forms; escalation guard applies; invalid input stores nothing), `!unbanuser <user>` (deliberately unguarded), `!banlist` (soonest expiry first, ≤ 10 entries, expired lifted on sight).
 
-### 2.22 Unknown-command suggestions ("did you mean?") *(planned)*
+### 2.22 Unknown-command suggestions ("did you mean?")
 
 - **FR-144**: When an invocation's name resolves to neither a built-in command (FR-11) nor, in a guild, a custom response (FR-54), the pipeline computes at most one suggestion before sending the "unavailable" reply. Exact-name matches never reach the suggestion path — built-ins and custom responses win by construction (FR-53, FR-54). Applies to the text surface and MCP `run_command` only; the slash surface is excluded — Discord's own autocomplete already guides users there, and unknown names cannot be invoked on it at all.
 - **FR-145**: Candidates are all registered built-in command names plus, in a guild, the invoking guild's custom response names — they dispatch from the same path, so a typo of one is as dead an end as a typo of a built-in. DMs consider built-ins only (FR-59). A custom response is suggested by its bare name, like a command.
@@ -221,7 +221,7 @@ HamBot is a Discord chat bot. It recognizes messages starting with a configurabl
 - **FR-147**: Suggestions never leak commands the invoker cannot run: candidates whose effective required tier exceeds the invoker's effective tier are excluded before matching (per-guild tiers in a guild, FR-17; built-in defaults in DMs, FR-25; the operator-agent grant for virtual invocations, FR-120) — mirroring FR-40's never-reveal rule. Banned users never get a suggestion (FR-135 drops them before this path).
 - **FR-148**: The suggestion is one extra line appended to the "unavailable" reply, e.g. `Did you mean !quote?`, using the invocation's effective command identifier (FR-7). It is part of the channel reply itself, so virtual invocations capture it with no special handling; the audit event stays `UnknownCommand`, no content logged.
 
-### 2.23 Fuzzy search — typo tolerance via the shared matcher *(planned)*
+### 2.23 Fuzzy search — typo tolerance via the shared matcher
 
 - **FR-149**: The fuzzy-matching logic (the FR-146 algorithm: case-insensitive Levenshtein distance with a per-consumer qualification rule) is one shared pure matcher. The suggestion path (FR-144–FR-148), `!searchquotes` (FR-150), and `search_users` (FR-151) all use it — no per-feature fuzzy implementations.
 - **FR-150**: `!searchquotes <text...>` matches a quote iff it contains the term case-insensitively (unchanged, FR-46) or one of its whitespace-delimited words is within edit distance ≤ 2 of the whole term. Substring matches rank ahead of fuzzy matches; fuzzy matches rank by distance, ties by quote number ascending. The ≤ 10 cap and the no-match/empty-term replies are unchanged.

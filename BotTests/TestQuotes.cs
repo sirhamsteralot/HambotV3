@@ -314,6 +314,57 @@ namespace BotTests
         }
 
         [TestMethod]
+        public async Task Search_AMisspelledTerm_FindsItsQuote()
+        {
+            var harness = Harness();
+            await harness.Execute(new QuoteCommand(), "!quote a big dog barks");
+
+            CollectionAssert.AreEqual(
+                new List<string> { "#0: a big dog barks" },
+                await harness.Execute(new SearchQuotesCommand(), "!searchquotes dg"),
+                "A near miss of a word (edit distance 1) matches the quote.");
+        }
+
+        [TestMethod]
+        public async Task Search_SubstringMatches_RankAheadOfFuzzyOnes()
+        {
+            var harness = Harness();
+            await harness.Execute(new QuoteCommand(), "!quote a bat flies");
+            await harness.Execute(new QuoteCommand(), "!quote concatenate this");
+
+            var replies = await harness.Execute(new SearchQuotesCommand(), "!searchquotes cat");
+
+            Assert.AreEqual(1, replies.Count);
+            Assert.AreEqual("#1: concatenate this\n#0: a bat flies", replies[0],
+                "The substring match ranks ahead of the closer fuzzy match.");
+        }
+
+        [TestMethod]
+        public async Task Search_FuzzyMatches_BreakDistanceTies_ByQuoteNumber()
+        {
+            var harness = Harness();
+            await harness.Execute(new QuoteCommand(), "!quote the cap fits");
+            await harness.Execute(new QuoteCommand(), "!quote a bat flies");
+
+            var replies = await harness.Execute(new SearchQuotesCommand(), "!searchquotes cat");
+
+            Assert.AreEqual(1, replies.Count);
+            Assert.AreEqual("#0: the cap fits\n#1: a bat flies", replies[0],
+                "An equal word distance is ordered by quote number.");
+        }
+
+        [TestMethod]
+        public async Task Search_AFuzzyMiss_KeepsTheNoMatchReply()
+        {
+            var harness = Harness();
+            await harness.Execute(new QuoteCommand(), "!quote something else");
+
+            CollectionAssert.AreEqual(
+                new List<string> { "No quotes match 'zzqqxx' in this server" },
+                await harness.Execute(new SearchQuotesCommand(), "!searchquotes zzqqxx"));
+        }
+
+        [TestMethod]
         public async Task Remove_Unknown_Or_Malformed_Number_Produces_In_Channel_Errors()
         {
             var harness = Harness();

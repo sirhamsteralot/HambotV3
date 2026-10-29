@@ -133,19 +133,34 @@ namespace HambotV2.Commands
                 // message's command token is checked against the invoking guild's custom
                 // responses. Built-ins always win — this branch only runs after the built-in
                 // lookup failed. Direct messages keep the plain "unavailable" reply.
-                if (guildId is ulong guildIdValue
-                    && CommandParsing.TryGetCommandName(message.Content, identifier, out string token))
+                if (CommandParsing.TryGetCommandName(message.Content, identifier, out string token))
                 {
-                    CommandOutcome? responseOutcome = await TryDispatchCustomResponseAsync(message, guildIdValue, overrides, token);
-                    if (responseOutcome is not null)
+                    if (guildId is ulong guildIdValue)
                     {
-                        outcome = responseOutcome.Value;
-                        responseName = token;
-                        return outcome;
+                        CommandOutcome? responseOutcome = await TryDispatchCustomResponseAsync(message, guildIdValue, overrides, token);
+                        if (responseOutcome is not null)
+                        {
+                            outcome = responseOutcome.Value;
+                            responseName = token;
+                            return outcome;
+                        }
                     }
+
+                    // With no built-in and no custom response under the token, one close
+                    // runnable candidate is suggested — tier-filtered first, so nothing above
+                    // the invoker's tier is revealed. The suggestion is part of the channel
+                    // reply, so virtual invocations capture it like any other; the audit
+                    // event stays UnknownCommand.
+                    string? suggestion = await CommandSuggestions.FindBestAsync(guildId, message.Author.Id, overrides, token, _commandService, _permissionsService, _databaseContext);
+                    await message.Channel.SendMessageAsync(suggestion is null
+                        ? "The requested command is unavailable"
+                        : $"The requested command is unavailable\nDid you mean {identifier}{suggestion}?");
+                }
+                else
+                {
+                    await message.Channel.SendMessageAsync("The requested command is unavailable");
                 }
 
-                await message.Channel.SendMessageAsync("The requested command is unavailable");
                 outcome = CommandOutcome.UnknownCommand;
                 return outcome;
             }

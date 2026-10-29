@@ -119,6 +119,8 @@ Proves recovery when the *bot itself* is broken. Run once here and record the ou
 | Cooldowns | Spam `!hello` as tier-0 user | Throttle reply with wait seconds; no throttle for the bot owner. |
 | Quotes | Lifecycle + `!importquotes` with a small JSON attachment | Full lifecycle; import continues numbering; per-guild isolation across servers. |
 | Custom responses | `!addresponse test ping`, then `!test` | Fires through the permission/cooldown path; unknown names fall back to "unavailable". |
+| Suggestions | `!quoe` (typo), `!zzqxxv` (garbage) | The typo gets "Did you mean !quote?" appended; the garbage gets the plain "unavailable" reply. |
+| Fuzzy search | `!searchquotes <misspelled word of a known quote>` | The quote is still found; exact substring matches rank ahead of fuzzy ones. |
 | Reminders | `!remindme 1m test` | DM delivery. |
 | Recurring | `!remindme every 10m test`, wait two intervals, `!cancelreminder <n>` | List entry marked recurring; a DM per interval; cancellation stops it. |
 
