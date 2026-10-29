@@ -178,7 +178,7 @@ HamBot is a Discord chat bot. It recognizes messages starting with a configurabl
 
 ### 2.17 Discord application commands (slash commands)
 
-- **FR-110**: Opt-in (`SlashCommands:Enabled`, default false). Eligible: administrative/configuration commands, the user-scoped reminder commands, and `!help` (as `/help`); the quote, custom-response, and `version` commands stay text-only. Eligibility is declared per command; definitions are built from the same registry and bulk-overwritten idempotently on startup; custom responses are not registered.
+- **FR-110**: Opt-in (`SlashCommands:Enabled`, default false). Eligible: administrative/configuration commands, the user-scoped reminder commands, the read-only `!searchquotes` (as `/searchquotes` with a required `text` option), and `!help` (as `/help`); the remaining quote, custom-response, and `version` commands stay text-only. Eligibility is declared per command; definitions are built from the same registry and bulk-overwritten idempotently on startup; custom responses are not registered.
 - **FR-111**: A slash invocation runs through the same pipeline as text: identical tiers, shared cooldown keys, the same audit event and error semantics; DM interactions run in the DM scope.
 - **FR-112**: All slash replies are ephemeral (visible only to the invoker), text-identical to the text surface; the text surface stays unchanged and public.
 - **FR-119**: A multi-page help list carries invoker-owned previous/next buttons on both surfaces; foreign clicks are declined ephemerally without running the pipeline; the invoker's click executes as a `help <page>` invocation with full pipeline semantics and updates the message in place; button handling is active regardless of `SlashCommands:Enabled`.
@@ -281,7 +281,7 @@ The full command list with arguments and default tiers is in [`software-design.m
 
 - Argument errors produce in-channel errors. Guild-state commands decline in DMs ("only available in servers"); the reminder commands and the bot-owner global commands are DM-usable.
 - An unknown token is checked against the guild's custom responses (same permission and cooldown checks) before the "unavailable" reply; custom responses never apply in DMs. *(Planned)* When no match exists there either, a sufficiently close runnable candidate appends one "did you mean" suggestion line to the reply (FR-144–FR-148, text surface only — the slash surface has Discord's own autocomplete).
-- *(Planned)* The administrative/configuration commands, the reminder commands, and `!help` will additionally be exposed as ephemeral slash commands with identical tiers and cooldowns (FR-110–FR-112, FR-119); community-facing commands stay text-only.
+- *(Planned)* The administrative/configuration commands, the reminder commands, `!searchquotes`, and `!help` will additionally be exposed as ephemeral slash commands with identical tiers and cooldowns (FR-110–FR-112, FR-119); the remaining community-facing commands stay text-only.
 
 ## 6. Out of Scope
 

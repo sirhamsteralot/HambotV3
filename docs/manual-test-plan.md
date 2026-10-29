@@ -155,7 +155,7 @@ Set `SLASH_COMMANDS_ENABLED=true`, restart; the log line "Registered N applicati
 
 | # | Action | Expected |
 |---|---|---|
-| 12.1 | Type `/` | Exactly the administrative/configuration, user-scoped, and help commands — no quote, response, or `version` commands. |
+| 12.1 | Type `/` | Exactly the administrative/configuration, user-scoped, searchquotes, and help commands — no quote, response, or `version` commands. |
 | 12.2 | `/remindme` with `10m water the plants` | Reply identical to the text surface, visible **only to the invoker** (ephemeral). |
 | 12.3 | `/userpermission` picking a user + tier 1 (as guild owner) | Same effect as the text command. |
 | 12.4 | Second account runs `/backup` | Ephemeral denial only; no public reply. |
@@ -167,6 +167,7 @@ Set `SLASH_COMMANDS_ENABLED=true`, restart; the log line "Registered N applicati
 | 12.10 | `/userpermission` in a DM; `/reminders` in a DM | Guild-state decline; `/reminders` works. |
 | 12.11 | `/restorebackup <name>` without confirm | The destructive-restore warning, same as text. |
 | 12.12 | Set `SlashCommands__Enabled: false`, restart | Nothing registers; stale `/` entries persist until the next enabled boot's bulk overwrite (re-enable once before production to clear). Text surface unaffected. |
+| 12.13 | `/searchquotes <text>` in a server with matching quotes | Same ranked results as the text surface, visible **only to the invoker**; the previous/next buttons page through the matches. |
 
 ## 13. MCP endpoint
 

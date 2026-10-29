@@ -30,13 +30,13 @@ namespace BotTests
         [
             "agenttier", "backup", "backups", "banlist", "banuser", "bio", "cancelreminder", "commandpermission", "health",
             "help", "notifychannel", "presence", "quoteoftheday", "remindme", "reminders", "restorebackup",
-            "settings", "unbanuser", "userpermission", "avatar", "banner",
+            "searchquotes", "settings", "unbanuser", "userpermission", "avatar", "banner",
         ];
 
         private static readonly string[] ExpectedTextOnly =
         [
             "addresponse", "hello", "importquotes", "listresponses", "quote",
-            "removeresponse", "removequote", "searchquotes", "version",
+            "removeresponse", "removequote", "version",
         ];
 
         private static CommandService CreateRegisteredCommandService()
@@ -86,7 +86,7 @@ namespace BotTests
                 seen.Add(name);
             }
 
-            CollectionAssert.AreEquivalent((System.Collections.ICollection)eligible.OrderBy(name => name).ToList(), (System.Collections.ICollection)seen.OrderBy(name => name).ToList(), "The slash-eligible set must be exactly the administrative/configuration and user-scoped commands.");
+            CollectionAssert.AreEquivalent((System.Collections.ICollection)eligible.OrderBy(name => name).ToList(), (System.Collections.ICollection)seen.OrderBy(name => name).ToList(), "The slash-eligible set must be exactly the administrative/configuration, user-scoped, searchquotes, and help commands.");
         }
 
         [TestMethod]
@@ -138,6 +138,13 @@ namespace BotTests
             Assert.AreEqual(ApplicationCommandOptionKind.Integer, help.ApplicationCommand.Options[1].Kind);
             Assert.IsFalse(help.ApplicationCommand.Options[0].Required);
             Assert.IsFalse(help.ApplicationCommand.Options[1].Required);
+
+            var searchQuotes = (ICommand)commandService.Commands["searchquotes"];
+            Assert.IsNotNull(searchQuotes.ApplicationCommand);
+            ApplicationCommandOption text = searchQuotes.ApplicationCommand!.Options.Single();
+            Assert.AreEqual("text", text.Name);
+            Assert.AreEqual(ApplicationCommandOptionKind.Text, text.Kind);
+            Assert.IsTrue(text.Required);
         }
 
         [TestMethod]
@@ -272,6 +279,16 @@ namespace BotTests
 
             Assert.IsTrue(SlashCommandLineBuilder.TryBuild("help", declaration, new Dictionary<string, object?>(), out string bareLine));
             Assert.AreEqual("help", bareLine);
+        }
+
+        [TestMethod]
+        public void CommandLine_SearchQuotesTextBecomesTheWholeSearchTerm()
+        {
+            CommandService commandService = CreateRegisteredCommandService();
+            ApplicationCommandDeclaration declaration = commandService.Commands["searchquotes"].ApplicationCommand!;
+
+            Assert.IsTrue(SlashCommandLineBuilder.TryBuild("searchquotes", declaration, new Dictionary<string, object?> { ["text"] = "hello world" }, out string commandLine));
+            Assert.AreEqual("searchquotes hello world", commandLine);
         }
 
         // Virtual invocation through the real pipeline

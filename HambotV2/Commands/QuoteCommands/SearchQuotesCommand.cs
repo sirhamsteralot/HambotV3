@@ -1,5 +1,6 @@
 using Discord;
 using HambotV2.Connections;
+using HambotV2.SlashCommands;
 using Microsoft.EntityFrameworkCore;
 
 namespace HambotV2.Commands.QuoteCommands
@@ -28,6 +29,11 @@ namespace HambotV2.Commands.QuoteCommands
         public string Usage => "searchquotes <text...>";
         public int DefaultPermissionTier => PermissionTier.Everyone;
         public CommandCategory Category => CommandCategory.Quotes;
+
+        public ApplicationCommandDeclaration? ApplicationCommand => new(
+        [
+            new ApplicationCommandOption("text", "The text to search the server's quotes for", ApplicationCommandOptionKind.Text),
+        ]);
 
         public async Task ExecuteCommand(IMessage message, ICommandContext context)
         {
