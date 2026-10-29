@@ -1,6 +1,6 @@
 # Software Requirements
 
-The requirements for HambotV2 — the software as it *should be*, traceable when the system changes. Sections 2.11–2.19 are the post-1.0.0 features; the unimplemented ones are the outstanding [`roadmap.md`](roadmap.md) backlog.
+The requirements for HambotV2 — the software as it *should be*, traceable when the system changes. Sections 2.11–2.23 are the post-1.0.0 features; the unimplemented ones are the outstanding [`roadmap.md`](roadmap.md) backlog.
 
 ## 1. Product Description
 
@@ -213,6 +213,20 @@ HamBot is a Discord chat bot. It recognizes messages starting with a configurabl
 - **FR-137**: Temporary bans lift lazily at read time — an expired record is deleted on sight; no scheduled job.
 - **FR-138**: Server-scoped moderator-tier commands (declining in DMs, Moderation category, slash-eligible): `!banuser <user> [duration]` (reminder duration forms; escalation guard applies; invalid input stores nothing), `!unbanuser <user>` (deliberately unguarded), `!banlist` (soonest expiry first, ≤ 10 entries, expired lifted on sight).
 
+### 2.22 Unknown-command suggestions ("did you mean?") *(planned)*
+
+- **FR-144**: When an invocation's name resolves to neither a built-in command (FR-11) nor, in a guild, a custom response (FR-54), the pipeline computes at most one suggestion before sending the "unavailable" reply. Exact-name matches never reach the suggestion path — built-ins and custom responses win by construction (FR-53, FR-54). Applies to the text surface and MCP `run_command` only; the slash surface is excluded — Discord's own autocomplete already guides users there, and unknown names cannot be invoked on it at all.
+- **FR-145**: Candidates are all registered built-in command names plus, in a guild, the invoking guild's custom response names — they dispatch from the same path, so a typo of one is as dead an end as a typo of a built-in. DMs consider built-ins only (FR-59). A custom response is suggested by its bare name, like a command.
+- **FR-146**: Matching is case-insensitive. A candidate qualifies iff its Levenshtein edit distance from the attempted token is ≤ 2, or the candidate begins with the token and the token is ≥ 3 characters (so `rem` finds `remindme`). The single best qualifying candidate is suggested — lowest distance wins, ties broken alphabetically. Nothing qualifies → the existing reply, unchanged.
+- **FR-147**: Suggestions never leak commands the invoker cannot run: candidates whose effective required tier exceeds the invoker's effective tier are excluded before matching (per-guild tiers in a guild, FR-17; built-in defaults in DMs, FR-25; the operator-agent grant for virtual invocations, FR-120) — mirroring FR-40's never-reveal rule. Banned users never get a suggestion (FR-135 drops them before this path).
+- **FR-148**: The suggestion is one extra line appended to the "unavailable" reply, e.g. `Did you mean !quote?`, using the invocation's effective command identifier (FR-7). It is part of the channel reply itself, so virtual invocations capture it with no special handling; the audit event stays `UnknownCommand`, no content logged.
+
+### 2.23 Fuzzy search — typo tolerance via the shared matcher *(planned)*
+
+- **FR-149**: The fuzzy-matching logic (the FR-146 algorithm: case-insensitive Levenshtein distance with a per-consumer qualification rule) is one shared pure matcher. The suggestion path (FR-144–FR-148), `!searchquotes` (FR-150), and `search_users` (FR-151) all use it — no per-feature fuzzy implementations.
+- **FR-150**: `!searchquotes <text...>` matches a quote iff it contains the term case-insensitively (unchanged, FR-46) or one of its whitespace-delimited words is within edit distance ≤ 2 of the whole term. Substring matches rank ahead of fuzzy matches; fuzzy matches rank by distance, ties by quote number ascending. The ≤ 10 cap and the no-match/empty-term replies are unchanged.
+- **FR-151**: `search_users(guildId, query, limit ≤ 25)` keeps its Discord REST candidate set (current members only, FR-143) but ranks it locally with the matcher: distance of the query to the closest of username, display name, and nickname — lowest first, ties broken alphabetically — so the closest name leads. The cap and error semantics are unchanged.
+
 ## 3. Non-Functional Requirements
 
 - **NFR-1 Platform**: .NET 10 (`net10.0`), long-lived generic-host worker.
@@ -245,6 +259,8 @@ HamBot is a Discord chat bot. It recognizes messages starting with a configurabl
 - **NFR-28 Scan verification**: Pipeline-only (no `BotTests`); verified by a live run producing and archiving the SBOMs/reports without touching the stack.
 - **NFR-29 Quote-of-the-day testability**: Covered without live dependencies: template validation/rendering, schedule parsing, boundary math, publication behaviors (baseline, skip, failure, maintenance), and the command's behavior.
 - **NFR-30 Bot-ban testability**: Covered without live dependencies: pipeline enforcement (silent drop on both surfaces), scoping, exemptions, audit outcome, lazy expiry, and the three commands' behavior.
+- **NFR-31 Suggestion testability**: The matcher is pure logic, unit-tested at its boundaries; the pipeline path is covered without live dependencies: typo → suggestion, garbage → plain reply, tier exclusion (no leakage), DM scope, custom-response candidates, and a virtual `run_command` invocation capturing the suggestion.
+- **NFR-32 Shared-matcher testability**: The matcher is unit-tested once at its boundaries; each consumer is covered at its own path — suggestions per NFR-31, quote-search matching and ranking (substring precedence, distance ties), and member-search ranking over the fake `IMcpDiscordClient`.
 
 ## 4. Constraints
 
@@ -259,7 +275,7 @@ HamBot is a Discord chat bot. It recognizes messages starting with a configurabl
 The full command list with arguments and default tiers is in [`software-design.md`](software-design.md) §3.5 and the command-family sections, and in the README's command table. Cross-cutting rules:
 
 - Argument errors produce in-channel errors. Guild-state commands decline in DMs ("only available in servers"); the reminder commands and the bot-owner global commands are DM-usable.
-- An unknown token is checked against the guild's custom responses (same permission and cooldown checks) before the "unavailable" reply; custom responses never apply in DMs.
+- An unknown token is checked against the guild's custom responses (same permission and cooldown checks) before the "unavailable" reply; custom responses never apply in DMs. *(Planned)* When no match exists there either, a sufficiently close runnable candidate appends one "did you mean" suggestion line to the reply (FR-144–FR-148, text surface only — the slash surface has Discord's own autocomplete).
 - *(Planned)* The administrative/configuration commands, the reminder commands, and `!help` will additionally be exposed as ephemeral slash commands with identical tiers and cooldowns (FR-110–FR-112, FR-119); community-facing commands stay text-only.
 
 ## 6. Out of Scope
@@ -268,6 +284,7 @@ The full command list with arguments and default tiers is in [`software-design.m
 - Usage analytics.
 - File/image attachments in custom responses (text only, FR-60).
 - A slash surface for the community-facing commands, or custom responses as application commands (FR-110/FR-119).
+- "Did you mean" suggestions on the slash surface (FR-144) — Discord's autocomplete already guides users to the registered commands.
 - A web interface or admin panel (permissions are chat-managed; the MCP endpoint is an agent API, not an admin UI).
 - Markdown-table help rendering (Discord does not render tables; bold group headers, FR-133).
 - Streaming-type presence activities (FR-78).
@@ -275,4 +292,3 @@ The full command list with arguments and default tiers is in [`software-design.m
 - LLM-generated avatars/banners (images are set manually via `!avatar`/`!banner`).
 - Automatic dependency remediation (the scan reports; updating packages is a manual operator decision).
 - Bot-side notifications from the scan pipeline (it deliberately holds no bot credentials, FR-126).
-- Automated user profiling — the MCP lookup tools (FR-139–FR-143) return raw records only; drawing conclusions about a member is the calling agent's job, and the bot stores no assessments of anyone.
