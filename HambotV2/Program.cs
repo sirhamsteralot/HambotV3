@@ -2,6 +2,7 @@ using Discord;
 using Discord.WebSocket;
 using HambotV2.Backups;
 using HambotV2.Commands;
+using HambotV2.Commands.QuoteCommands;
 using HambotV2.Connections;
 using HambotV2.Maintenance;
 using HambotV2.Mcp;
@@ -95,10 +96,15 @@ namespace HambotV2
             builder.Services.AddSingleton<IVirtualCommandRunner, VirtualCommandRunner>();
             builder.Services.AddSingleton<SlashCommandService>();
 
-            // Interactive help pagination: handles the previous/next buttons on a multi-page
-            // help list through the same virtual-invocation seam as the slash surface.
-            // Attached unconditionally — the buttons ride on text-surface help messages too.
-            builder.Services.AddSingleton<HelpPaginationService>();
+            // The backlog of each invoker's latest quote search: one snapshot per invoker, shared
+            // by the search command and the pagination buttons that page through its results.
+            builder.Services.AddSingleton<QuoteSearchBacklog>();
+
+            // Interactive pagination: handles the previous/next buttons of every paginated list —
+            // help pages through the same virtual-invocation seam as the slash surface, quote
+            // search pages through the backlog snapshot. Attached unconditionally — the buttons
+            // ride on text-surface messages too.
+            builder.Services.AddSingleton<ButtonPaginationService>();
 
             // Singleton so the cooldown timestamps are shared across messages; time comes from
             // an injectable TimeProvider for deterministic tests.

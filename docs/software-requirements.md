@@ -1,6 +1,6 @@
 # Software Requirements
 
-The requirements for HambotV2 — the software as it *should be*, traceable when the system changes. Sections 2.11–2.23 are the post-1.0.0 features; the unimplemented ones are the outstanding [`roadmap.md`](roadmap.md) backlog.
+The requirements for HambotV2 — the software as it *should be*, traceable when the system changes. Sections 2.11–2.24 are the post-1.0.0 features; the unimplemented ones are the outstanding [`roadmap.md`](roadmap.md) backlog.
 
 ## 1. Product Description
 
@@ -69,7 +69,7 @@ HamBot is a Discord chat bot. It recognizes messages starting with a configurabl
 - **FR-43**: Per-guild sequential numbering, **0-based like the old bot** (`MAX(Number) + 1`); removal never renumbers.
 - **FR-44**: `!quote` replies with a random guild quote, number-prefixed; empty guild → friendly "no quotes yet".
 - **FR-45**: `!quote <number>` fetches that quote; unknown numbers are in-channel errors; non-numeric arguments are treated as text to add (FR-47).
-- **FR-46**: `!searchquotes <text...>` — case-insensitive substring match, plus word-level near misses ranked behind the substring hits (FR-150); number-prefixed, ≤ 10 results; no matches → friendly reply; empty term → in-channel error.
+- **FR-46**: `!searchquotes <text...>` — case-insensitive substring match, plus word-level near misses ranked behind the substring hits (FR-150); number-prefixed, results paginated most-relevant-first (FR-152, FR-153); no matches → friendly reply; empty term → in-channel error.
 - **FR-47**: `!quote <text...>` adds the text (≤ 2000 chars, longer rejected) and replies with the number; over-limit replies are trimmed with an ellipsis, stored text never modified.
 - **FR-48**: `!removequote <number>` removes and confirms; tier moderator. `quote` and `searchquotes` default to tier 0.
 - **FR-49**: Quote commands are subject to the standard pipeline behavior (tier adjustment, cooldowns, shared argument parsing, help text, lowercase names).
@@ -224,8 +224,13 @@ HamBot is a Discord chat bot. It recognizes messages starting with a configurabl
 ### 2.23 Fuzzy search — typo tolerance via the shared matcher
 
 - **FR-149**: The fuzzy-matching logic (the FR-146 algorithm: case-insensitive Levenshtein distance with a per-consumer qualification rule) is one shared pure matcher. The suggestion path (FR-144–FR-148), `!searchquotes` (FR-150), and `search_users` (FR-151) all use it — no per-feature fuzzy implementations.
-- **FR-150**: `!searchquotes <text...>` matches a quote iff it contains the term case-insensitively (unchanged, FR-46) or one of its whitespace-delimited words is within edit distance ≤ 2 of the whole term. Substring matches rank ahead of fuzzy matches; fuzzy matches rank by distance, ties by quote number ascending. The ≤ 10 cap and the no-match/empty-term replies are unchanged.
+- **FR-150**: `!searchquotes <text...>` matches a quote iff it contains the term case-insensitively (unchanged, FR-46) or one of its whitespace-delimited words is within edit distance ≤ 2 of the whole term. Substring matches rank ahead of fuzzy matches; fuzzy matches rank by distance, ties by quote number ascending. The no-match/empty-term replies are unchanged.
 - **FR-151**: `search_users(guildId, query, limit ≤ 25)` keeps its Discord REST candidate set (current members only, FR-143) but ranks it locally with the matcher: distance of the query to the closest of username, display name, and nickname — lowest first, ties broken alphabetically — so the closest name leads. The cap and error semantics are unchanged.
+
+### 2.24 Quote search pagination (result backlog)
+
+- **FR-152**: A search reply holds one page of 10 ranked matches with a header naming the term, the page, and the relevance cap; when more than one page exists, the reply carries invoker-owned previous/next buttons. A search that fits one page has no buttons.
+- **FR-153**: The backlog keeps each invoker's latest search snapshot — up to the 100 most relevant matches, already ranked — so clicks render pages without re-querying or re-ranking. A newer search replaces the invoker's entry; buttons of a replaced or lost search (e.g. after a restart) get an ephemeral run-it-again reply, and a foreign clicker is declined ephemerally without touching the message.
 
 ## 3. Non-Functional Requirements
 

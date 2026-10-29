@@ -32,10 +32,11 @@ namespace HambotV2.Commands
             IPresenceService? presenceService = null,
             IImageContentDownloader? imageContentDownloader = null,
             ReminderSettings? reminderSettings = null,
-            QuoteOfTheDaySettings? quoteOfTheDaySettings = null)
+            QuoteOfTheDaySettings? quoteOfTheDaySettings = null,
+            QuoteSearchBacklog? quoteSearchBacklog = null)
         {
             RegisterSystemCommands.RegisterCommands(commandService, notificationChannelStore, healthSnapshotProvider, presenceService, imageContentDownloader);
-            RegisterQuoteCommands.RegisterCommands(commandService, quoteOfTheDaySettings);
+            RegisterQuoteCommands.RegisterCommands(commandService, quoteSearchBacklog ?? new QuoteSearchBacklog(), quoteOfTheDaySettings);
             RegisterResponseCommands.RegisterCommands(commandService);
             RegisterReminderCommands.RegisterCommands(commandService, deliverySignal, reminderSettings);
             RegisterBackupCommands.RegisterCommands(commandService, backupManager, maintenanceMode, notificationPublisher);

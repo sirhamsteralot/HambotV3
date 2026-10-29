@@ -349,12 +349,12 @@ namespace BotTests
         }
 
         /// <summary>Moq double of one pagination button click, wired for the click-handling tests.</summary>
-        private static IHelpPaginationButton CreateButtonClick(ulong clickerId, string customId, out Mock<IHelpPaginationButton> button)
+        private static IPaginationButton CreateButtonClick(ulong clickerId, string customId, out Mock<IPaginationButton> button)
         {
             var user = new Mock<IUser>();
             user.SetupGet(u => u.Id).Returns(clickerId);
 
-            button = new Mock<IHelpPaginationButton>();
+            button = new Mock<IPaginationButton>();
             button.SetupGet(b => b.User).Returns(user.Object);
             button.SetupGet(b => b.CustomId).Returns(customId);
             button.SetupGet(b => b.Channel).Returns(new Mock<IMessageChannel>().Object);
@@ -368,7 +368,7 @@ namespace BotTests
         [TestMethod]
         public async Task Pagination_Click_By_The_Invoker_Updates_The_Message_In_Place()
         {
-            var button = CreateButtonClick(clickerId: 77, customId: HelpPagination.CustomId(77, 2), out Mock<IHelpPaginationButton> click);
+            var button = CreateButtonClick(clickerId: 77, customId: HelpPagination.CustomId(77, 2), out Mock<IPaginationButton> click);
             var runner = new Mock<IVirtualCommandRunner>();
             MessageComponent components = HelpPagination.BuildButtons(77, 2, 3)!;
             runner
@@ -385,7 +385,7 @@ namespace BotTests
         [TestMethod]
         public async Task Pagination_Click_By_Another_User_Is_Declined_Ephemerally_And_Leaves_The_Message_Alone()
         {
-            var button = CreateButtonClick(clickerId: 300, customId: HelpPagination.CustomId(77, 2), out Mock<IHelpPaginationButton> click);
+            var button = CreateButtonClick(clickerId: 300, customId: HelpPagination.CustomId(77, 2), out Mock<IPaginationButton> click);
             var runner = new Mock<IVirtualCommandRunner>();
 
             await HelpPagination.HandleClickAsync(button, runner.Object);
@@ -400,7 +400,7 @@ namespace BotTests
         [TestMethod]
         public async Task Pagination_Legacy_Button_Without_An_Owner_Is_Declined_For_Everyone()
         {
-            var button = CreateButtonClick(clickerId: 77, customId: "help:page:2", out Mock<IHelpPaginationButton> click);
+            var button = CreateButtonClick(clickerId: 77, customId: "help:page:2", out Mock<IPaginationButton> click);
             var runner = new Mock<IVirtualCommandRunner>();
 
             await HelpPagination.HandleClickAsync(button, runner.Object);
@@ -413,7 +413,7 @@ namespace BotTests
         [TestMethod]
         public async Task Pagination_Out_Of_Range_Click_Of_The_Invoker_Gets_An_Ephemeral_Reply_And_Keeps_The_Message()
         {
-            var button = CreateButtonClick(clickerId: 77, customId: HelpPagination.CustomId(77, 5), out Mock<IHelpPaginationButton> click);
+            var button = CreateButtonClick(clickerId: 77, customId: HelpPagination.CustomId(77, 5), out Mock<IPaginationButton> click);
             var runner = new Mock<IVirtualCommandRunner>();
             runner
                 .Setup(r => r.RunAsync(It.IsAny<VirtualCommandInvocation>()))
@@ -429,7 +429,7 @@ namespace BotTests
         [TestMethod]
         public async Task Pagination_Declined_Pipeline_Invocation_Is_Ephemeral_And_Keeps_The_Message()
         {
-            var button = CreateButtonClick(clickerId: 77, customId: HelpPagination.CustomId(77, 2), out Mock<IHelpPaginationButton> click);
+            var button = CreateButtonClick(clickerId: 77, customId: HelpPagination.CustomId(77, 2), out Mock<IPaginationButton> click);
             var runner = new Mock<IVirtualCommandRunner>();
             runner
                 .Setup(r => r.RunAsync(It.IsAny<VirtualCommandInvocation>()))

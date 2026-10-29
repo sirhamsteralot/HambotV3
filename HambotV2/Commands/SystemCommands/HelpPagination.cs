@@ -3,22 +3,6 @@ using Discord;
 namespace HambotV2.Commands.SystemCommands
 {
     /// <summary>
-    /// The button click as the pagination core sees it: free of gateway types, with the
-    /// ephemeral and in-place reply paths as separate operations, so the click handling
-    /// is unit-testable without a live Discord connection.
-    /// </summary>
-    internal interface IHelpPaginationButton
-    {
-        IUser User { get; }
-        string CustomId { get; }
-        IMessageChannel Channel { get; }
-        DateTimeOffset CreatedAt { get; }
-        Task DeferAsync();
-        Task SendEphemeralAsync(string text);
-        Task ModifyListInPlaceAsync(string content, MessageComponent components);
-    }
-
-    /// <summary>
     /// The interactive pagination of the multi-page help list: the help command attaches a
     /// previous/next button pair (each custom id encodes its owner and target page), and paging
     /// is invoker-owned — a click runs its page as a normal help invocation through the
@@ -64,24 +48,13 @@ namespace HambotV2.Commands.SystemCommands
         /// </summary>
         internal static (string PreviousId, bool PreviousDisabled, string NextId, bool NextDisabled)? GetButtons(ulong invokerId, int currentPage, int pageCount)
         {
-            if (pageCount <= 1)
-                return null;
-
-            return (CustomId(invokerId, currentPage - 1), currentPage <= 1, CustomId(invokerId, currentPage + 1), currentPage >= pageCount);
+            return PaginationButtons.GetPair(CustomId(invokerId, currentPage - 1), CustomId(invokerId, currentPage + 1), currentPage, pageCount);
         }
 
         /// <summary>The built previous/next button pair; null when the list fits one page.</summary>
         internal static MessageComponent? BuildButtons(ulong invokerId, int currentPage, int pageCount)
         {
-            var buttons = GetButtons(invokerId, currentPage, pageCount);
-            if (buttons is null)
-                return null;
-
-            var (previousId, previousDisabled, nextId, nextDisabled) = buttons.Value;
-            return new ComponentBuilder()
-                .WithButton("◀ Previous", previousId, ButtonStyle.Secondary, disabled: previousDisabled)
-                .WithButton("Next ▶", nextId, ButtonStyle.Secondary, disabled: nextDisabled)
-                .Build();
+            return PaginationButtons.Build(CustomId(invokerId, currentPage - 1), CustomId(invokerId, currentPage + 1), currentPage, pageCount);
         }
 
         /// <summary>
@@ -91,7 +64,7 @@ namespace HambotV2.Commands.SystemCommands
         /// its rebuilt buttons — rewrites the public message; everything else goes to the clicker
         /// ephemerally.
         /// </summary>
-        internal static async Task HandleClickAsync(IHelpPaginationButton button, IVirtualCommandRunner virtualCommandRunner)
+        internal static async Task HandleClickAsync(IPaginationButton button, IVirtualCommandRunner virtualCommandRunner)
         {
             if (!TryGetTargetPage(button.CustomId, out ulong invokerId, out int targetPage))
                 return;

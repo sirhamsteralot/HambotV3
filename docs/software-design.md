@@ -44,15 +44,19 @@ Key dependencies: Discord.Net, EF Core/Npgsql, Microsoft.Extensions.Hosting, Ser
 
 ### 2.1 Composition root — `HambotV2/Program.cs`
 
-Registers `appsecrets.json` as a config source, replaces default logging with Serilog (`ReadFrom.Configuration`), and wires DI. Lifetimes: singletons — the shared `DiscordSocketClient` (created here with the gateway intents; used by `DiscordClient`, `ReminderDmSender`, and the quote-of-the-day sender, disposed by the container), `CommandService` (holds the `IScheduledDeliverySignal`), `GuildSettingsService` (caches per-guild identifiers and agent tiers), `CooldownService`, `TimeProvider` (`TimeProvider.System`, injectable for tests), `ScheduledDeliverySignal`, `ReminderMessageSource`, `ReminderDmSender`, `DiscordQuoteOfTheDayChannelSender`, `DiscordPresenceGateway`, `PresenceService` (resolved eagerly in `Program.Main` so its Ready subscription exists before the gateway starts), and `ImageContentDownloader`. Transients — `CommandHandler` (per message, disposed after use), `PermissionsService`, `DatabaseContext` (also mapped onto `IDatabaseContext`). Hosted services: `DiscordClient`, `ScheduledMessageDeliveryService<ScheduledReminderMessage>`, `QuoteOfTheDayPublicationService`, and the opt-in `McpServerService`.
+Registers `appsecrets.json` as a config source, replaces default logging with Serilog (`ReadFrom.Configuration`), and wires DI. Lifetimes: singletons — the shared `DiscordSocketClient` (created here with the gateway intents; used by `DiscordClient`, `ReminderDmSender`, and the quote-of-the-day sender, disposed by the container), `CommandService` (holds the `IScheduledDeliverySignal`), `GuildSettingsService` (caches per-guild identifiers and agent tiers), `VirtualCommandRunner` + `SlashCommandService` (§3.15), `QuoteSearchBacklog` + `ButtonPaginationService` (§3.19), `CooldownService`, `TimeProvider` (`TimeProvider.System`, injectable for tests), `ScheduledDeliverySignal`, `ReminderMessageSource`, `ReminderDmSender`, `DiscordQuoteOfTheDayChannelSender`, `DiscordPresenceGateway`, `PresenceService` (resolved eagerly in `Program.Main` so its Ready subscription exists before the gateway starts), `ImageContentDownloader`, plus the backup & stability, notification, health, and MCP singletons of their sections (§3.11, §3.13, §5.2). Transients — `CommandHandler` (per message, disposed after use), `PermissionsService`, `DatabaseContext` (also mapped onto `IDatabaseContext`). Hosted services: `DiscordClient`, `ScheduledMessageDeliveryService<ScheduledReminderMessage>`, `QuoteOfTheDayPublicationService`, `WatchdogService`, and the opt-in `McpServerService`.
 
 ## 3. Component Design
 
-### 3.1 Discord connection — `Connections/DiscordClient.cs`
+### 3.1 Discord connection — gateway message intake
 
-A `BackgroundService` that logs in with `Secrets:BotToken` and subscribes to `MessageReceived`. Bot/webhook messages (including its own) are ignored. Messages starting with the guild's effective identifier (per-guild override via `IGuildSettingsService`, global default in DMs) are forwarded to a freshly resolved `ICommandHandler`. Gateway events are bridged to the host logger via `BotConfiguration:LogFormat`; connect/disconnect are logged; a keep-alive logs state every 5 minutes; shutdown logs out cleanly. The client requests only the intents the bot uses — `Guilds | GuildMessages | DirectMessages | MessageContent` — never `AllUnprivileged` (which warns about unused intents).
+`Connections/DiscordClient.cs` — a `BackgroundService` that logs in with `Secrets:BotToken` and subscribes to `MessageReceived`. Bot/webhook messages (including its own) are ignored. Messages starting with the guild's effective identifier (per-guild override via `IGuildSettingsService`, global default in DMs) are forwarded to a freshly resolved `ICommandHandler`. It also attaches the surface event handlers of the shared client: the pagination button handler unconditionally (§3.19) and, when `SlashCommands:Enabled`, the slash service's interaction handlers (§3.15). Gateway events are bridged to the host logger via `BotConfiguration:LogFormat`; connect/disconnect are logged; a keep-alive logs state every 5 minutes; shutdown logs out cleanly. The client requests only the intents the bot uses — `Guilds | GuildMessages | DirectMessages | MessageContent` — never `AllUnprivileged` (which warns about unused intents).
 
-### 3.2 Command pipeline — `Commands/`
+Tests: the identifier-prefix routing and ignore rules run through the pipeline suites (`TestCommandHandler.cs`, `TestCommandInfrastructure.cs`); the hosted service itself is thin Discord.Net glue.
+
+### 3.2 Command pipeline — from message to command execution
+
+The pipeline lives in `Commands/` and runs once per message:
 
 **`ICommand`** — the command contract: `Name` (must be lowercase), `Description` (one line, shown in `!help`), `Usage` (argument summary), `DefaultPermissionTier`, `Category` (a `CommandCategory` enum value; presentation-only group for the help list), and `ExecuteCommand(IMessage, ICommandContext)`. Help text lives on the implementation so it cannot drift.
 
@@ -79,15 +83,19 @@ The whole pipeline is wrapped in a try/catch: failures are logged (command name 
 
 **`Commands/CooldownService.cs`** — in-memory throttle keyed per **(guild, user, command)** (`ConcurrentDictionary` of timestamps, injected `TimeProvider`). The window comes from the guild's per-tier `GuildSetting` override, else `BotConfiguration:CooldownSecondsByTier` (default 3 s; `0`/negative disables). Tier 4 is never bound by a guild override (configuration-only role); DMs use the sentinel guild id 0. Runs after the permission check, before execution; denials are not throttled.
 
-### 3.3 Permissions — `Commands/PermissionsService.cs`
+Tests: `TestCommandHandler.cs` (step order, outcomes, audit events, failure paths, the DM scope), `TestCommandInfrastructure.cs` (registry contract), `TestCommandArguments.cs` (the parser), `TestCooldowns.cs` (the throttle), `TestGuildSettings.cs` (identifier resolution).
 
-Tier scale (`PermissionTier`): 0 everyone, 1 moderator, 2 admin, 3 owner (guild owner), 4 bot owner (`Permissions:BotOwnerDiscordId`; configuration-only, never assignable via commands). A command runs when the user's **effective tier** ≥ its **required tier** — the `CommandMetaData` override or the command's `DefaultPermissionTier`. The user's effective tier is the stored tier (0 if absent), raised to owner for the guild owner; in DMs it is owner tier (bot owner 4) without a database read.
+### 3.3 Permissions — tiered access
+
+`Commands/PermissionsService.cs` — the tier scale (`PermissionTier`): 0 everyone, 1 moderator, 2 admin, 3 owner (guild owner), 4 bot owner (`Permissions:BotOwnerDiscordId`; configuration-only, never assignable via commands). A command runs when the user's **effective tier** ≥ its **required tier** — the `CommandMetaData` override or the command's `DefaultPermissionTier`. The user's effective tier is the stored tier (0 if absent), raised to owner for the guild owner; in DMs it is owner tier (bot owner 4) without a database read.
 
 **Escalation guard**: `!userpermission` can never modify the invoker's own tier, only users strictly below, and only assign tiers strictly below; `!commandpermission` only assigns required tiers strictly below the invoker's to commands currently strictly below. All lookups are keyed by guild id; the management commands act on the invoking guild only.
 
-### 3.4 Persistence — `Connections/DatabaseContext.cs`
+Tests: `TestPermissions.cs` (the scale, effective tiers, stored and overridden verdicts), `TestPermissionCommands.cs` (the two management commands and their escalation guards).
 
-EF Core `DbContext` against PostgreSQL. Entities (all exposed through `Connections/IDatabaseContext.cs` so tests run against the InMemory provider):
+### 3.4 Persistence — EF Core model and migrations
+
+`Connections/DatabaseContext.cs` — EF Core `DbContext` against PostgreSQL. Entities (all exposed through `Connections/IDatabaseContext.cs` so tests run against the InMemory provider):
 
 | Entity | Key | Notes |
 |---|---|---|
@@ -102,35 +110,44 @@ EF Core `DbContext` against PostgreSQL. Entities (all exposed through `Connectio
 
 Migrations (`HambotV2/Migrations/`) are applied automatically on startup (`Database.Migrate()` before the gateway starts); an unreachable database is a critical log line and non-zero exit. Regenerate with `dotnet ef migrations add <Name>` from the `HambotV2/` directory; the `DesignTimeDatabaseContextFactory` avoids running `Program.Main`. Pre-`PerGuildScoping` rows keep the sentinel `GuildId = 0` (matches no real guild; re-grant per guild).
 
-### 3.5 Commands currently implemented
+Tests: no dedicated suite — every feature suite runs against this model through `IDatabaseContext` over the InMemory provider; migrations are startup-applied, not unit-tested.
+
+### 3.5 System commands — the general-purpose set
 
 All in `Commands/SystemCommands/`, registered by `RegisterSystemCommands`; `PermissionPersistence` holds the shared upsert logic of the two permission commands.
 
 | Command | Tier | Behavior |
 |---|---|---|
 | `hello` | 0 | "Hello World". |
-| `help [name \| page]` | 0 | Grouped, paginated command list for the invoking user (see §3.15 for pagination); detailed help for a runnable command; unknown/insufficient-tier names get the generic "unavailable" reply so higher-tier commands are never revealed. |
+| `help [name \| page]` | 0 | Grouped, paginated command list for the invoking user (see §3.19 for pagination); detailed help for a runnable command; unknown/insufficient-tier names get the generic "unavailable" reply so higher-tier commands are never revealed. |
 | `commandpermission <name> [tier]` | 2 | Show/set a command's required tier; escalation-guarded; guild-only. |
 | `userpermission <user> [tier]` | 2 | Show/set a user's tier (ids and mentions); escalation-guarded; guild-only. |
 | `banuser <user> [duration]` / `unbanuser <user>` / `banlist` | 1 | Per-guild bot bans (§3.16); guild-only. |
 | `settings [commandidentifier <v>\|reset \| cooldown <tier> <s>\|reset]` | 2 | Guild identifier and cooldown overrides (guard: tiers strictly below your own; bot owner unrestricted); guild-only. |
+| `agenttier [<tier 0-4>\|clear]` | 3 | Operator-agent tier for the guild (§3.11); guild-only. |
 | `version` | 0 | Version string (§3.9); DM-usable. |
 | `health` | 4 | Health report (§3.13); DM-usable. |
 | `notifychannel [<channel>\|clear]` | 4 | Notification channel (§3.13); DM-usable. |
 | `presence [<type> <text...>\|clear]` / `bio [<text...>\|clear]` | 4 | Activity / bio via `IPresenceService` (§3.10); DM-usable; not persisted. |
 | `avatar [<image-url>\|reset]` / `banner [<image-url>\|clear]` | 4 | Profile images (§3.10); DM-usable. |
 
+Tests: no dedicated suite — each row is covered by the feature suite that describes it (§6).
+
 ### 3.6 Quotes — per-guild quote storage and recall
 
-`Quote` entity, per-guild scoping by key. **Numbering**: 0-based sequential (`MAX(Number) + 1`); removal never renumbers, and removing the top quote lets the next add reuse that number. **Commands** (`Commands/QuoteCommands/`, all declining in DMs): `quote` (random, number-prefixed; empty guild gets a friendly message), `quote <number>` (exact fetch; unknown number is an in-channel error), `quote <text...>` (anything non-numeric — including out-of-`long`-range values — is added as a quote; > 2000 chars rejected), `searchquotes` (case-insensitive substring, number-prefixed, ≤ 10 results; plus word-level fuzzy matches ranked behind the substring hits — a quote whose whitespace-delimited word is within edit distance ≤ 2 of the whole term also matches, ties by quote number, §3.18, FR-150), `removequote` (moderator), `importquotes` (bot owner; see below), `quoteoftheday` (admin; §3.17). The random fetch is one count query plus an offset skip (provider-agnostic). Replies that would exceed Discord's 2000-char limit are trimmed with a trailing ellipsis (`QuoteCommand.SendFittedAsync`); stored text is never modified.
+`Quote` entity, per-guild scoping by key. **Numbering**: 0-based sequential (`MAX(Number) + 1`); removal never renumbers, and removing the top quote lets the next add reuse that number. **Commands** (`Commands/QuoteCommands/`, all declining in DMs): `quote` (random, number-prefixed; empty guild gets a friendly message), `quote <number>` (exact fetch; unknown number is an in-channel error), `quote <text...>` (anything non-numeric — including out-of-`long`-range values — is added as a quote; > 2000 chars rejected), `searchquotes` (case-insensitive substring, number-prefixed, every match ranked most-relevant-first and paginated 10 per page with invoker-owned previous/next buttons, §3.19; plus word-level fuzzy matches ranked behind the substring hits — a quote whose whitespace-delimited word is within edit distance ≤ 2 of the whole term also matches, ties by quote number, §3.18, FR-150), `removequote` (moderator), `importquotes` (bot owner; see below), `quoteoftheday` (admin; §3.17). The random fetch is one count query plus an offset skip (provider-agnostic). Replies that would exceed Discord's 2000-char limit are trimmed with a trailing ellipsis (`QuoteCommand.SendFittedAsync`); stored text is never modified.
 
 **`!importquotes`** — migration path for the old bot's `quoteSettings.json` (`{"quotes": [{"quote": "...", "date": "..."}]}`), run by the bot owner in the target guild with the file attached. The attachment is downloaded through `IAttachmentContentDownloader` (a shared-`HttpClient` abstraction, faked in tests). All-or-nothing validation: every entry non-empty and ≤ 2000 chars, the first invalid entry aborts with an in-channel error and nothing stored. Entries append in file order continuing the numbering; `CreatedAt` takes the legacy `date` when present. Re-running appends again (duplicates are the operator's responsibility).
+
+Tests: `TestQuotes.cs` (numbering, adds and recall, search + fuzzy ranking + pagination, import, per-guild isolation, DM declines).
 
 ### 3.7 Custom command responses — user-defined text commands, per guild
 
 `CustomResponse` entity, always looked up by the full `(GuildId, Name)` key. **Names**: one lowercase token matching `^[a-z0-9_-]{1,32}$` (`CustomResponseNames` helper). **Precedence**: built-ins always win — the handler consults custom responses only after the built-in lookup fails, and `addresponse` rejects built-in names. **Dispatch**: in a guild, an unknown token is looked up as a custom response and, on a hit, goes through the same permission (tier from `CommandMetaData`, default 0) and cooldown checks as a built-in; the audit event logs it as `Executed`. In DMs the "unavailable" reply stands. **Content is text-only**: invocations with attachments are rejected; links are stored and sent verbatim (Discord renders previews; the bot uploads nothing).
 
 Commands (`Commands/ResponseCommands/`, guild-only): `addresponse <name> <content...>` (create-or-update, moderator), `removeresponse <name>` (moderator), `listresponses` (everyone).
+
+Tests: `TestCustomResponses.cs` (name rules, built-in precedence, dispatch with permission and cooldown, content limits, DM declines).
 
 ### 3.8 Reminders — user-scoped timed reminders
 
@@ -148,13 +165,17 @@ Commands (`Commands/ResponseCommands/`, guild-only): `addresponse <name> <conten
 - `Reminders/ReminderDmSender.cs` — DMs the owner on the shared gateway client (user cache first, REST fallback; an unresolvable user is a delivery failure).
 - Restart recovery is by construction: the pending set is database state, so overdue reminders deliver on the first pass.
 
+Tests: `TestReminders.cs` (duration parsing, persistence and caps, DM usage, the delivery engine over fakes).
+
 ### 3.9 Version reporting — embedded build version and `!version`
 
 The version is the semver of the latest `v`-prefixed tag reachable from the built commit plus its 7-char hash, as build metadata (`v1.2.3` @ `1639324…` → `1.2.3+1639324`; untagged → `0.0.0+<hash>`; no git → `0.0.0+unknown`). The MSBuild target `ComputeBotVersion` in `HambotV2.csproj` embeds the raw pieces as `AssemblyMetadata` (`BotVersionTag`, `BotVersionCommit`, also settable via `-p:` for git-less builds); the pure `BotVersion.Format` composes the string, unit-tested. `Program.Main` logs `Bot version: <version>` right after the host is built — the line the deploy verification matches. `!version` (tier 0, DM-usable) replies with it.
 
 Deployment wiring: the Dockerfile takes `ARG BOT_VERSION_TAG`/`BOT_VERSION_COMMIT`; compose maps them from the environment; `scripts/deploy.sh` passes the exact deployed commit's pieces and verifies the `Bot version:` line. Jenkins agent builds get them for free from the workspace git.
 
-### 3.10 Discord presence & profile identity
+Tests: `TestVersion.cs` (format boundaries, the embedded metadata shape).
+
+### 3.10 Discord presence & profile identity — one path for every identity change
 
 A singleton `IPresenceService` (`Connections/PresenceService.cs`) is the single path for every change to the bot's identity — startup config, `!presence`/`!bio`/`!avatar`/`!banner`, the MCP `set_presence`/`set_bio` tools, and the planned LLM job. All applies run under one single-flight `SemaphoreSlim` (last request wins); requests made before gateway Ready are deferred to the Ready event (the service is resolved eagerly in `Program.Main`); apply failures are logged and never thrown out (commands surface them as the standard in-channel error; a failing guild never stops the others). The bio/avatar/banner become "managed" only once configured — an absent startup config leaves the Discord-side state untouched, so a restart never wipes a hand-set bio.
 
@@ -186,9 +207,9 @@ Tests: `TestMcp.cs`, `TestAgentTier.cs` — the lookup tools run over EF InMemor
 
 `Llm/ILlmClient.cs` abstracts a chat completion; `Llm/MistralLmClient.cs` implements it against the Mistral API (`Llm:ApiKey`, `Llm:Model` default `mistral-small-latest`). No key → every LLM feature inactive. `Llm/PresenceUpdateService.cs` — opt-in hosted loop (`Llm:PresenceUpdates:Enabled`, interval `Llm:PresenceUpdates:IntervalMinutes` default 60) building a prompt from the persona seed (`Llm:Persona`, with a shipped, configuration-overridable default), asking for a single-line activity ≤ 128 chars, validating, and applying via `IPresenceService`. Failures keep the current presence and retry next tick. `Llm:BioUpdates:Enabled` does the same for the bio (≤ 190 chars). Usage is accounted per feature per UTC day (`!llm status`, `!health`); a daily budget (`Llm:DailyRequestBudget`, default 500) hard-stops calls for the rest of the UTC day (watchdog alerts); accounting and the `!llm off/on` kill switch (tier 4) are in-memory, so a restart restores the configured state. Later phases (conversation participation, memory) build on this client and the MCP endpoint; see [`roadmap.md`](roadmap.md).
 
-Tests: a fake `ILlmClient`, no network (prompt construction, validation boundaries, `FakeTimeProvider` scheduling, failure path, inactive-without-key).
+Tests (planned): a fake `ILlmClient`, no network (prompt construction, validation boundaries, `FakeTimeProvider` scheduling, failure path, inactive-without-key).
 
-### 3.13 Watchdog, health reporting & operator notifications
+### 3.13 Watchdog, health reporting & operator notifications — degradation made loud
 
 **Health snapshot** — a singleton provider aggregates version (`BotVersion`), uptime, gateway state, a cheap database probe, pending reminder count, notification channel, backup status (from the shared status file), and MCP state; the LLM fields join when §3.12 lands. Presence/bio are deliberately not part of it. Consumers: `!health` (tier 4, DM-usable) and the watchdog.
 
@@ -200,27 +221,25 @@ Tests: a fake `ILlmClient`, no network (prompt construction, validation boundari
 
 Tests: `TestWatchdog.cs` (fakes + `FakeTimeProvider`).
 
-### 3.14 Recurring reminders
+### 3.14 Recurring reminders — the `every` form
 
 Extends §3.8 with a nullable `RecurrenceInterval` (null = one-shot). `remindme every <duration> <message...>` reuses the duration parser (a start-index overload skips the token); the interval must clear `Reminders:MinRecurrenceMinutes` (default 10). On delivery the row is re-scheduled from the *actual delivery time* (`TimeProvider`), so downtime shifts the schedule instead of bursting; retry exhaustion marks it failed like a one-shot. Numbers are stable across deliveries; `!reminders` marks recurring entries; `!cancelreminder` deletes permanently. A separate per-user cap (`Reminders:MaxRecurring`, default 5, `0` disables the form) is counted independently of the 10 one-shot slots. Settings are parsed by `CommandService` from `IConfiguration` and flow through the registration chain (`ReminderSettings.FromConfiguration`, defaults on absent/invalid values); intervals render via `ReminderIntervalFormat`.
 
+Tests: `TestReminders.cs` (the `every` form, re-scheduling from the delivery time, the recurring cap).
+
 ### 3.15 Discord application commands — slash commands
 
-Opt-in (`SlashCommands:Enabled`, default false). Eligible: administrative/configuration commands, commands acting solely on the invoker's own state (the reminder commands), and `!help` (as `/help`). Community-facing commands (quotes, custom responses, `!version`) stay text-only. Eligibility is declared per command via `ICommand.ApplicationCommand` (`SlashCommands/ApplicationCommandMetadata.cs`), including typed options, the single free-form `arguments` fallback, or none. On the first gateway Ready, `SlashCommandService` builds one definition per eligible command (validating Discord's registration limits), pushes them as one bulk global overwrite (idempotent), and logs critical on failure, leaving the text surface intact.
+Opt-in (`SlashCommands:Enabled`, default false). Eligible: administrative/configuration commands (permissions, settings, bans, the operator-agent tier, presence/bio/profile images, health, notifications, backups, `quoteoftheday`), commands acting solely on the invoker's own state (the reminder commands), and `!help` (as `/help`). Community-facing commands (`quote`, `searchquotes`, `removequote`, `importquotes`, custom responses, `!version`, `!hello`) stay text-only. Eligibility is declared per command via `ICommand.ApplicationCommand` (`SlashCommands/ApplicationCommandMetadata.cs`), including typed options, the single free-form `arguments` fallback, or none. On the first gateway Ready, `SlashCommandService` builds one definition per eligible command (validating Discord's registration limits), pushes them as one bulk global overwrite (idempotent), and logs critical on failure, leaving the text surface intact.
 
 **Execution** — the interaction is converted to its equivalent text command line (`SlashCommandLineBuilder`), then run through the real `CommandHandler` via the shared `IVirtualCommandRunner` seam (also consumed by the MCP `run_command`): identical permissions, cooldown keys (shared with the text surface), audit, and error semantics; the guild's effective identifier prefixes the virtual line.
 
-**Replies** — acknowledged with an ephemeral defer; every reply (output and denials alike) is posted as an ephemeral followup, visible only to the invoker. Reply text is bit-identical to the text surface — the surfaces differ only in visibility. Captured replies carry message components, so interactive buttons work on ephemeral replies.
+**Replies** — acknowledged with an ephemeral defer; every reply (output and denials alike) is posted as an ephemeral followup, visible only to the invoker. Reply text is bit-identical to the text surface — the surfaces differ only in visibility. Captured replies carry message components, so interactive buttons work on ephemeral replies (§3.19).
 
-**Interactive help pagination** — `HelpCommand` attaches previous/next buttons (`Commands/SystemCommands/HelpPagination.cs`) whose custom ids encode the list's owner and target page; pages are group-aware. A foreign click is declined ephemerally without running the pipeline. The invoker's own click is turned back into a `help <page>` invocation by `SlashCommands/HelpPaginationService` (attached unconditionally — the buttons ride on text-surface messages too) through the same seam, and the message is updated in place with the new page and rebuilt buttons; only a real page reply may rewrite the message. Legacy ownerless buttons parse as owned by nobody and are declined.
-
-Tests: `TestSlashCommands.cs` + `TestHelp.cs`.
+Tests: `TestSlashCommands.cs`.
 
 ### 3.16 User bot bans — moderation
 
-**Problem**: stopping bot abuse without kicking the user from the server.
-
-`BotBan` entity, guild-scoped (a ban in one guild has no effect elsewhere; DMs are never blocked, so banned users keep DM features like reminders). Re-banning updates the record.
+The `BotBan` record stops bot abuse without kicking the user from the server: guild-scoped (a ban in one guild has no effect elsewhere; DMs are never blocked, so banned users keep DM features like reminders). Re-banning updates the record.
 
 **Enforcement** — pipeline step 2 (§3.2), on both surfaces (slash and agent invocations run through the same handler): while an active record exists, every invocation is dropped with *no reply at all* (audited as `Banned`) — not even the "unavailable" reply or a custom response, so an abuser has no reply surface to farm. Exemptions: the guild owner, the bot owner, and operator-agent invocations. Expiry is lazy: a record whose `ExpiresAtUtc` has passed is deleted on sight (pipeline check or `!banlist`) and the user proceeds as unbanned.
 
@@ -230,7 +249,7 @@ Tests: `TestBotBans.cs`.
 
 ### 3.17 Quote of the day — scheduled per-guild publication
 
-**Problem**: keep a channel alive with regularly published random quotes.
+A regularly published random quote keeps a channel alive, per guild, on a fixed schedule.
 
 **Configuration** — new `GuildSetting` columns (migration `AddQuoteOfTheDay`): target channel id (null = off — the only activation switch), template (default `quote of the day: {quote}`), interval minutes (default 24 h), and the anchor UTC instant (default 00:00 UTC). The schedule is entirely UTC — no per-guild time zones. The interval floor is deployment config: `QuoteOfTheDay:MinIntervalMinutes` (default 1).
 
@@ -249,13 +268,25 @@ Tests: `TestQuoteOfTheDay.cs`.
 
 ### 3.18 Unknown-command suggestions — "did you mean?"
 
-**Problem**: a typo is a dead end — the unknown-token reply gives the user no pointer toward the intended command (FR-144–FR-148, NFR-31).
+A typo is a dead end no more: the unknown-token reply gains one pointer toward the intended command (FR-144–FR-148, NFR-31).
 
 **Matcher** — a shared pure helper (`Commands/FuzzyMatcher.cs`), not a suggestion-private utility (FR-149): the bounded two-row Levenshtein distance plus a best-selection over candidates (lowest distance wins, deterministic tiebreak), with each consumer passing its own qualification rule. The distance function needs no early-exit complexity — names and words are short. The command-suggestion path is its first consumer (`Commands/CommandSuggestions.cs` builds on it): inputs are the attempted token (already lowercased by `CommandParsing`) and the candidate names — the registry's built-in names (in memory, no database) plus, for a guild invocation, one query over the guild's custom-response names (they dispatch from the same fallthrough, FR-145; names only, no content loaded). Its qualification rule is the FR-146 one: distance ≤ 2, or a prefix hit with a token of ≥ 3 characters; at most one name is returned. Case-insensitivity holds by construction: the token arrives lowercased, built-in names are lowercase by the registration contract, and custom-response names by the `CustomResponseNames` pattern. The search consumers reuse the same helper for typo tolerance: `!searchquotes` word-level matches (§3.6, FR-150) and `search_users` result ranking (§3.11, FR-151).
 
 **Pipeline placement** — the final fallthrough of `CommandHandler` step 3 (§3.2), only after both the built-in and the custom-response lookups have failed; an exact match can never reach it by construction. Tier filtering runs *before* matching, exactly as the dispatch path computes it: a candidate's effective required tier is the per-guild `CommandMetaData` override or the command's built-in default (`IPermissionsService`), with DM invocations at the built-in defaults (FR-25) and virtual invocations at the operator-agent grant (FR-120); a candidate above the invoker's effective tier is dropped — the never-reveal rule of `!help <name>` applied to suggestions (FR-147). The reply becomes two lines — the unchanged "unavailable" line plus `Did you mean !quote?` with the invocation's effective identifier (FR-148) — or stays as-is when nothing qualifies. Because the suggestion is part of the channel reply, the MCP `run_command` capture picks it up with no special handling, and the audit event stays `UnknownCommand` with no content logged (FR-148). The slash surface never sees this path: its invocations are built from the registered definitions, so an unknown name cannot be invoked on it at all — and Discord's own autocomplete already guides users there. Maintenance mode keeps declining before this path; banned users are already dropped upstream.
 
 Tests: `TestFuzzyMatcher.cs` — the matcher's boundaries (symmetric distance, empty-string edges, tie-breaking, rejected and empty candidate sets) and the pipeline path through the real handler over the real registry: typo → suggestion, prefix token → the closest longer command, unrelated garbage → plain reply, tier exclusion in both directions (a moderator-tier invoker never gets the bot-owner command suggested; the same typo at bot-owner tier does), DM scope (built-ins only), custom-response candidates and their raised tiers. `TestQuotes.cs` — fuzzy search matching and ranking (misspelled term, substring precedence, distance ties by quote number, the unchanged no-match reply). `TestMcp.cs` — member-search ranking (closest first, nickname as the closest name, alphabetical ties) and a virtual `run_command` invocation of a typo returning the suggestion in its captured replies.
+
+### 3.19 Interactive pagination — previous/next buttons on paginated lists
+
+A list longer than one Discord message is either cut off or forces the user to retype a page argument; the buttons remove both. Two replies paginate today — the `!help` command list (§3.5) and the `!searchquotes` results (§3.6) — and share one button design: a multi-page reply carries an invoker-owned previous/next button pair, a single-page reply carries none. The shared primitives live in `Commands/PaginationButtons.cs`: the gateway-free click abstraction (`IPaginationButton` — user, custom id, defer, ephemeral reply, in-place modification, so click handling is unit-testable without a live connection) and the button pair itself (custom ids supplied per feature, disabled at the bounds). Each feature keeps its own pagination core composing its custom ids; every custom id encodes the owning invoker, so paging is invoker-owned everywhere — a foreign click is declined ephemerally, without running the pipeline or touching the message.
+
+**Help pagination** — `Commands/SystemCommands/HelpPagination.cs`. `HelpCommand` attaches buttons whose custom ids encode the list's owner and target page; pages are group-aware. The invoker's own click is turned back into a `help <page>` invocation through the shared virtual-invocation seam (§3.11) — full pipeline semantics: permissions, cooldown, audit — and the message is updated in place with the new page and rebuilt buttons; only a real page reply may rewrite the message, and a declined or out-of-range reply goes to the clicker ephemerally. Legacy ownerless buttons parse as owned by nobody and are declined.
+
+**Quote search pagination** — `Commands/QuoteCommands/QuoteSearchPagination.cs` + the `QuoteSearchBacklog` DI singleton. `SearchQuotesCommand` ranks every match most-relevant-first and stores the ranked backlog — up to the 100 most relevant matches — per invoker (one entry per invoker; a new search replaces it). A click renders the requested page from that snapshot: no re-query, no re-rank, no pipeline run — the message is rewritten in place with rebuilt buttons whose custom ids encode the invoker, the search, and the target page. A button of a replaced or lost search (restart) gets an ephemeral run-it-again reply.
+
+**Gateway glue** — `SlashCommands/ButtonPaginationService.cs` subscribes the shared client's button events and dispatches each click by custom-id prefix to its feature's core. Attached unconditionally: the buttons ride on text-surface messages regardless of `SlashCommands:Enabled`, and the slash surface's captured replies carry components (§3.15), so buttons work on ephemeral replies too.
+
+Tests: `TestHelp.cs` (help pages and click handling), `TestQuotes.cs` (search ranking, paging, the backlog, click handling).
 
 ## 4. Configuration
 
@@ -267,7 +298,7 @@ Tests: `TestFuzzyMatcher.cs` — the matcher's boundaries (symmetric distance, e
 - `Watchdog:*` / `Notifications:*` (§3.13): `CheckIntervalMinutes` (5), `GatewayDownAlertMinutes` (10), `ReAlertMinutes` (60), `ChannelId` (optional), `MaxPostsPerMinute` (5). Compose: `WATCHDOG_*`, `NOTIFY_CHANNEL_ID`.
 - `Reminders:*` (§3.14): `MinRecurrenceMinutes` (10), `MaxRecurring` (5, `0` disables). Absent/invalid → defaults.
 - `QuoteOfTheDay:MinIntervalMinutes` (default 1) — the deployment-level interval floor.
-- `SlashCommands:Enabled` (default false) — the slash surface. Help pagination buttons are always active.
+- `SlashCommands:Enabled` (default false) — the slash surface. The pagination buttons (§3.19) are always active.
 - Planned (§3.12): `Llm:ApiKey`, `Llm:Model`, `Llm:Persona`, `Llm:PresenceUpdates:Enabled`/`IntervalMinutes`, `Llm:BioUpdates:Enabled`, `Llm:DailyRequestBudget`.
 - Backup scheduling is compose-side environment, not bot config: `BACKUP_INTERVAL` (24 h), `BACKUP_RETENTION` (7), `BACKUP_TEST_INTERVAL` (30 d), `BACKUP_RCLONE_REMOTE` + S3 credentials. The bot reads only `Backups:Directory` for the in-bot backup commands.
 
@@ -316,7 +347,7 @@ The Jenkins container needs the host Docker socket + CLI as volume mounts for th
 ## 6. Testing
 
 - `BotTests/` (MSTest + Moq) runs without a database or token: Moq doubles the Discord message surface; command/permission tests run against the EF Core InMemory provider through `IDatabaseContext` (isolated database per test); time-sensitive logic uses `FakeTimeProvider`.
-- Coverage: the command registration contract (lowercase names, help text, categories, tiers — asserted once, in `TestCommandInfrastructure`), parsing and lookup, `CommandArguments`, the permission scale with overrides and escalation guards, per-guild scoping, the DM scope, `!help` grouping/pagination/non-revealing denials, guild settings and cooldowns, the handler failure paths and the audit event, startup config validation, and per-feature suites: quotes + import, custom responses, reminders + recurring, version, backups, watchdog/health/notifications, presence, profile images, slash commands + help pagination, MCP + agent tier, bot bans, quote of the day, and the shared fuzzy matcher with the suggestion path and the fuzzy search consumers (`TestFuzzyMatcher`).
+- Coverage: each design section names its covering suites in its `Tests:` line. Cross-cutting contracts are asserted once, not per feature: the command registration contract in `TestCommandInfrastructure`, the pipeline outcomes and audit event in `TestCommandHandler`, startup config validation in `TestConfigurationValidator`.
 - Build and run: `dotnet build HambotV2.sln` / `dotnet test HambotV2.sln`. The build is warning-free; CI treats warnings as errors.
 
 ## 7. Conventions

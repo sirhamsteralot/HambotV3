@@ -1,5 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using HambotV2.Backups;
+using HambotV2.Commands.QuoteCommands;
 using HambotV2.Commands.ReminderCommands;
 using HambotV2.Connections;
 using HambotV2.Maintenance;
@@ -37,6 +38,9 @@ namespace HambotV2.Commands
         /// </summary>
         private readonly QuoteOfTheDaySettings _quoteOfTheDaySettings;
 
+        /// <summary>The quote search backlog shared with the pagination button handler; production DI supplies the one singleton.</summary>
+        private readonly QuoteSearchBacklog _quoteSearchBacklog;
+
         /// <summary>
         /// The signal defaults to an isolated instance, and the backup & stability and presence dependencies to null, which
         /// keeps the registry usable in tests that do not exercise those features (the affected
@@ -51,7 +55,8 @@ namespace HambotV2.Commands
             IHealthSnapshotProvider? healthSnapshotProvider = null,
             IPresenceService? presenceService = null,
             IImageContentDownloader? imageContentDownloader = null,
-            IConfiguration? configuration = null)
+            IConfiguration? configuration = null,
+            QuoteSearchBacklog? quoteSearchBacklog = null)
         {
             _deliverySignal = deliverySignal ?? new ScheduledDeliverySignal();
             _backupManager = backupManager;
@@ -63,6 +68,7 @@ namespace HambotV2.Commands
             _imageContentDownloader = imageContentDownloader;
             _reminderSettings = ReminderSettings.FromConfiguration(configuration);
             _quoteOfTheDaySettings = QuoteOfTheDaySettings.FromConfiguration(configuration);
+            _quoteSearchBacklog = quoteSearchBacklog ?? new QuoteSearchBacklog();
         }
 
         public Dictionary<string, ICommand> Commands { get; } = new();
@@ -72,7 +78,7 @@ namespace HambotV2.Commands
 
         public void RegisterCommands()
         {
-            RegisterAllCommands.RegisterCommands(this, _deliverySignal, _backupManager, _maintenanceMode, _notificationPublisher, _notificationChannelStore, _healthSnapshotProvider, _presenceService, _imageContentDownloader, _reminderSettings, _quoteOfTheDaySettings);
+            RegisterAllCommands.RegisterCommands(this, _deliverySignal, _backupManager, _maintenanceMode, _notificationPublisher, _notificationChannelStore, _healthSnapshotProvider, _presenceService, _imageContentDownloader, _reminderSettings, _quoteOfTheDaySettings, _quoteSearchBacklog);
             CommandsRegistered = true;
         }
 

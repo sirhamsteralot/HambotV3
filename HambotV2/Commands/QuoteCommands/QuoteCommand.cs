@@ -58,12 +58,12 @@ namespace HambotV2.Commands.QuoteCommands
 
         /// <summary>
         /// Sends a quote reply trimmed to Discord's message limit when needed: a maximal quote
-        /// plus its number prefix (or a long search result list) would otherwise exceed the cap
+        /// plus its number prefix (or a long search result page) would otherwise exceed the cap
         /// and fail delivery. The stored text is never modified — only the reply is trimmed.
         /// </summary>
-        internal static async Task SendFittedAsync(IMessage message, string reply)
+        internal static async Task SendFittedAsync(IMessage message, string reply, MessageComponent? components = null)
         {
-            await message.Channel.SendMessageAsync(TrimToMessageLimit(reply));
+            await message.Channel.SendMessageAsync(TrimToMessageLimit(reply), components: components);
         }
 
         /// <summary>Trims a reply to Discord's message limit, with a trailing ellipsis — the shared cap for quote replies and quote-of-the-day publications.</summary>

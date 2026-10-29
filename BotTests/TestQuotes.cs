@@ -3,6 +3,7 @@ using HambotV2.Commands;
 using HambotV2.Commands.QuoteCommands;
 using HambotV2.Connections;
 using Microsoft.EntityFrameworkCore;
+using Moq;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -25,11 +26,11 @@ namespace BotTests
         {
             public DatabaseContext Database { get; } = DiscordTestDoubles.CreateDatabase();
 
-            public async Task<List<string>> Execute(ICommand command, string content, ulong? guildId = GuildId, ulong authorId = AuthorId, DateTimeOffset? timestamp = null, IAttachment? attachment = null)
+            public async Task<List<string>> Execute(ICommand command, string content, ulong? guildId = GuildId, ulong authorId = AuthorId, DateTimeOffset? timestamp = null, IAttachment? attachment = null, List<MessageComponent?>? sentComponents = null)
             {
                 var sentMessages = new List<string>();
                 var message = guildId is ulong guild
-                    ? DiscordTestDoubles.CreateGuildMessage(content, authorId, 999, sentMessages, guild, timestamp, attachment)
+                    ? DiscordTestDoubles.CreateGuildMessage(content, authorId, 999, sentMessages, guild, timestamp, attachment, sentComponents)
                     : DiscordTestDoubles.CreateDirectMessage(content, authorId, sentMessages);
                 var context = DiscordTestDoubles.CreateContext(Database, guildId: guildId);
 
@@ -53,6 +54,9 @@ namespace BotTests
         }
 
         private static QuoteHarness Harness() => new();
+
+        /// <summary>A search command over a fresh backlog; the click tests build their own to share with the search.</summary>
+        private static SearchQuotesCommand Search() => new(new QuoteSearchBacklog());
 
         [TestMethod]
         public async Task Add_Assigns_Sequential_Numbers_And_Records_Adder_And_Timestamp()
@@ -103,7 +107,7 @@ namespace BotTests
             var harness = Harness();
             var quote = new QuoteCommand();
             var remove = new RemoveQuoteCommand();
-            var search = new SearchQuotesCommand();
+            var search = Search();
 
             await harness.Execute(quote, "!quote alpha", guildId: GuildId);
             await harness.Execute(quote, "!quote beta", guildId: OtherGuildId);
@@ -249,10 +253,10 @@ namespace BotTests
             await harness.Execute(quote, "!quote small cat");
             await harness.Execute(quote, "!quote another DOG here");
 
-            var replies = await harness.Execute(new SearchQuotesCommand(), "!searchquotes dog");
+            var replies = await harness.Execute(Search(), "!searchquotes dog");
 
             Assert.AreEqual(1, replies.Count);
-            Assert.AreEqual("#0: Big Dog\n#2: another DOG here", replies[0]);
+            Assert.AreEqual("Quotes matching 'dog':\n#0: Big Dog\n#2: another DOG here", replies[0]);
         }
 
         [TestMethod]
@@ -261,23 +265,141 @@ namespace BotTests
             var harness = Harness();
             await harness.Execute(new QuoteCommand(), "!quote a big dog barks");
 
-            CollectionAssert.AreEqual(new List<string> { "#0: a big dog barks" }, await harness.Execute(new SearchQuotesCommand(), "!searchquotes big dog"));
+            CollectionAssert.AreEqual(new List<string> { "Quotes matching 'big dog':\n#0: a big dog barks" }, await harness.Execute(Search(), "!searchquotes big dog"));
         }
 
         [TestMethod]
-        public async Task Search_Is_Capped_At_Ten_Results()
+        public async Task Search_Pages_All_Matches_And_Attaches_Buttons()
         {
             var harness = Harness();
             var quote = new QuoteCommand();
             for (int number = 1; number <= 12; number++)
                 await harness.Execute(quote, $"!quote common text {number}");
 
-            var replies = await harness.Execute(new SearchQuotesCommand(), "!searchquotes common");
+            var sentComponents = new List<MessageComponent?>();
+            var replies = await harness.Execute(Search(), "!searchquotes common", sentComponents: sentComponents);
 
             Assert.AreEqual(1, replies.Count);
-            Assert.AreEqual(10, replies[0].Split('\n').Length, "The result list must be capped at 10");
-            StringAssert.Contains(replies[0], "#9: common text 10", "Results keep the number order up to the cap");
-            Assert.IsFalse(replies[0].Contains("#10"), "Quotes past the cap must not be sent");
+            StringAssert.Contains(replies[0], "(page 1 of 2):");
+            Assert.AreEqual(11, replies[0].Split('\n').Length, "One page holds the header and 10 results");
+            StringAssert.Contains(replies[0], "#9: common text 10", "The first page keeps the relevance order");
+            Assert.IsFalse(replies[0].Contains("#10:"), "Only the page's ten results are sent");
+            Assert.IsNotNull(sentComponents[0], "A multi-page search attaches the previous/next buttons");
+        }
+
+        [TestMethod]
+        public async Task Search_That_Fits_One_Page_Has_No_Buttons()
+        {
+            var harness = Harness();
+            await harness.Execute(new QuoteCommand(), "!quote a big dog barks");
+
+            var sentComponents = new List<MessageComponent?>();
+            var replies = await harness.Execute(Search(), "!searchquotes big dog", sentComponents: sentComponents);
+
+            Assert.AreEqual("Quotes matching 'big dog':\n#0: a big dog barks", replies[0]);
+            Assert.IsNull(sentComponents[0], "A search that fits one page has no buttons to attach");
+        }
+
+        [TestMethod]
+        public async Task Search_Keeps_At_Most_The_Hundred_Most_Relevant_Matches()
+        {
+            var harness = Harness();
+            for (int number = 0; number < 105; number++)
+                harness.Database.Quotes.Add(new DatabaseContext.Quote { GuildId = GuildId, Number = number, Text = $"common text {number}" });
+            harness.Database.SaveChanges();
+
+            var replies = await harness.Execute(Search(), "!searchquotes common");
+
+            StringAssert.Contains(replies[0], "(page 1 of 10, showing the 100 most relevant):");
+            Assert.AreEqual(11, replies[0].Split('\n').Length, "One page holds the header and 10 results");
+            Assert.IsFalse(replies[0].Contains("#10:"), "Only the page's ten results are sent");
+        }
+
+        /// <summary>Moq double of one pagination button click, wired for the click-handling tests.</summary>
+        private static IPaginationButton CreatePaginationClick(ulong clickerId, string customId, out Mock<IPaginationButton> button)
+        {
+            var user = new Mock<IUser>();
+            user.SetupGet(u => u.Id).Returns(clickerId);
+
+            button = new Mock<IPaginationButton>();
+            button.SetupGet(b => b.User).Returns(user.Object);
+            button.SetupGet(b => b.CustomId).Returns(customId);
+            button.SetupGet(b => b.Channel).Returns(new Mock<IMessageChannel>().Object);
+            button.SetupGet(b => b.CreatedAt).Returns(DateTimeOffset.UnixEpoch);
+            button.Setup(b => b.DeferAsync()).Returns(Task.CompletedTask);
+            button.Setup(b => b.SendEphemeralAsync(It.IsAny<string>())).Returns(Task.CompletedTask);
+            button.Setup(b => b.ModifyListInPlaceAsync(It.IsAny<string>(), It.IsAny<MessageComponent>())).Returns(Task.CompletedTask);
+            return button.Object;
+        }
+
+        [TestMethod]
+        public async Task Search_Button_Click_Pages_The_Invoker_Through_The_Ranked_Backlog()
+        {
+            var harness = Harness();
+            var backlog = new QuoteSearchBacklog();
+            var quote = new QuoteCommand();
+            for (int number = 1; number <= 12; number++)
+                await harness.Execute(quote, $"!quote common text {number}");
+
+            await harness.Execute(new SearchQuotesCommand(backlog), "!searchquotes common");
+
+            // A fresh backlog's first stored search has id 0; the next button targets its second page.
+            var click = CreatePaginationClick(AuthorId, QuoteSearchPagination.CustomId(AuthorId, 0, 2), out Mock<IPaginationButton> button);
+            await QuoteSearchPagination.HandleClickAsync(click, backlog);
+
+            button.Verify(b => b.DeferAsync(), Times.Once);
+            button.Verify(b => b.ModifyListInPlaceAsync(
+                "Quotes matching 'common' (page 2 of 2):\n#10: common text 11\n#11: common text 12",
+                It.IsAny<MessageComponent>()), Times.Once);
+            button.Verify(b => b.SendEphemeralAsync(It.IsAny<string>()), Times.Never);
+        }
+
+        [TestMethod]
+        public async Task Search_Ranks_Relevance_Across_The_Page_Boundary()
+        {
+            var harness = Harness();
+            var quote = new QuoteCommand();
+            for (int number = 0; number < 9; number++)
+                await harness.Execute(quote, $"!quote dog number {number}");
+            await harness.Execute(quote, "!quote a dot there");
+            await harness.Execute(quote, "!quote a hog here");
+            await harness.Execute(quote, "!quote a cot everywhere");
+
+            var backlog = new QuoteSearchBacklog();
+            await harness.Execute(new SearchQuotesCommand(backlog), "!searchquotes dog");
+
+            var click = CreatePaginationClick(AuthorId, QuoteSearchPagination.CustomId(AuthorId, 0, 2), out Mock<IPaginationButton> button);
+            await QuoteSearchPagination.HandleClickAsync(click, backlog);
+
+            button.Verify(b => b.ModifyListInPlaceAsync(
+                "Quotes matching 'dog' (page 2 of 2):\n#10: a hog here\n#11: a cot everywhere",
+                It.IsAny<MessageComponent>()), Times.Once,
+                "Distance ties break by quote number and the distance-2 match ranks last, across the page boundary");
+        }
+
+        [TestMethod]
+        public async Task Search_Button_Click_By_A_Foreign_User_Or_For_A_Stale_Search_Is_Declined()
+        {
+            var harness = Harness();
+            var backlog = new QuoteSearchBacklog();
+            await harness.Execute(new QuoteCommand(), "!quote one");
+            await harness.Execute(new QuoteCommand(), "!quote two");
+            await harness.Execute(new SearchQuotesCommand(backlog), "!searchquotes one");
+
+            var foreign = CreatePaginationClick(clickerId: 300, customId: QuoteSearchPagination.CustomId(AuthorId, 0, 1), out Mock<IPaginationButton> foreignClick);
+            await QuoteSearchPagination.HandleClickAsync(foreign, backlog);
+
+            foreignClick.Verify(b => b.SendEphemeralAsync(QuoteSearchPagination.ForeignClickerReply), Times.Once);
+            foreignClick.Verify(b => b.ModifyListInPlaceAsync(It.IsAny<string>(), It.IsAny<MessageComponent>()), Times.Never);
+
+            // A newer search replaces the backlog entry: the first search's buttons are stale.
+            await harness.Execute(new SearchQuotesCommand(backlog), "!searchquotes two");
+
+            var stale = CreatePaginationClick(AuthorId, QuoteSearchPagination.CustomId(AuthorId, 0, 1), out Mock<IPaginationButton> staleClick);
+            await QuoteSearchPagination.HandleClickAsync(stale, backlog);
+
+            staleClick.Verify(b => b.SendEphemeralAsync(QuoteSearchPagination.UnavailableSearchReply), Times.Once);
+            staleClick.Verify(b => b.ModifyListInPlaceAsync(It.IsAny<string>(), It.IsAny<MessageComponent>()), Times.Never);
         }
 
         [TestMethod]
@@ -290,11 +412,11 @@ namespace BotTests
 
             // Ten matches at ~250 chars exceed Discord's message limit; the reply is trimmed
             // instead of failing delivery.
-            var replies = await harness.Execute(new SearchQuotesCommand(), "!searchquotes common");
+            var replies = await harness.Execute(Search(), "!searchquotes common");
 
             Assert.AreEqual(1, replies.Count);
             Assert.IsTrue(replies[0].Length <= 2000, $"The reply must fit a Discord message, got {replies[0].Length} chars");
-            Assert.IsTrue(replies[0].StartsWith("#0: "), "The results must start with the lowest number");
+            Assert.IsTrue(replies[0].StartsWith("Quotes matching 'common'"), "The reply must start with the search header");
             Assert.IsTrue(replies[0].EndsWith("…"), "A trimmed reply must end with an ellipsis");
         }
 
@@ -306,9 +428,9 @@ namespace BotTests
 
             CollectionAssert.AreEqual(
                 new List<string> { "No quotes match 'missing' in this server" },
-                await harness.Execute(new SearchQuotesCommand(), "!searchquotes missing"));
+                await harness.Execute(Search(), "!searchquotes missing"));
 
-            var empty = await harness.Execute(new SearchQuotesCommand(), "!searchquotes");
+            var empty = await harness.Execute(Search(), "!searchquotes");
             Assert.AreEqual(1, empty.Count);
             StringAssert.Contains(empty[0], "search text is missing");
         }
@@ -320,8 +442,8 @@ namespace BotTests
             await harness.Execute(new QuoteCommand(), "!quote a big dog barks");
 
             CollectionAssert.AreEqual(
-                new List<string> { "#0: a big dog barks" },
-                await harness.Execute(new SearchQuotesCommand(), "!searchquotes dg"),
+                new List<string> { "Quotes matching 'dg':\n#0: a big dog barks" },
+                await harness.Execute(Search(), "!searchquotes dg"),
                 "A near miss of a word (edit distance 1) matches the quote.");
         }
 
@@ -332,10 +454,10 @@ namespace BotTests
             await harness.Execute(new QuoteCommand(), "!quote a bat flies");
             await harness.Execute(new QuoteCommand(), "!quote concatenate this");
 
-            var replies = await harness.Execute(new SearchQuotesCommand(), "!searchquotes cat");
+            var replies = await harness.Execute(Search(), "!searchquotes cat");
 
             Assert.AreEqual(1, replies.Count);
-            Assert.AreEqual("#1: concatenate this\n#0: a bat flies", replies[0],
+            Assert.AreEqual("Quotes matching 'cat':\n#1: concatenate this\n#0: a bat flies", replies[0],
                 "The substring match ranks ahead of the closer fuzzy match.");
         }
 
@@ -346,10 +468,10 @@ namespace BotTests
             await harness.Execute(new QuoteCommand(), "!quote the cap fits");
             await harness.Execute(new QuoteCommand(), "!quote a bat flies");
 
-            var replies = await harness.Execute(new SearchQuotesCommand(), "!searchquotes cat");
+            var replies = await harness.Execute(Search(), "!searchquotes cat");
 
             Assert.AreEqual(1, replies.Count);
-            Assert.AreEqual("#0: the cap fits\n#1: a bat flies", replies[0],
+            Assert.AreEqual("Quotes matching 'cat':\n#0: the cap fits\n#1: a bat flies", replies[0],
                 "An equal word distance is ordered by quote number.");
         }
 
@@ -361,7 +483,7 @@ namespace BotTests
 
             CollectionAssert.AreEqual(
                 new List<string> { "No quotes match 'zzqqxx' in this server" },
-                await harness.Execute(new SearchQuotesCommand(), "!searchquotes zzqqxx"));
+                await harness.Execute(Search(), "!searchquotes zzqqxx"));
         }
 
         [TestMethod]
@@ -382,7 +504,7 @@ namespace BotTests
         public void Default_Tiers_Are_Everyone_For_Quote_And_Search_Moderator_For_Remove()
         {
             Assert.AreEqual(PermissionTier.Everyone, new QuoteCommand().DefaultPermissionTier);
-            Assert.AreEqual(PermissionTier.Everyone, new SearchQuotesCommand().DefaultPermissionTier);
+            Assert.AreEqual(PermissionTier.Everyone, Search().DefaultPermissionTier);
             Assert.AreEqual(PermissionTier.Moderator, new RemoveQuoteCommand().DefaultPermissionTier);
         }
 
@@ -418,7 +540,7 @@ namespace BotTests
         {
             var harness = Harness();
 
-            foreach (ICommand command in new ICommand[] { new QuoteCommand(), new SearchQuotesCommand(), new RemoveQuoteCommand(), new ImportQuotesCommand(new FakeAttachmentDownloader()) })
+            foreach (ICommand command in new ICommand[] { new QuoteCommand(), Search(), new RemoveQuoteCommand(), new ImportQuotesCommand(new FakeAttachmentDownloader()) })
             {
                 var replies = await harness.Execute(command, $"!{command.Name}", guildId: null);
 
