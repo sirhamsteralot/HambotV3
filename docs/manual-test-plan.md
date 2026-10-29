@@ -155,7 +155,7 @@ Set `SLASH_COMMANDS_ENABLED=true`, restart; the log line "Registered N applicati
 
 | # | Action | Expected |
 |---|---|---|
-| 12.1 | Type `/` | Exactly the administrative/configuration, user-scoped, searchquotes, and help commands — no quote, response, or `version` commands. |
+| 12.1 | Type `/` | Exactly the administrative/configuration, user-scoped, searchquotes, version, and help commands — no quote or response commands. |
 | 12.2 | `/remindme` with `10m water the plants` | Reply identical to the text surface, visible **only to the invoker** (ephemeral). |
 | 12.3 | `/userpermission` picking a user + tier 1 (as guild owner) | Same effect as the text command. |
 | 12.4 | Second account runs `/backup` | Ephemeral denial only; no public reply. |

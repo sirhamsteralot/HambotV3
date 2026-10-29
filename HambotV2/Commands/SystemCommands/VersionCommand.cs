@@ -1,4 +1,5 @@
 using Discord;
+using HambotV2.SlashCommands;
 
 namespace HambotV2.Commands.SystemCommands
 {
@@ -15,6 +16,8 @@ namespace HambotV2.Commands.SystemCommands
         public string Usage => "version";
         public int DefaultPermissionTier => PermissionTier.Everyone;
         public CommandCategory Category => CommandCategory.General;
+
+        public ApplicationCommandDeclaration? ApplicationCommand => ApplicationCommandDeclaration.NoArguments;
 
         public async Task ExecuteCommand(IMessage message, ICommandContext context)
         {

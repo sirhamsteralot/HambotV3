@@ -30,13 +30,13 @@ namespace BotTests
         [
             "agenttier", "backup", "backups", "banlist", "banuser", "bio", "cancelreminder", "commandpermission", "health",
             "help", "notifychannel", "presence", "quoteoftheday", "remindme", "reminders", "restorebackup",
-            "searchquotes", "settings", "unbanuser", "userpermission", "avatar", "banner",
+            "searchquotes", "settings", "unbanuser", "userpermission", "version", "avatar", "banner",
         ];
 
         private static readonly string[] ExpectedTextOnly =
         [
             "addresponse", "hello", "importquotes", "listresponses", "quote",
-            "removeresponse", "removequote", "version",
+            "removeresponse", "removequote",
         ];
 
         private static CommandService CreateRegisteredCommandService()
@@ -86,7 +86,7 @@ namespace BotTests
                 seen.Add(name);
             }
 
-            CollectionAssert.AreEquivalent((System.Collections.ICollection)eligible.OrderBy(name => name).ToList(), (System.Collections.ICollection)seen.OrderBy(name => name).ToList(), "The slash-eligible set must be exactly the administrative/configuration, user-scoped, searchquotes, and help commands.");
+            CollectionAssert.AreEquivalent((System.Collections.ICollection)eligible.OrderBy(name => name).ToList(), (System.Collections.ICollection)seen.OrderBy(name => name).ToList(), "The slash-eligible set must be exactly the administrative/configuration, user-scoped, searchquotes, version, and help commands.");
         }
 
         [TestMethod]

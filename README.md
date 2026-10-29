@@ -81,7 +81,7 @@ The agent acts at the lowest tier (0) per server; a guild owner or the bot owner
 
 ## Slash commands
 
-Opt-in via `SLASH_COMMANDS_ENABLED=true` (requires the `applications.commands` invite scope): the administrative/configuration commands, the reminder commands, `/searchquotes`, and `/help` run through the same command pipeline with identical permissions and cooldowns, but every reply is ephemeral (visible only to the invoker); a multi-page `/help` carries previous/next buttons. Community-facing commands (`!quote` & co., custom responses, `!version`) stay text-only. Global commands can take up to an hour to appear.
+Opt-in via `SLASH_COMMANDS_ENABLED=true` (requires the `applications.commands` invite scope): the administrative/configuration commands, the reminder commands, `/searchquotes`, `/version`, and `/help` run through the same command pipeline with identical permissions and cooldowns, but every reply is ephemeral (visible only to the invoker); a multi-page `/help` carries previous/next buttons. Community-facing commands (`!quote` & co., custom responses) stay text-only. Global commands can take up to an hour to appear.
 
 ## Building & running locally
 
