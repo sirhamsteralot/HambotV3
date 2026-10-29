@@ -81,7 +81,7 @@ The agent acts at the lowest tier (0) per server; a guild owner or the bot owner
 
 ## Slash commands
 
-Opt-in via `SLASH_COMMANDS_ENABLED=true` (requires the `applications.commands` invite scope): the administrative/configuration commands, the reminder commands, `/searchquotes`, `/version`, and `/help` run through the same command pipeline with identical permissions and cooldowns, but every reply is ephemeral (visible only to the invoker); a multi-page `/help` carries previous/next buttons. Community-facing commands (`!quote` & co., custom responses) stay text-only. Global commands can take up to an hour to appear.
+Opt-in via `SLASH_COMMANDS_ENABLED=true` (requires the `applications.commands` invite scope): the administrative/configuration commands, the reminder commands, `/searchquotes`, `/version`, and `/help` run through the same command pipeline with identical permissions and cooldowns, but every reply is ephemeral (visible only to the invoker); multi-page `/help` and `/searchquotes` replies carry previous/next buttons. Community-facing commands (`!quote` & co., custom responses) stay text-only. Global commands can take up to an hour to appear.
 
 ## Building & running locally
 
@@ -117,11 +117,11 @@ Expected startup logs: `Bot version: <version>` → `Database migrations applied
 | Command | Behavior |
 |---|---|
 | `!hello` / `!version` | "Hello World" / version string (semver + commit hash). DM-usable. |
-| `!help [name \| page]` | Lists usable commands grouped by category, or detailed help for one command. |
+| `!help [name \| page]` | Lists usable commands grouped by category, paginated with previous/next buttons, or detailed help for one command. |
 | `!remindme <duration> <message...>` | Personal reminder, delivered as a DM. `!remindme every <duration> ...` recurs. DM-usable. |
 | `!reminders` / `!cancelreminder <n>` | List (soonest first) / cancel your reminders. DM-usable. |
 | `!quote [number\|text...]` | Random / numbered quote, or add new text as the next quote. |
-| `!searchquotes <text...>` / `!removequote <n>` | Search quotes (≤ 10 results, moderator tier) / remove one. |
+| `!searchquotes <text...>` / `!removequote <n>` | Search this server's quotes, most relevant first — substring hits by quote number, then typo-tolerant word matches (≤ 2 edits) — up to 100 results, 10 per page with previous/next buttons. `!removequote` is moderator tier. |
 | `!importquotes` | Import the old bot's `quoteSettings.json` (attached). Bot-owner tier. |
 | `!quoteoftheday [<due> <interval> \| channel <#ch\|clear> \| template <text...>]` | Scheduled quote publication into a channel, all UTC. Admin tier. |
 | `!addresponse <name> <text...>` / `!listresponses` / `!removeresponse <name>` | Manage custom responses (moderator tier; `!listresponses` everyone). |
@@ -137,3 +137,4 @@ Permission tiers: 0 everyone · 1 moderator · 2 admin · 3 owner (held automati
 
 - **Fresh guild bootstrap**: the guild owner already acts at owner tier; permission-management commands are admin-tier with an escalation guard (you can only assign tiers strictly below your own), so nobody can self-promote.
 - **Scoping**: tiers and settings are per guild. In **DMs** you act at owner tier against built-in default tiers; commands that manage guild state (`!userpermission`, `!commandpermission`, `!settings`, `!agenttier`, the ban commands) decline in DMs.
+- **Typos**: an unknown command (or custom response) that looks like a runnable one gets a `Did you mean !<name>?` suggestion — edit distance ≤ 2 or a ≥ 3-character prefix, filtered to commands you can actually run so higher-tier names are never revealed.
