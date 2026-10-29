@@ -153,15 +153,16 @@ HamBot is a Discord chat bot. It recognizes messages starting with a configurabl
 
 ### 2.14 LLM integration (phase 1: presence updates) *(planned)*
 
-- **FR-92**: A Mistral LLM client (`Llm:ApiKey`, `Llm:Model` default `mistral-small-latest`); no key → all LLM features inactive.
-- **FR-93**: An opt-in presence-update job (`Llm:PresenceUpdates:Enabled`, interval default 60 min): prompt from the persona seed + bot name/version + date/time + current presence; validate output (non-empty, single line, ≤ 128 chars); apply via the presence service.
-- **FR-94**: LLM/API failures leave the current state unchanged, are logged, retry next interval, and never crash the bot.
+- **FR-92**: A Mistral LLM client configured via `Llm:ApiKey` (a secret, NFR-3) and `Llm:Model` (default `mistral-small-latest`); no key → all LLM features inactive.
+- **FR-93**: An opt-in presence-update job (`Llm:PresenceUpdates:Enabled`, interval `Llm:PresenceUpdates:IntervalMinutes` default 60 min): each tick builds the prompt (FR-154), validates the output (non-empty, single line, ≤ 128 chars), and applies it via the presence service.
+- **FR-94**: LLM/API errors or invalid output leave the current presence/bio unchanged, are logged, retry next interval, and never crash the bot.
 - **FR-95**: The LLM client is an interface with a Mistral HTTP implementation, so prompts/validation/scheduling are unit-testable without network.
 - **FR-99**: A documented, configuration-overridable default persona seed ships with the bot; authoring and tuning it is part of the feature work.
 - **FR-102**: Usage is accounted per feature per UTC day (requests, tokens in/out) and exposed to `!llm status` and `!health`; in-memory.
 - **FR-103**: A daily request budget (`Llm:DailyRequestBudget`, default 500) hard-stops API calls for the rest of the UTC day; `0` disables the feature set like an absent key.
 - **FR-104**: `!llm status|off|on` manages the LLM features at runtime (tier bot owner, DM-usable); the kill switch is in-memory — a restart restores the configured state.
-- **FR-114**: With `Llm:BioUpdates:Enabled`, the same job refreshes the bio (≤ 190 chars) with identical validation, failure handling, and budget accounting.
+- **FR-114**: With `Llm:BioUpdates:Enabled`, the same job refreshes the bio — same prompt inputs (FR-154), non-empty, ≤ 190 chars, line breaks allowed — with identical validation, failure handling, and budget accounting.
+- **FR-154**: The presence/bio prompt inputs are the persona seed (FR-99), the bot's name and version, the current UTC date/time, and the current presence. `Llm:PresenceUpdates:IncludeChat` (default false) additionally includes recent guild chat — the newest messages from the bot's readable guild channels, bounded (configurable, defaults 20 messages and 4000 characters total), never DMs. Chat content is untrusted input — data, never instructions: it is never stored, logged, or executed, never triggers commands, tools, database writes, or persona/config changes, and the prompt requires generic output (no quoting, no user or channel names); secrets (NFR-3) are never prompt input.
 
 ### 2.15 Watchdog, health reporting & operator notifications
 
@@ -254,7 +255,7 @@ HamBot is a Discord chat bot. It recognizes messages starting with a configurabl
 - **NFR-18 Presence testability**: Presence/bio/avatar/banner covered against mocked gateway and fake downloader: config validation, commands, serialization, failure paths, not-persisted semantics.
 - **NFR-19 Backup drill**: The restore procedure is scripted, documented, and proven once against a scratch database; validation and restore-test outcomes feed `!health` and the watchdog.
 - **NFR-20 MCP testability**: Covered without live transport/database/Discord: auth, every tool over fakes, `run_command` capture/authority/cooldown/audit.
-- **NFR-21 LLM testability**: Covered with a fake client, no network: prompts, validation boundaries, scheduling, failure path, inactive-without-key.
+- **NFR-21 LLM testability**: Covered with a fake client, no network: prompts (presence and bio), both validation boundaries (128/190 chars), FR-154 input assembly (chat-context bounds, DM exclusion, untrusted content never stored or logged), scheduling, failure path, inactive-without-key.
 - **NFR-22 Backup command testability**: Covered against a fake backup manager: trigger, list, two-step confirmation, maintenance gating, tier gate, failure replies.
 - **NFR-23 Watchdog testability**: Covered with fakes: each condition's detection, alert cadence, delivery paths, `!health` fields, notification rate limit/collapse, `!notifychannel` persistence.
 - **NFR-24 Recurring-reminder testability**: Covered like NFR-16: `every` parsing, redelivery without bursts, numbering stability, the separate cap, one-shot independence.
