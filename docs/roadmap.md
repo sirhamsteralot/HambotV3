@@ -17,7 +17,7 @@ Each task carries: **Problem** (what's missing today), **Steps** (ordered checkl
     3. Author the default persona seed (FR-99) — the hamster character's voice — as a documented, configuration-overridable default, tuned against real outputs. Part of the feature, not an afterthought.
     4. Failure path (FR-94): error or invalid output → keep current presence/bio, log, retry next tick.
     5. Bio updates (FR-114): `Llm:BioUpdates:Enabled` makes the same tick generate and apply a bio (≤ 190 chars, line breaks allowed) with identical handling and budget accounting.
-    6. Guardrails (FR-102–FR-104): per-feature/per-day usage accounting; `Llm:DailyRequestBudget` hard stop (like any other failure: skip, change nothing, log); `!llm status|off|on` kill switch (tier 4, DM-usable; restart restores the configured state).
+    6. Guardrails (FR-102–FR-104): per-feature/per-day usage accounting; `Llm:DailyRequestBudget` hard stop (like any other failure: skip, change nothing, log); `!llm status|off|on` kill switch (tier 4, DM-usable; restart restores the configured state). Persona commands (FR-155/FR-156): `!persona` sets/clears the global runtime override (persisted in `BotSetting`), `!settings persona` the per-guild one (persisted in `GuildSetting`) — both tier admin, slash-eligible; resolution chain guild → global → config → shipped seed.
     7. Wire config defaults into `appsettings.json`; secrets per NFR-3; document in design §4.
     8. Unit tests per NFR-21/NFR-25 (fake `ILlmClient`, `FakeTimeProvider`): prompts, both validation boundaries, scheduling, failure path, inactive-without-key, accounting, budget suspension/rollover, kill switch.
 
@@ -27,7 +27,7 @@ Each task carries: **Problem** (what's missing today), **Steps** (ordered checkl
 
     **Problem**: phase 1 only generates presence text. The end goal is a bot that occasionally participates in conversation with memories and a personality.
 
-    **Plan notes** (FRs + design section to be authored when scheduled; builds on the phase-1 client and guardrails, the presence service, and the MCP endpoint):
+    **Plan notes** (pipeline shape designed in §3.20 with FR-157–FR-160 / NFR-33 in §2.25 of the requirements; the phase-B/C *feature* FRs are authored when scheduled. Runs are started by registered `IContextTrigger`s and fed by registered `IContextCollector`s — `ChatContextCollector` for history, a `MemoryCollector` for phase C — on top of the §3.12 foundation toolkit: `LlmGate`/`ILlmUsageTracker` guardrails, `LlmPromptBuilder` with its trust rules; plus the presence service (§3.10) and the MCP endpoint (§3.11)):
 
     - **Phase B — conversation participation**: per-guild opt-in (a `GuildSetting` flag), bounded cadence (≤ 1 unsolicited reply per N messages / M minutes), reading recent history via the Discord REST API, replying as the bot; failure handling like FR-94.
     - **Phase C — memory & personality**: per-guild tables (conversation summaries, remembered facts), an LLM summarization job, prompts assembled from the persona seed + memories + recent messages; admin commands to inspect/clear a guild's memory.

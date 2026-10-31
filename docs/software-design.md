@@ -51,6 +51,7 @@ Key dependencies: Discord.Net, EF Core/Npgsql, Microsoft.Extensions.Hosting, Ser
 Hosted services (all in the same process):
   DiscordClient · ScheduledMessageDeliveryService<ScheduledReminderMessage> (§3.8)
   · QuoteOfTheDayPublicationService (§3.17) · WatchdogService (§3.13) · McpServerService (§3.11, opt-in)
+  · ContextPipelineHost (§3.20, planned)
 ```
 
 ### 2.1 Composition root — `HambotV2/Program.cs`
@@ -137,7 +138,8 @@ GuildSetting 1 ──< User            key (GuildId, DiscordId)            Permi
              1 ──< CustomResponse  key (GuildId, Name)                Content 1–1000, modifier, timestamps (§3.7)
              1 ──< BotBan          key (GuildId, DiscordId)           BannedBy, CreatedAt, ExpiresAtUtc null = permanent (§3.16)
 Reminder     key (OwnerDiscordId, Number) — user-scoped, not guild-scoped: Message 1–500, DueAtUtc, nullable GuildId/RecurrenceInterval/FailedAtUtc (§3.8, §3.14)
-BotSetting   key Key — global key-value; first key: notification channel id (§3.13)
+BotSetting   key Key — global key-value: notification channel id (§3.13), global persona override (§3.12)
+GuildSetting columns: CommandIdentifier override, per-tier cooldown overrides, OperatorAgentTier (§3.11), quote-of-the-day config (§3.17), nullable Persona (§3.12, FR-156)
 ```
 
 Migrations (`HambotV2/Migrations/`) apply automatically on startup (`Database.Migrate()` before the gateway); an unreachable database is a critical log line + non-zero exit. Regenerate with `dotnet ef migrations add <Name>` from `HambotV2/` (`DesignTimeDatabaseContextFactory` avoids running startup). Pre-`PerGuildScoping` rows keep sentinel `GuildId = 0` (matches no real guild; re-grant per guild).
@@ -155,7 +157,7 @@ All in `Commands/SystemCommands/`, registered by `RegisterSystemCommands`; `Perm
 | `commandpermission <name> [tier]` | 2 | Show/set a command's required tier; escalation-guarded; guild-only. |
 | `userpermission <user> [tier]` | 2 | Show/set a user's tier (id or mention); escalation-guarded; guild-only. |
 | `banuser <user> [duration]` / `unbanuser <user>` / `banlist` | 1 | Per-guild bot bans (§3.16); guild-only. |
-| `settings [commandidentifier <v>\|reset \| cooldown <tier> <s>\|reset]` | 2 | Identifier and cooldown overrides (guard: tiers strictly below your own; bot owner unrestricted); guild-only. |
+| `settings [commandidentifier <v>\|reset \| cooldown <tier> <s>\|reset \| persona <text...>\|clear]` | 2 | Identifier, cooldown, and per-guild persona overrides (cooldown guard: tiers strictly below your own, bot owner unrestricted; persona: §3.12, FR-156); guild-only. |
 | `agenttier [<tier 0-4>\|clear]` | 3 | Operator-agent tier for the guild (§3.11); guild-only. |
 | `version` | 0 | Version string (§3.9); DM-usable. |
 | `health` | 4 | Health report (§3.13); DM-usable. |
@@ -282,13 +284,77 @@ MCP client ──HTTP──► McpBearerAuthentication (401 without "Authorizati
 
 Tests: `TestMcp.cs`, `TestAgentTier.cs` — lookups run over EF InMemory through the real `IDatabaseContext` behind a fake `IMcpDiscordClient`.
 
-### 3.12 LLM integration, phase 1 — presence updates **(planned)**
+### 3.12 LLM integration — foundation toolkit + phase 1: presence updates **(planned)**
 
-- `Llm/ILlmClient.cs` (chat-completion abstraction) + `Llm/MistralLmClient.cs` (Mistral API; `Llm:ApiKey`, `Llm:Model` default `mistral-small-latest`); no key → all LLM features inactive.
-- `Llm/PresenceUpdateService.cs` — opt-in hosted loop (`Llm:PresenceUpdates:Enabled`, `Llm:PresenceUpdates:IntervalMinutes` default 60): prompt from the persona seed (`Llm:Persona`, shipped configuration-overridable default) asks for a single-line activity ≤ 128 chars, validated, applied via `IPresenceService`; failures keep the current presence and retry next tick. `Llm:BioUpdates:Enabled` does the same for the bio (≤ 190 chars).
-- Guardrails: per-feature per-UTC-day usage accounting (`!llm status`, `!health`), daily budget `Llm:DailyRequestBudget` (default 500) hard-stops calls for the rest of the UTC day (watchdog alerts), `!llm off/on` kill switch (tier 4); accounting is in-memory, so a restart restores the configured state. Later phases (conversation, memory) build on this client and the MCP endpoint — [`roadmap.md`](roadmap.md).
+Phase 1 is not a one-off presence generator: it ships a small **LLM foundation** in `Llm/` (registered as singletons, §2.1) that every later stage — conversation participation, memory & personality (roadmap phase #2) — hooks into instead of growing its own client, prompt assembly, or guardrails. What starts those later stages and what feeds their prompts is not hardcoded: registered triggers and collectors (§3.20).
 
-Tests (planned): fake `ILlmClient`, no network (`FakeTimeProvider` scheduling, validation boundaries, failure path, inactive-without-key).
+```
+┌─────────────────────────── LLM foundation (`Llm/`) ───────────────────────────┐
+│  every LLM feature ──► LlmGate ──► ILlmClient ──► MistralLmClient             │
+│   (phase 1: presence/   │  kill switch (!llm off/on, FR-104) + daily budget  │
+│    bio loop; later:     │  Llm:DailyRequestBudget (FR-103), checked before   │
+│    chat, memory jobs)   │  every call; usage recorded per feature name       │
+│                         └─► ILlmUsageTracker (per-feature per-UTC-day,       │
+│                             FR-102) → !llm status, !health, watchdog (§3.13)  │
+│  prompt assembly: LlmPromptBuilder — effective persona (chain below, FR-155/156) + bot │
+│    name/version (§3.9) + current UTC date/time + current presence + optional │
+│    context blocks; the trust rules (FR-154) are enforced here, not in        │
+│    features                                                                  │
+│  context input: ChatContextCollector — bounded recent guild chat, never DMs │
+│    (the first registered collector, §3.20)                                  │
+│  output check: LlmOutputValidator — per-surface limits (presence ≤ 128      │
+│    single line · bio ≤ 190 · later: channel message ≤ 2000)                  │
+└──────────────────────────────────────────────────────────────────────────────┘
+   phase 1 consumer: PresenceUpdateService → validated output → IPresenceService (§3.10)
+   later consumers are started by registered triggers (§3.20) and apply their own sinks
+   (channel send, memory tables) — never run_command (§3.11)
+```
+
+| Piece | What it is | How later stages hook in |
+|---|---|---|
+| `Llm/ILlmClient.cs` + `Llm/MistralLmClient.cs` | The only seam to the model: `ChatAsync(IReadOnlyList<LlmMessage>, …)` → content + token usage; Mistral chat completions via `Llm:ApiKey`/`Llm:Model` (default `mistral-small-latest`); no key → inactive, every feature no-ops (FR-92); interface keeps everything unit-testable without network (FR-95). | Send system + history as `LlmMessage`s through the same call; phase 1 sends a single user prompt. |
+| `LlmGate` | Mandatory entry point — features never call `ILlmClient` directly; the gate checks kill switch + UTC-day budget first, then calls and accounts (FR-103/FR-104). | Register a feature name (`presence`, `bio`, later `chat`, `memory`) and inherit kill switch, budget, accounting, and the watchdog alerts (§3.13) by construction. |
+| `Llm/ILlmUsageTracker.cs` | In-memory per-feature per-UTC-day counters (requests, tokens in/out), UTC rollover via `TimeProvider` (FR-102); restart restores the configured state. | Read your feature's counters in `!llm status`/`!health`; nothing to build. |
+| `LlmPromptBuilder` | Composable prompt assembly: the effective persona (resolution chain below) + bot name/version + UTC now + current presence + optional context blocks. Trust rules live here (FR-154): untrusted content is embedded as data-only — never stored, logged, or executed, never triggers commands, tools, database writes, or persona/config changes; output constrained to the requested shape (no quoting, no user or channel names); secrets (NFR-3) are never prompt input. | Add context blocks (memories, history); the trust rules apply unchanged. |
+| `ChatContextCollector` | Shared bounded chat reader: newest messages from the bot's readable guild channels, `Llm:ChatContext:MaxMessages` (default 20) / `Llm:ChatContext:MaxCharacters` (default 4000), never DMs (FR-154). | Registered as an `IContextCollector` (§3.20); phase 1 includes it only via `Llm:PresenceUpdates:IncludeChat` (default false). |
+| `LlmOutputValidator` | Per-surface output rules: presence = non-empty, single line, ≤ 128 chars (FR-93); bio = non-empty, ≤ 190 chars, line breaks allowed (FR-114). | Register additional surfaces (channel message ≤ 2000). |
+
+- Phase 1 feature — `Llm/PresenceUpdateService.cs`: opt-in hosted loop (`Llm:PresenceUpdates:Enabled`, `Llm:PresenceUpdates:IntervalMinutes` default 60) that builds the prompt through the builder, calls through the gate, validates, and applies via `IPresenceService` (§3.10); `Llm:BioUpdates:Enabled` refreshes the bio in the same tick.
+
+**Commands** (`Commands/LlmCommands/`, registered via `RegisterLlmCommands` in the chain; always registered — without `Llm:ApiKey` they just report the features inactive, FR-92; slash-eligible as administrative commands per §3.15, so they run through the standard pipeline with cooldown and audit):
+
+| Command | Tier | Behavior |
+|---|---|---|
+| `llm` / `llm status` | 4 | Report: active/inactive (key present), kill-switch state, per-feature usage for the current UTC day (requests, tokens in/out — FR-102), daily budget used/limit, consecutive failures. DM-usable. |
+| `llm off` / `llm on` | 4 | Set/clear the in-memory kill switch — the gate refuses every call; replies with a confirmation. A restart restores the configured state (FR-104). DM-usable. |
+| `persona` | 2 | No args: show the effective *global* persona and which layer is active. `persona <text...>`: set the global runtime override (persisted in `BotSetting`, FR-155). `persona clear`: remove it → fall back to config/shipped seed. DM-usable. |
+
+The per-guild layer is `settings persona <text...>|clear` (§3.5, tier 2, guild-only, persisted in `GuildSetting.Persona`, FR-156).
+
+**Persona resolution** — every LLM run resolves its persona in order: guild-scoped run with a `GuildSetting.Persona` override → that override; else the global runtime override (`BotSetting`); else `Llm:Persona` config; else the shipped default seed (FR-99/155/156). Phase 1's presence/bio job is a global run, so it uses the global chain; per-guild overrides are consumed by guild-scoped runs from phase B on (§3.20). Persona text: non-empty, ≤ 2000 chars. Note: tier 2 is per-guild, so any guild's admin can change the *global* persona via `!persona` — accepted per FR-155; `!settings persona` is the per-guild knob.
+
+Apart from the persona, phase 1 has no per-setting commands: settings are config-only, the kill switch is the only other runtime control.
+
+**Settings** (all under `Llm:`; absent/invalid → defaults, except `ApiKey`, which only gates activity):
+
+| Key | Default | Meaning |
+|---|---|---|
+| `ApiKey` | *(absent)* | Secret (`appsecrets.json` / env `Llm__ApiKey`, NFR-3); absent → every LLM feature inactive (FR-92). |
+| `Model` | `mistral-small-latest` | Chat model (FR-92). |
+| `Persona` | shipped default seed | Persona seed, configuration-overridable (FR-99). |
+| `PresenceUpdates:Enabled` | false | Opt-in for the presence job (FR-93). |
+| `PresenceUpdates:IntervalMinutes` | 60 | Tick interval, floor 1 min (FR-93). |
+| `PresenceUpdates:IncludeChat` | false | Include bounded recent guild chat in the prompt (FR-154). |
+| `ChatContext:MaxMessages` / `ChatContext:MaxCharacters` | 20 / 4000 | Chat-context bounds; never DMs (FR-154). |
+| `BioUpdates:Enabled` | false | Refresh the bio in the same tick (FR-114). |
+| `DailyRequestBudget` | 500 | Per-UTC-day request hard stop (FR-103); `0` disables the feature set like an absent key. |
+
+**Runtime state** (in-memory only; a restart restores the configured state): the kill switch, the per-feature per-UTC-day usage counters (FR-102), and the consecutive-failure counter. Exposed via `!llm status` and `!health` (FR-105); the watchdog alerts on budget exhaustion and on three consecutive failures (FR-106, §3.13).
+
+- Shared failure semantics (FR-94): any client error or invalid output → keep the current state, log, count toward the watchdog's consecutive-failure alert (§3.13), retry next tick; nothing ever crashes the bot.
+- Built-in LLM vs. MCP (§3.11): complementary paths. Built-in features (phase 1 and later) use this toolkit with the raw Mistral key; the operator agent can already drive the bot via MCP (`send_message`, `run_command`). Later stages pick per feature which path fits; LLM output never goes through `run_command`.
+
+Tests (planned): fake `ILlmClient`, no network (`FakeTimeProvider` scheduling, validation boundaries, failure path, inactive-without-key; gate: budget suspension/rollover, kill switch, per-feature accounting; prompt builder: trust-rule wrapping, chat-context bounds, DM exclusion).
 
 ### 3.13 Watchdog, health reporting & operator notifications — degradation made loud
 
@@ -306,8 +372,8 @@ Tests (planned): fake `ILlmClient`, no network (`FakeTimeProvider` scheduling, v
    reminders, maintenance/restore outcomes.
 
  Health snapshot (singleton, feeds !health tier 4 + the watchdog): version (§3.9), uptime, gateway state,
-   cheap DB probe, pending reminder count, notification channel, backup status, MCP state.
-   Presence/bio deliberately excluded.
+   cheap DB probe, pending reminder count, notification channel, backup status, MCP state, LLM state
+   when §3.12 lands (active, kill switch, budget used, per-feature requests). Presence/bio deliberately excluded.
 ```
 
 **Backup status file**: the sidecar writes `backups/.backup-status` (last successful backup, validation, restore test) into the shared volume — the only channel between sidecar and bot; seeded on sidecar startup, and a never-recorded restore test gets the interval-plus-grace window so restarts cannot trip false alerts.
@@ -392,6 +458,48 @@ Shared primitives in `Commands/PaginationButtons.cs`: `IPaginationButton` (gatew
 
 Tests: `TestHelp.cs`, `TestQuotes.cs`.
 
+### 3.20 Context pipeline — registered triggers and collectors **(planned)**
+
+Later LLM stages (conversation participation, memory — roadmap phase #2) need many context sources feeding one prompt path. The pipeline generalizes §3.12 into two registries. **Both registration points are plain DI `IEnumerable<T>` in `Program.cs` — adding a source is one interface plus one `AddSingleton` line; the orchestrator, prompt builder, and host never change.**
+
+```
+┌─ IContextTrigger — sources that START a run ──────────┐   ┌─ IContextCollector — sources that FEED the prompt ───┐
+│ ScheduledTrigger    interval tick on TimeProvider      │   │ ChatContextCollector   recent guild chat (UNTRUSTED, §3.12)
+│                   (presence/bio now; memory summary   │   │ MemoryCollector        per-guild memory tables (trusted, phase C)
+│                   job later)                           │   │ QuoteCollector · UserProfileCollector · …              │
+│ MessageTrigger      new message in a per-guild        │   └────────────────────────────▲───────────────────────────┘
+│                   opted-in guild, cadence-bounded     │                                │ ContextSlice(name, content, trust)
+│                   (≤ 1 unsolicited reply per N msgs / │   ┌────────────────────────────┴─────────────┐
+│                   M minutes — phase B)                │   │ LlmPipeline.RunAsync(ContextRequest)     │ singleton orchestrator
+└────────────────┬──────────────────────────────────────┘   │  1. run enabled collectors, each isolated │
+                 │ fire — WHEN + request scope only;        │     (failure → log + skip slice, never   │
+                 │  a trigger never builds prompts or calls │     fail the run)                        │
+                 └──────────────────►                        │  2. LlmPromptBuilder assembles the prompt:│
+                                                             │     untrusted slices only in data-marked  │
+                                                             │     regions; secrets never input (FR-154)│
+                                                             │  3. LlmGate: kill switch, UTC-day budget, │
+                                                             │     per-feature accounting (§3.12)        │
+                                                             │  4. ILlmClient call → output validated    │
+                                                             │     per surface (LlmOutputValidator)      │
+                                                             └────────────────────┬─────────────────────┘
+                                                                              │ validated output
+                                                             ┌────────────────────▼─────────────────────┐
+                                                             │ the trigger's own sink:                  │
+                                                             │ IPresenceService (§3.10) · channel reply │
+                                                             │ · memory tables — never run_command (§3.11)
+                                                             └──────────────────────────────────────────┘
+   wiring: one hosted ContextPipelineHost starts every registered trigger with the shared RunAsync callback;
+   collectors are resolved per run from IEnumerable<IContextCollector>
+```
+
+- **`IContextTrigger`** — decides *when* a run starts and supplies the `ContextRequest` (feature name + scope: guild/channel/user, triggering message). Guild-scoped triggers check the per-guild opt-in (`GuildSetting`) and their cadence bounds before firing; a trigger hands the validated result to its own sink.
+- **`IContextCollector`** — `Name` + `CollectAsync(ContextRequest) → ContextSlice`. Enabled per run via global `Llm:Collectors:<Name>:Enabled` (default true) plus per-guild opt-in where guild-scoped. Every slice carries a trust level: **untrusted** = channel content (FR-154: data only — never stored, logged, or executed; never triggers commands, tools, database writes, or persona/permission/config changes) · **trusted** = config, persona, database facts.
+- **Persona per run** — `LlmPromptBuilder` resolves the effective persona from the `ContextRequest` scope via the §3.12 chain (guild override → global override → `Llm:Persona` → shipped seed); phase-1 global runs skip the guild layer.
+- **Orchestration rules** — collector failures are isolated (skip the slice); the gate is checked before every model call; one structured log per run (trigger, feature, collectors used, outcome, tokens — never content); restart-safe by construction (nothing pipeline-specific is persisted; memory lives in its own tables, phase C).
+- Phase 1 (§3.12) keeps its own loop — it is expressible as `ScheduledTrigger` + collectors, but migrating it is optional; the pipeline exists for the later stages.
+
+Tests (planned): fake `ILlmClient` + fake triggers/collectors — registry resolution, enable/opt-in filtering, trust placement in the assembled prompt, slice-failure isolation, gate/budget interaction, per-run logging without content.
+
 ## 4. Configuration
 
 | Area | Keys (defaults) | Notes |
@@ -405,7 +513,8 @@ Tests: `TestHelp.cs`, `TestQuotes.cs`.
 | Quote of the day (§3.17) | `QuoteOfTheDay:MinIntervalMinutes` (1) | Deployment-level interval floor. |
 | Slash surface (§3.15) | `SlashCommands:Enabled` (false) | Pagination buttons (§3.19) are always active. |
 | Backups (§5.2) | `Backups:Directory` | In-bot backup commands only; scheduling itself is compose-side env (`BACKUP_INTERVAL` 24 h, `BACKUP_RETENTION` 7, `BACKUP_TEST_INTERVAL` 30 d, `BACKUP_RCLONE_REMOTE` + S3 credentials). |
-| LLM **(planned)** (§3.12) | `Llm:ApiKey`, `Llm:Model`, `Llm:Persona`, `Llm:PresenceUpdates:Enabled`/`IntervalMinutes`, `Llm:BioUpdates:Enabled`, `Llm:DailyRequestBudget` | |
+| LLM **(planned)** (§3.12) | All `Llm:*` keys — full settings table in §3.12 | Secret `Llm:ApiKey` via env (`Llm__ApiKey`); absent/invalid → defaults, absent key → features inactive. Runtime persona overrides (`!persona`, `!settings persona`) beat the `Llm:Persona` config seed. |
+| Context pipeline **(planned)** (§3.20) | `Llm:Triggers:<Name>:Enabled` (true), `Llm:Collectors:<Name>:Enabled` (true); guild-scoped opt-ins and phase-B cadence bounds via `GuildSetting`/config | One key per registered trigger/collector name. |
 
 ## 5. Deployment
 
