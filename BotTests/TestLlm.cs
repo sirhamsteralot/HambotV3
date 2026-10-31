@@ -574,6 +574,22 @@ namespace BotTests
         }
 
         [TestMethod]
+        public async Task Update_Returns_Failed_Instead_Of_Throwing_When_Chat_Context_Collection_Fails()
+        {
+            var database = DiscordTestDoubles.CreateDatabase();
+            var settings = ActiveSettings(includeChat: true);
+            var (gate, _, _) = CreateGate(settings);
+            var chat = new Mock<IChatContextCollector>();
+            chat.Setup(c => c.CollectAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+                .ThrowsAsync(new InvalidOperationException("channel unreadable"));
+            var service = CreateService(settings, gate, CreatePresence(), database, chat.Object);
+
+            LlmUpdateOutcome outcome = await service.UpdateAsync(LlmSurface.Presence);
+
+            Assert.AreEqual(LlmUpdateOutcome.Failed, outcome);
+        }
+
+        [TestMethod]
         public async Task Update_Invalid_Output_Is_Reported_And_Keeps_The_Current_State()
         {
             var database = DiscordTestDoubles.CreateDatabase();
@@ -887,6 +903,23 @@ namespace BotTests
             var replies = await ExecuteAsync(new LlmCommand(gate), database, "!llm update", authorId: 250);
 
             StringAssert.Contains(replies[0], "not configured");
+        }
+
+        [TestMethod]
+        public async Task LlmCommand_Update_Reports_Failure_Instead_Of_Throwing_When_The_Update_Fails()
+        {
+            var database = DiscordTestDoubles.CreateDatabase();
+            var settings = ActiveSettings(includeChat: true);
+            var (gate, _, _) = CreateGate(settings);
+            var chat = new Mock<IChatContextCollector>();
+            chat.Setup(c => c.CollectAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+                .ThrowsAsync(new InvalidOperationException("channel unreadable"));
+            var service = CreateService(settings, gate, CreatePresence(), database, chat.Object);
+            var command = new LlmCommand(gate, settings, service);
+
+            var replies = await ExecuteAsync(command, database, "!llm update", authorId: 250);
+
+            StringAssert.Contains(replies[0], "failed");
         }
     }
 }

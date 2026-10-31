@@ -1,5 +1,6 @@
 using Discord;
 using Discord.WebSocket;
+using Microsoft.Extensions.Logging;
 
 namespace HambotV2.Llm
 {
@@ -16,10 +17,12 @@ namespace HambotV2.Llm
     internal sealed class ChatContextCollector : IChatContextCollector
     {
         private readonly DiscordSocketClient _client;
+        private readonly ILogger<ChatContextCollector> _logger;
 
-        public ChatContextCollector(DiscordSocketClient client)
+        public ChatContextCollector(DiscordSocketClient client, ILogger<ChatContextCollector> logger)
         {
             _client = client;
+            _logger = logger;
         }
 
         public async Task<string?> CollectAsync(int maxMessages, int maxCharacters, CancellationToken cancellationToken = default)
@@ -30,11 +33,21 @@ namespace HambotV2.Llm
             {
                 foreach (SocketTextChannel channel in guild.TextChannels)
                 {
-                    await foreach (IReadOnlyCollection<IMessage> page in ((IMessageChannel)channel).GetMessagesAsync(1, CacheMode.AllowDownload, new RequestOptions { CancelToken = cancellationToken }))
+                    // A channel the bot cannot read (50001 Missing Access), that was deleted (404),
+                    // or that otherwise errors is skipped — the remaining readable channels still
+                    // contribute; one bad channel must not fail the whole update.
+                    try
                     {
-                        foreach (IMessage message in page)
-                            latest.Add((message.Timestamp, message.Author.Username, message.Content));
-                        break;
+                        await foreach (IReadOnlyCollection<IMessage> page in ((IMessageChannel)channel).GetMessagesAsync(1, CacheMode.AllowDownload, new RequestOptions { CancelToken = cancellationToken }))
+                        {
+                            foreach (IMessage message in page)
+                                latest.Add((message.Timestamp, message.Author.Username, message.Content));
+                            break;
+                        }
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    {
+                        _logger.LogDebug(ex, "Skipping channel {ChannelId} in guild {GuildId} for chat context.", channel.Id, guild.Id);
                     }
                 }
             }

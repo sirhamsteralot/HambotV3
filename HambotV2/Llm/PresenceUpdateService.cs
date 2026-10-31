@@ -138,6 +138,14 @@ namespace HambotV2.Llm
             {
                 return await UpdateSurfaceAsync(surface, cancellationToken);
             }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // The manual !llm update trigger must never crash the command pipeline; an
+                // unexpected failure (chat context, persona read, ...) is reported as Failed.
+                // The scheduled loop retries at the next interval either way.
+                _logger.LogError(ex, "{Surface} update failed; keeping the current state.", surface);
+                return LlmUpdateOutcome.Failed;
+            }
             finally
             {
                 _runLock.Release();
