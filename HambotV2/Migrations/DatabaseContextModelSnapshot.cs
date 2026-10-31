@@ -120,6 +120,9 @@ namespace HambotV2.Migrations
                     b.Property<int?>("CooldownSecondsTier3")
                         .HasColumnType("integer");
 
+                    b.Property<bool>("LlmIncludeChat")
+                        .HasColumnType("boolean");
+
                     b.Property<int?>("OperatorAgentTier")
                         .HasColumnType("integer");
 

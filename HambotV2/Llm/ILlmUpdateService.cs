@@ -21,7 +21,10 @@ namespace HambotV2.Llm
     /// </summary>
     internal interface ILlmUpdateService
     {
-        /// <summary>Runs one update for the surface now, regardless of the scheduled-job flags; still goes through the gate.</summary>
-        Task<LlmUpdateOutcome> UpdateAsync(LlmSurface surface, CancellationToken cancellationToken = default);
+        /// <summary>Runs one update for the surface now, regardless of the scheduled-job flags; still goes through the gate.
+        /// <paramref name="guildId"/> scopes chat context to that guild — read only when the guild opted in
+        /// (<c>!settings llmchat on</c>); null (a DM trigger) reads no chat. The scheduled jobs are separate
+        /// automatic runs that read chat from every opted-in guild.</summary>
+        Task<LlmUpdateOutcome> UpdateAsync(LlmSurface surface, ulong? guildId = null, CancellationToken cancellationToken = default);
     }
 }

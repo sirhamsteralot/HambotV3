@@ -26,8 +26,6 @@ namespace HambotV2.Llm
 
         public int PresenceUpdatesIntervalMinutes { get; init; } = DefaultIntervalMinutes;
 
-        public bool IncludeChat { get; init; }
-
         public int ChatContextMaxMessages { get; init; } = DefaultMaxChatMessages;
 
         public int ChatContextMaxCharacters { get; init; } = DefaultMaxChatCharacters;
@@ -75,7 +73,6 @@ namespace HambotV2.Llm
                 Persona = configuration?["Llm:Persona"],
                 PresenceUpdatesEnabled = bool.TryParse(configuration?["Llm:PresenceUpdates:Enabled"], out bool presence) && presence,
                 PresenceUpdatesIntervalMinutes = intervalMinutes,
-                IncludeChat = bool.TryParse(configuration?["Llm:PresenceUpdates:IncludeChat"], out bool includeChat) && includeChat,
                 ChatContextMaxMessages = maxMessages,
                 ChatContextMaxCharacters = maxCharacters,
                 BioUpdatesEnabled = bool.TryParse(configuration?["Llm:BioUpdates:Enabled"], out bool bio) && bio,

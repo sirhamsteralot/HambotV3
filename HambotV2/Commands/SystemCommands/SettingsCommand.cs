@@ -16,8 +16,8 @@ namespace HambotV2.Commands.SystemCommands
         private const int MaxIdentifierLength = 5;
 
         public string Name => "settings";
-        public string Description => "Show or set this server's bot settings (identifier, cooldowns, persona)";
-        public string Usage => "settings [commandidentifier <value>|commandidentifier reset|cooldown <tier> <seconds>|cooldown <tier> reset|persona <text...>|persona clear]";
+        public string Description => "Show or set this server's bot settings (identifier, cooldowns, persona, LLM chat context)";
+        public string Usage => "settings [commandidentifier <value>|commandidentifier reset|cooldown <tier> <seconds>|cooldown <tier> reset|persona <text...>|persona clear|llmchat on|off]";
         public int DefaultPermissionTier => PermissionTier.Admin;
         public CommandCategory Category => CommandCategory.PermissionsAndSettings;
 
@@ -26,7 +26,7 @@ namespace HambotV2.Commands.SystemCommands
         /// (<c>commandidentifier</c>, <c>cooldown</c>) parse exactly as on the text surface.
         /// </summary>
         public ApplicationCommandDeclaration? ApplicationCommand =>
-            ApplicationCommandDeclaration.FreeForm("Omit to show, or set: commandidentifier, cooldown, persona");
+            ApplicationCommandDeclaration.FreeForm("Omit to show, or set: commandidentifier, cooldown, persona, llmchat");
 
         public async Task ExecuteCommand(IMessage message, ICommandContext context)
         {
@@ -55,6 +55,9 @@ namespace HambotV2.Commands.SystemCommands
                     break;
                 case "persona":
                     await HandlePersona(message, context, guildId, arguments);
+                    break;
+                case "llmchat":
+                    await HandleLlmChat(message, context, guildId, arguments);
                     break;
                 default:
                     await message.Channel.SendMessageAsync($"Unknown setting '{arguments.Get(0)}'. Usage: !{Usage}");
@@ -184,6 +187,36 @@ namespace HambotV2.Commands.SystemCommands
             await message.Channel.SendMessageAsync($"Persona override for this server set ({text.Length} characters)");
         }
 
+        /// <summary>
+        /// Opts this guild's chat into LLM prompts: when on, an LLM update triggered from this
+        /// server includes recent messages from this server's readable channels only; off (the
+        /// default) means no chat is read. Scheduled jobs and DM triggers never read chat.
+        /// </summary>
+        private async Task HandleLlmChat(IMessage message, ICommandContext context, ulong guildId, CommandArguments arguments)
+        {
+            var setting = context.DbContext.GuildSettings.FirstOrDefault(item => item.GuildId == guildId);
+
+            if (arguments.Count == 1)
+            {
+                await message.Channel.SendMessageAsync(setting?.LlmIncludeChat == true
+                    ? "LLM chat context: ON for this server — !llm update run here includes recent messages from this server's readable channels."
+                    : "LLM chat context: OFF for this server (default) — no chat is read.");
+                return;
+            }
+
+            if (!arguments.TryGetString(1, out string action) || (action != "on" && action != "off"))
+            {
+                await message.Channel.SendMessageAsync("Usage: !settings llmchat on|off");
+                return;
+            }
+
+            GetOrAddGuildSetting(context, guildId).LlmIncludeChat = action == "on";
+            await context.DbContext.SaveChangesAsync();
+            await message.Channel.SendMessageAsync(action == "on"
+                ? "LLM chat context enabled for this server: !llm update run here includes recent messages from this server's readable channels."
+                : "LLM chat context disabled for this server — no chat is read for updates run here.");
+        }
+
         private static DatabaseContext.GuildSetting GetOrAddGuildSetting(ICommandContext context, ulong guildId)
         {
             var setting = context.DbContext.GuildSettings.FirstOrDefault(item => item.GuildId == guildId);
@@ -216,6 +249,10 @@ namespace HambotV2.Commands.SystemCommands
             await message.Channel.SendMessageAsync(setting?.Persona is { } persona
                 ? $"Persona override: set ({persona.Length} characters)"
                 : "Persona override: none set (inherits the global persona)");
+
+            await message.Channel.SendMessageAsync(setting?.LlmIncludeChat == true
+                ? "LLM chat context: ON (updates run in this server read this server's recent chat)"
+                : "LLM chat context: OFF (no chat is read)");
         }
     }
 }

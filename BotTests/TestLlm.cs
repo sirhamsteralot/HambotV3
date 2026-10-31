@@ -52,14 +52,13 @@ namespace BotTests
             return new ConfigurationBuilder().AddInMemoryCollection(values).Build();
         }
 
-        private static LlmSettings ActiveSettings(int budget = 500, bool presence = true, bool bio = false, bool includeChat = false, string? persona = null)
+        private static LlmSettings ActiveSettings(int budget = 500, bool presence = true, bool bio = false, string? persona = null)
         {
             return new LlmSettings
             {
                 ApiKey = "test-key",
                 PresenceUpdatesEnabled = presence,
                 BioUpdatesEnabled = bio,
-                IncludeChat = includeChat,
                 DailyRequestBudget = budget,
                 Persona = persona
             };
@@ -108,7 +107,6 @@ namespace BotTests
             Assert.AreEqual(4000, settings.ChatContextMaxCharacters);
             Assert.AreEqual(500, settings.DailyRequestBudget);
             Assert.IsFalse(settings.PresenceUpdatesEnabled);
-            Assert.IsFalse(settings.IncludeChat);
             Assert.IsFalse(settings.BioUpdatesEnabled);
         }
 
@@ -494,21 +492,84 @@ namespace BotTests
         }
 
         [TestMethod]
-        public async Task Tick_Includes_Chat_Context_Only_When_Configured()
+        public async Task Update_In_An_Opted_In_Guild_Includes_Only_That_Guilds_Chat()
         {
             var database = DiscordTestDoubles.CreateDatabase();
-            var (gate, _, client) = CreateGate(ActiveSettings(includeChat: true));
+            database.GuildSettings.Add(new DatabaseContext.GuildSetting { GuildId = GuildId, LlmIncludeChat = true });
+            database.SaveChanges();
+            var (gate, _, client) = CreateGate(ActiveSettings());
             client.Responses.Enqueue(new LlmResponse("ok", 1, 1));
             var chat = new Mock<IChatContextCollector>();
-            chat.Setup(c => c.CollectAsync(20, 4000, It.IsAny<CancellationToken>()))
+            chat.Setup(c => c.CollectAsync(It.Is<IReadOnlyCollection<ulong>>(ids => ids.Count == 1 && ids.Contains(GuildId)), 20, 4000, It.IsAny<CancellationToken>()))
                 .ReturnsAsync("[2026-01-01 10:00 UTC] user: hello");
-            var service = CreateService(ActiveSettings(includeChat: true), gate, CreatePresence(), database, chat.Object);
+            var service = CreateService(ActiveSettings(), gate, CreatePresence(), database, chat.Object);
 
-            await service.RunTickAsync();
+            LlmUpdateOutcome outcome = await service.UpdateAsync(LlmSurface.Presence, GuildId);
 
+            Assert.AreEqual(LlmUpdateOutcome.Applied, outcome);
+            chat.Verify(c => c.CollectAsync(It.Is<IReadOnlyCollection<ulong>>(ids => ids.Count == 1 && ids.Contains(GuildId)), 20, 4000, It.IsAny<CancellationToken>()), Times.Once);
             StringAssert.Contains(client.Calls[0][1].Content, "hello", "chat context rides as a data-marked user message");
             StringAssert.Contains(client.Calls[0][1].Content, "untrusted");
             Assert.IsFalse(client.Calls[0][0].Content.Contains("hello"), "chat never enters the system prompt");
+        }
+
+        [TestMethod]
+        public async Task Update_In_A_Guild_Without_Opt_In_Reads_No_Chat()
+        {
+            var database = DiscordTestDoubles.CreateDatabase();
+            var (gate, _, client) = CreateGate(ActiveSettings());
+            client.Responses.Enqueue(new LlmResponse("ok", 1, 1));
+            var chat = new Mock<IChatContextCollector>();
+            var service = CreateService(ActiveSettings(), gate, CreatePresence(), database, chat.Object);
+
+            LlmUpdateOutcome outcome = await service.UpdateAsync(LlmSurface.Presence, GuildId);
+
+            Assert.AreEqual(LlmUpdateOutcome.Applied, outcome);
+            chat.Verify(c => c.CollectAsync(It.IsAny<IReadOnlyCollection<ulong>>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never);
+            Assert.IsFalse(client.Calls[0][1].Content.Contains("untrusted"), "no chat block without the guild opt-in");
+        }
+
+        [TestMethod]
+        public async Task Update_Without_A_Guild_Reads_No_Chat()
+        {
+            var database = DiscordTestDoubles.CreateDatabase();
+            database.GuildSettings.Add(new DatabaseContext.GuildSetting { GuildId = GuildId, LlmIncludeChat = true });
+            database.SaveChanges();
+            var (gate, _, client) = CreateGate(ActiveSettings());
+            client.Responses.Enqueue(new LlmResponse("ok", 1, 1));
+            var chat = new Mock<IChatContextCollector>();
+            var service = CreateService(ActiveSettings(), gate, CreatePresence(), database, chat.Object);
+
+            // DM-style manual trigger: no guild, so no chat even though a guild opted in.
+            LlmUpdateOutcome outcome = await service.UpdateAsync(LlmSurface.Presence);
+
+            Assert.AreEqual(LlmUpdateOutcome.Applied, outcome);
+            chat.Verify(c => c.CollectAsync(It.IsAny<IReadOnlyCollection<ulong>>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never);
+        }
+
+        [TestMethod]
+        public async Task Scheduled_Tick_Reads_Chat_From_All_Opted_In_Guilds_Only()
+        {
+            const ulong otherOptedIn = 999;
+            const ulong notOptedIn = 1000;
+            var database = DiscordTestDoubles.CreateDatabase();
+            database.GuildSettings.Add(new DatabaseContext.GuildSetting { GuildId = GuildId, LlmIncludeChat = true });
+            database.GuildSettings.Add(new DatabaseContext.GuildSetting { GuildId = otherOptedIn, LlmIncludeChat = true });
+            database.GuildSettings.Add(new DatabaseContext.GuildSetting { GuildId = notOptedIn });
+            database.SaveChanges();
+            var (gate, _, client) = CreateGate(ActiveSettings());
+            client.Responses.Enqueue(new LlmResponse("ok", 1, 1));
+            var chat = new Mock<IChatContextCollector>();
+            chat.Setup(c => c.CollectAsync(It.IsAny<IReadOnlyCollection<ulong>>(), 20, 4000, It.IsAny<CancellationToken>()))
+                .ReturnsAsync("[2026-01-01 10:00 UTC] user: hello");
+            var service = CreateService(ActiveSettings(), gate, CreatePresence(), database, chat.Object);
+
+            await service.RunTickAsync();
+
+            chat.Verify(c => c.CollectAsync(
+                It.Is<IReadOnlyCollection<ulong>>(ids => ids.Count == 2 && ids.Contains(GuildId) && ids.Contains(otherOptedIn)),
+                20, 4000, It.IsAny<CancellationToken>()), Times.Once);
+            StringAssert.Contains(client.Calls[0][1].Content, "hello");
         }
 
         [TestMethod]
@@ -577,14 +638,16 @@ namespace BotTests
         public async Task Update_Returns_Failed_Instead_Of_Throwing_When_Chat_Context_Collection_Fails()
         {
             var database = DiscordTestDoubles.CreateDatabase();
-            var settings = ActiveSettings(includeChat: true);
+            database.GuildSettings.Add(new DatabaseContext.GuildSetting { GuildId = GuildId, LlmIncludeChat = true });
+            database.SaveChanges();
+            var settings = ActiveSettings();
             var (gate, _, _) = CreateGate(settings);
             var chat = new Mock<IChatContextCollector>();
-            chat.Setup(c => c.CollectAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            chat.Setup(c => c.CollectAsync(It.IsAny<IReadOnlyCollection<ulong>>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
                 .ThrowsAsync(new InvalidOperationException("channel unreadable"));
             var service = CreateService(settings, gate, CreatePresence(), database, chat.Object);
 
-            LlmUpdateOutcome outcome = await service.UpdateAsync(LlmSurface.Presence);
+            LlmUpdateOutcome outcome = await service.UpdateAsync(LlmSurface.Presence, GuildId);
 
             Assert.AreEqual(LlmUpdateOutcome.Failed, outcome);
         }
@@ -909,10 +972,12 @@ namespace BotTests
         public async Task LlmCommand_Update_Reports_Failure_Instead_Of_Throwing_When_The_Update_Fails()
         {
             var database = DiscordTestDoubles.CreateDatabase();
-            var settings = ActiveSettings(includeChat: true);
+            database.GuildSettings.Add(new DatabaseContext.GuildSetting { GuildId = GuildId, LlmIncludeChat = true });
+            database.SaveChanges();
+            var settings = ActiveSettings();
             var (gate, _, _) = CreateGate(settings);
             var chat = new Mock<IChatContextCollector>();
-            chat.Setup(c => c.CollectAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            chat.Setup(c => c.CollectAsync(It.IsAny<IReadOnlyCollection<ulong>>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
                 .ThrowsAsync(new InvalidOperationException("channel unreadable"));
             var service = CreateService(settings, gate, CreatePresence(), database, chat.Object);
             var command = new LlmCommand(gate, settings, service);
@@ -920,6 +985,35 @@ namespace BotTests
             var replies = await ExecuteAsync(command, database, "!llm update", authorId: 250);
 
             StringAssert.Contains(replies[0], "failed");
+        }
+
+        [TestMethod]
+        public async Task SettingsCommand_LlmChat_Toggles_The_Guild_Opt_In()
+        {
+            var database = DiscordTestDoubles.CreateDatabase();
+            var command = new SettingsCommand();
+
+            var show = await ExecuteAsync(command, database, "!settings llmchat", authorId: 200);
+            StringAssert.Contains(show[0], "OFF");
+
+            await ExecuteAsync(command, database, "!settings llmchat on", authorId: 200);
+            Assert.IsTrue(database.GuildSettings.Single(s => s.GuildId == GuildId).LlmIncludeChat);
+
+            var showAgain = await ExecuteAsync(command, database, "!settings llmchat", authorId: 200);
+            StringAssert.Contains(showAgain[0], "ON");
+
+            await ExecuteAsync(command, database, "!settings llmchat off", authorId: 200);
+            Assert.IsFalse(database.GuildSettings.Single(s => s.GuildId == GuildId).LlmIncludeChat);
+        }
+
+        [TestMethod]
+        public async Task SettingsCommand_LlmChat_Declines_In_Direct_Messages()
+        {
+            var database = DiscordTestDoubles.CreateDatabase();
+
+            var replies = await ExecuteAsync(new SettingsCommand(), database, "!settings llmchat on", authorId: 200, directMessage: true);
+
+            StringAssert.Contains(replies[0], "only available in servers");
         }
     }
 }

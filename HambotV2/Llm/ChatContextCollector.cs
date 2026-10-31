@@ -5,13 +5,14 @@ using Microsoft.Extensions.Logging;
 namespace HambotV2.Llm
 {
     /// <summary>
-    /// The shared bounded chat reader: the newest messages from the bot's readable guild text
-    /// channels, merged newest-first and capped — never DMs. Behind an interface so the loops
-    /// and prompt assembly are unit-testable without a gateway connection.
+    /// The shared bounded chat reader: the newest messages from the given guilds' readable text
+    /// channels, merged newest-first and capped — only the guilds passed in, never DMs, never
+    /// unlisted guilds. Behind an interface so the loops and prompt assembly are unit-testable
+    /// without a gateway connection.
     /// </summary>
     internal interface IChatContextCollector
     {
-        Task<string?> CollectAsync(int maxMessages, int maxCharacters, CancellationToken cancellationToken = default);
+        Task<string?> CollectAsync(IReadOnlyCollection<ulong> guildIds, int maxMessages, int maxCharacters, CancellationToken cancellationToken = default);
     }
 
     internal sealed class ChatContextCollector : IChatContextCollector
@@ -25,12 +26,17 @@ namespace HambotV2.Llm
             _logger = logger;
         }
 
-        public async Task<string?> CollectAsync(int maxMessages, int maxCharacters, CancellationToken cancellationToken = default)
+        public async Task<string?> CollectAsync(IReadOnlyCollection<ulong> guildIds, int maxMessages, int maxCharacters, CancellationToken cancellationToken = default)
         {
             var latest = new List<(DateTimeOffset At, string Author, string Text)>();
 
-            foreach (SocketGuild guild in _client.Guilds)
+            // Only the given guilds are read — the invoking guild for a guild-triggered command,
+            // every opted-in guild for an automatic run; DM-triggered runs pass an empty set.
+            foreach (ulong guildId in guildIds)
             {
+                if (_client.GetGuild(guildId) is not { } guild)
+                    continue;
+
                 foreach (SocketTextChannel channel in guild.TextChannels)
                 {
                     // A channel the bot cannot read (50001 Missing Access), that was deleted (404),

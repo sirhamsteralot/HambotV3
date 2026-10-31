@@ -6,7 +6,8 @@ namespace HambotV2.Llm
 {
     /// <summary>
     /// The opt-in LLM loop: on each job's interval tick it builds the prompt (persona resolved per the
-    /// chain in <see cref="LlmPersona"/>, optional bounded chat context), calls the model through
+    /// chain in <see cref="LlmPersona"/>, chat context from every guild that opted in via
+    /// <c>!settings llmchat on</c>), calls the model through
     /// the gate, validates the output per surface, and applies it via the presence service. Presence
     /// and bio run on their own cadences (<c>Llm:PresenceUpdates:IntervalMinutes</c> /
     /// <c>Llm:BioUpdates:IntervalMinutes</c>); <see cref="UpdateAsync"/> triggers a surface manually
@@ -92,7 +93,8 @@ namespace HambotV2.Llm
             {
                 try
                 {
-                    await UpdateAsync(surface, stoppingToken);
+                    // Automatic runs are global: they include chat from every opted-in guild.
+                    await RunAutomaticAsync(surface, stoppingToken);
                 }
                 catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
                 {
@@ -121,9 +123,9 @@ namespace HambotV2.Llm
             try
             {
                 if (_settings.PresenceUpdatesEnabled)
-                    await UpdateSurfaceAsync(LlmSurface.Presence, cancellationToken);
+                    await UpdateSurfaceAsync(LlmSurface.Presence, guildId: null, automatic: true, cancellationToken);
                 if (_settings.BioUpdatesEnabled)
-                    await UpdateSurfaceAsync(LlmSurface.Bio, cancellationToken);
+                    await UpdateSurfaceAsync(LlmSurface.Bio, guildId: null, automatic: true, cancellationToken);
             }
             finally
             {
@@ -131,12 +133,14 @@ namespace HambotV2.Llm
             }
         }
 
-        public async Task<LlmUpdateOutcome> UpdateAsync(LlmSurface surface, CancellationToken cancellationToken = default)
+        public async Task<LlmUpdateOutcome> UpdateAsync(LlmSurface surface, ulong? guildId = null, CancellationToken cancellationToken = default)
         {
             await _runLock.WaitAsync(cancellationToken);
             try
             {
-                return await UpdateSurfaceAsync(surface, cancellationToken);
+                // Manual trigger: a guild run reads that guild's chat when opted in; a DM run (no
+                // guild) reads no chat.
+                return await UpdateSurfaceAsync(surface, guildId, automatic: false, cancellationToken);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -152,14 +156,35 @@ namespace HambotV2.Llm
             }
         }
 
-        private async Task<LlmUpdateOutcome> UpdateSurfaceAsync(LlmSurface surface, CancellationToken cancellationToken)
+        /// <summary>The scheduled-job entry point: a global run reading chat from every opted-in guild.</summary>
+        private async Task<LlmUpdateOutcome> RunAutomaticAsync(LlmSurface surface, CancellationToken cancellationToken)
+        {
+            await _runLock.WaitAsync(cancellationToken);
+            try
+            {
+                return await UpdateSurfaceAsync(surface, guildId: null, automatic: true, cancellationToken);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogError(ex, "{Surface} update failed; keeping the current state.", surface);
+                return LlmUpdateOutcome.Failed;
+            }
+            finally
+            {
+                _runLock.Release();
+            }
+        }
+
+        private async Task<LlmUpdateOutcome> UpdateSurfaceAsync(LlmSurface surface, ulong? guildId, bool automatic, CancellationToken cancellationToken)
         {
             if (!_gate.IsConfigured)
                 return LlmUpdateOutcome.Inactive;
 
-            string persona = ResolveGlobalPersona();
-            string? chat = _settings.IncludeChat
-                ? await (_chatContext?.CollectAsync(_settings.ChatContextMaxMessages, _settings.ChatContextMaxCharacters, cancellationToken) ?? Task.FromResult<string?>(null))
+            var (persona, chatGuilds) = ResolveRunScope(guildId, automatic);
+            // Chat context is per-guild opt-in: a guild-triggered run reads only that guild (when
+            // opted in), an automatic run reads every opted-in guild, a DM run reads none.
+            string? chat = chatGuilds.Count > 0
+                ? await (_chatContext?.CollectAsync(chatGuilds, _settings.ChatContextMaxMessages, _settings.ChatContextMaxCharacters, cancellationToken) ?? Task.FromResult<string?>(null))
                 : null;
 
             string currentActivity = _presence.CurrentActivity is { } activity
@@ -196,11 +221,22 @@ namespace HambotV2.Llm
             return LlmUpdateOutcome.Applied;
         }
 
-        private string ResolveGlobalPersona()
+        /// <summary>Resolves the global persona and which guilds' chat this run may read: the invoking
+        /// guild alone (when opted in) for a guild-triggered manual run, every opted-in guild for an
+        /// automatic run, none for a DM-triggered manual run.</summary>
+        private (string Persona, IReadOnlyList<ulong> ChatGuilds) ResolveRunScope(ulong? guildId, bool automatic)
         {
             using IServiceScope scope = _scopeFactory.CreateScope();
             var database = scope.ServiceProvider.GetRequiredService<IDatabaseContext>();
-            return LlmPersona.ResolveGlobalWithLayer(database, _settings).Persona;
+            string persona = LlmPersona.ResolveGlobalWithLayer(database, _settings).Persona;
+            List<ulong> optedIn = database.GuildSettings
+                .Where(setting => setting.LlmIncludeChat)
+                .Select(setting => setting.GuildId)
+                .ToList();
+            IReadOnlyList<ulong> chatGuilds = guildId is { } guild
+                ? optedIn.Contains(guild) ? [guild] : []
+                : automatic ? optedIn : [];
+            return (persona, chatGuilds);
         }
     }
 }

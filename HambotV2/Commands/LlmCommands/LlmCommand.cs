@@ -9,7 +9,9 @@ namespace HambotV2.Commands.LlmCommands
     /// Manages the LLM features at runtime: no args (or <c>status</c>) report configuration,
     /// kill-switch state, today's usage and budget, and consecutive failures; <c>off</c>/<c>on</c>
     /// toggle the in-memory kill switch; <c>update [presence|bio]</c> triggers an LLM update for
-    /// one surface (both when omitted) immediately, regardless of the scheduled-job flags. Bot-owner
+    /// one surface (both when omitted) immediately, regardless of the scheduled-job flags. Run from
+    /// a guild that opted in via <c>settings llmchat on</c>, the prompt includes that guild's recent
+    /// chat; run from DMs, no chat is read (the scheduled jobs read every opted-in guild). Bot-owner
     /// tier, DM-usable; the kill switch is not persisted — a restart restores the configured state.
     /// </summary>
     internal sealed class LlmCommand : ICommand
@@ -102,7 +104,7 @@ namespace HambotV2.Commands.LlmCommands
             foreach (LlmSurface surface in surfaces)
             {
                 string name = surface == LlmSurface.Presence ? "Presence" : "Bio";
-                LlmUpdateOutcome outcome = await _updates.UpdateAsync(surface);
+                LlmUpdateOutcome outcome = await _updates.UpdateAsync(surface, context.GuildId);
                 lines.Add(outcome switch
                 {
                     LlmUpdateOutcome.Applied => $"{name} update applied.",
