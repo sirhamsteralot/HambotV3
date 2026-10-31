@@ -20,11 +20,15 @@ namespace HambotV2.Llm
     {
         private readonly DiscordSocketClient _client;
         private readonly ILogger<ChatContextCollector> _logger;
+        private readonly TimeProvider _timeProvider;
+        private readonly int _maxAgeHours;
 
-        public ChatContextCollector(DiscordSocketClient client, ILogger<ChatContextCollector> logger)
+        public ChatContextCollector(DiscordSocketClient client, ILogger<ChatContextCollector> logger, TimeProvider? timeProvider = null, LlmSettings? settings = null)
         {
             _client = client;
             _logger = logger;
+            _timeProvider = timeProvider ?? TimeProvider.System;
+            _maxAgeHours = settings?.ChatContextMaxAgeHours ?? LlmSettings.DefaultMaxAgeHours;
         }
 
         public async Task<string?> CollectAsync(IReadOnlyDictionary<ulong, IReadOnlyCollection<ulong>> guilds, int maxMessages, int maxCharacters, CancellationToken cancellationToken = default)
@@ -63,16 +67,18 @@ namespace HambotV2.Llm
             }
 
             latest.Sort(static (a, b) => b.At.CompareTo(a.At));
-            return ChatContextFormatter.Format(latest, maxMessages, maxCharacters);
+            // The age cutoff applies before the caps: a channel whose newest message is too old contributes nothing.
+            return ChatContextFormatter.Format(latest, maxMessages, maxCharacters, _maxAgeHours, _timeProvider.GetUtcNow());
         }
     }
 
     /// <summary>The pure formatting core: newest-first lines, capped in count and total characters.</summary>
     internal static class ChatContextFormatter
     {
-        public static string? Format(IEnumerable<(DateTimeOffset At, string Author, string Text)> messages, int maxMessages, int maxCharacters)
+        public static string? Format(IEnumerable<(DateTimeOffset At, string Author, string Text)> messages, int maxMessages, int maxCharacters, int maxAgeHours, DateTimeOffset utcNow)
         {
-            List<(DateTimeOffset At, string Author, string Text)> taken = messages.Take(maxMessages).ToList();
+            DateTimeOffset cutoff = utcNow - TimeSpan.FromHours(maxAgeHours);
+            List<(DateTimeOffset At, string Author, string Text)> taken = messages.Where(message => message.At >= cutoff).Take(maxMessages).ToList();
             if (taken.Count == 0)
                 return null;
 

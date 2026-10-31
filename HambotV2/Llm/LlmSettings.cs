@@ -12,6 +12,7 @@ namespace HambotV2.Llm
         internal const int DefaultIntervalMinutes = 60;
         internal const int DefaultMaxChatMessages = 20;
         internal const int DefaultMaxChatCharacters = 4000;
+        internal const int DefaultMaxAgeHours = 24;
         internal const int DefaultDailyRequestBudget = 500;
 
         /// <summary>The Mistral API key (a secret — never in appsettings.json); null = inactive.</summary>
@@ -29,6 +30,9 @@ namespace HambotV2.Llm
         public int ChatContextMaxMessages { get; init; } = DefaultMaxChatMessages;
 
         public int ChatContextMaxCharacters { get; init; } = DefaultMaxChatCharacters;
+
+        /// <summary>Messages older than this many hours (UTC now) are dropped from the chat context before the caps; floor 1.</summary>
+        public int ChatContextMaxAgeHours { get; init; } = DefaultMaxAgeHours;
 
         public bool BioUpdatesEnabled { get; init; }
 
@@ -62,6 +66,10 @@ namespace HambotV2.Llm
             if (int.TryParse(configuration?["Llm:ChatContext:MaxCharacters"], out int configuredCharacters) && configuredCharacters > 0)
                 maxCharacters = configuredCharacters;
 
+            int maxAgeHours = DefaultMaxAgeHours;
+            if (int.TryParse(configuration?["Llm:ChatContext:MaxAgeHours"], out int configuredAge) && configuredAge > 0)
+                maxAgeHours = configuredAge;
+
             int budget = DefaultDailyRequestBudget;
             if (int.TryParse(configuration?["Llm:DailyRequestBudget"], out int configuredBudget) && configuredBudget >= 0)
                 budget = configuredBudget;
@@ -75,6 +83,7 @@ namespace HambotV2.Llm
                 PresenceUpdatesIntervalMinutes = intervalMinutes,
                 ChatContextMaxMessages = maxMessages,
                 ChatContextMaxCharacters = maxCharacters,
+                ChatContextMaxAgeHours = maxAgeHours,
                 BioUpdatesEnabled = bool.TryParse(configuration?["Llm:BioUpdates:Enabled"], out bool bio) && bio,
                 BioUpdatesIntervalMinutes = bioIntervalMinutes,
                 DailyRequestBudget = budget

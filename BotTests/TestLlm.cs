@@ -105,6 +105,7 @@ namespace BotTests
             Assert.AreEqual(60, settings.BioUpdatesIntervalMinutes);
             Assert.AreEqual(20, settings.ChatContextMaxMessages);
             Assert.AreEqual(4000, settings.ChatContextMaxCharacters);
+            Assert.AreEqual(24, settings.ChatContextMaxAgeHours);
             Assert.AreEqual(500, settings.DailyRequestBudget);
             Assert.IsFalse(settings.PresenceUpdatesEnabled);
             Assert.IsFalse(settings.BioUpdatesEnabled);
@@ -135,6 +136,7 @@ namespace BotTests
                 ["Llm:PresenceUpdates:IntervalMinutes"] = "-5",
                 ["Llm:BioUpdates:IntervalMinutes"] = "not-a-number",
                 ["Llm:ChatContext:MaxMessages"] = "not-a-number",
+                ["Llm:ChatContext:MaxAgeHours"] = "not-a-number",
                 ["Llm:DailyRequestBudget"] = "0",
                 ["Llm:PresenceUpdates:Enabled"] = "true"
             }));
@@ -142,6 +144,7 @@ namespace BotTests
             Assert.AreEqual(60, settings.PresenceUpdatesIntervalMinutes);
             Assert.AreEqual(60, settings.BioUpdatesIntervalMinutes);
             Assert.AreEqual(20, settings.ChatContextMaxMessages);
+            Assert.AreEqual(24, settings.ChatContextMaxAgeHours, "invalid max age falls back to the default");
             Assert.AreEqual(0, settings.DailyRequestBudget);
             Assert.IsFalse(settings.Active, "a zero budget disables the feature set like an absent key");
             Assert.IsTrue(settings.PresenceUpdatesEnabled);
@@ -201,6 +204,8 @@ namespace BotTests
             LlmMessage chatMessage = messages.First(m => m.Content.Contains("SHOUTING USER"));
             Assert.AreEqual("user", chatMessage.Role);
             StringAssert.Contains(chatMessage.Content, "untrusted");
+            StringAssert.Contains(chatMessage.Content, "newest first");
+            StringAssert.Contains(chatMessage.Content, "more recent messages are more relevant");
         }
 
         [TestMethod]
@@ -224,7 +229,7 @@ namespace BotTests
                 .Select(i => (new DateTimeOffset(2026, 1, 1, 0, i, 0, TimeSpan.Zero), $"user{i}", new string('x', 100)))
                 .ToList();
 
-            string? formatted = ChatContextFormatter.Format(messages, maxMessages: 20, maxCharacters: 4000);
+            string? formatted = ChatContextFormatter.Format(messages, maxMessages: 20, maxCharacters: 4000, maxAgeHours: 24, utcNow: new DateTimeOffset(2026, 1, 1, 1, 0, 0, TimeSpan.Zero));
 
             Assert.IsNotNull(formatted);
             Assert.AreEqual(20, formatted.Split('\n').Length, "message cap applies");
@@ -235,13 +240,50 @@ namespace BotTests
         [TestMethod]
         public void ChatFormatter_Empty_Input_Returns_Null_And_Newlines_Are_Flattened()
         {
-            Assert.IsNull(ChatContextFormatter.Format([], 20, 4000));
+            Assert.IsNull(ChatContextFormatter.Format([], 20, 4000, 24, new DateTimeOffset(2026, 1, 1, 1, 0, 0, TimeSpan.Zero)));
 
             string? formatted = ChatContextFormatter.Format(
-                [(new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero), "u", "line one\nline two")], 20, 4000);
+                [(new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero), "u", "line one\nline two")], 20, 4000, 24, new DateTimeOffset(2026, 1, 1, 1, 0, 0, TimeSpan.Zero));
             Assert.IsNotNull(formatted);
             Assert.IsFalse(formatted.Contains('\n') && formatted.Split('\n').Length > 1 && formatted.Contains("line one\n"), "message text newlines are flattened");
             StringAssert.Contains(formatted, "line one line two");
+        }
+
+        [TestMethod]
+        public void ChatFormatter_Drops_Messages_Older_Than_Max_Age_Before_The_Caps()
+        {
+            var now = new DateTimeOffset(2026, 6, 1, 12, 0, 0, TimeSpan.Zero);
+            var messages = new List<(DateTimeOffset At, string Author, string Text)>
+            {
+                (now - TimeSpan.FromHours(25), "old", "stale message"),      // older than 24 h: dropped
+                (now - TimeSpan.FromHours(24), "edge", "exactly 24 h old"),   // boundary: kept
+                (now - TimeSpan.FromHours(1), "new", "fresh message"),
+            };
+
+            string? formatted = ChatContextFormatter.Format(messages, maxMessages: 20, maxCharacters: 4000, maxAgeHours: 24, utcNow: now);
+
+            Assert.IsNotNull(formatted);
+            StringAssert.Contains(formatted, "fresh message");
+            StringAssert.Contains(formatted, "exactly 24 h old");
+            Assert.IsFalse(formatted.Contains("stale message"), "messages older than the max age never appear");
+            Assert.AreEqual(2, formatted.Split('\n').Length);
+        }
+
+        [TestMethod]
+        public void ChatFormatter_Age_Cutoff_Respects_The_Configured_Max_Age()
+        {
+            var now = new DateTimeOffset(2026, 6, 1, 12, 0, 0, TimeSpan.Zero);
+            var messages = new List<(DateTimeOffset At, string Author, string Text)>
+            {
+                (now - TimeSpan.FromHours(3), "u", "three hours old"),
+                (now - TimeSpan.FromHours(10), "u", "ten hours old"),
+            };
+
+            string? formatted = ChatContextFormatter.Format(messages, maxMessages: 20, maxCharacters: 4000, maxAgeHours: 5, utcNow: now);
+
+            Assert.IsNotNull(formatted);
+            StringAssert.Contains(formatted, "three hours old");
+            Assert.IsFalse(formatted.Contains("ten hours old"), "the configured max age (5 h) applies");
         }
 
         // --- usage tracker ---
