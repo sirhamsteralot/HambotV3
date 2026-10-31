@@ -8,6 +8,7 @@ using HambotV2.Llm;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using Moq;
@@ -292,6 +293,30 @@ namespace BotTests
             Assert.IsNull(await gateWithoutClient.ChatAsync("presence", [new LlmMessage("user", "hi")]));
             Assert.IsFalse(gate.IsConfigured == false, "sanity: fake client present means configured");
             Assert.IsTrue(gate.IsConfigured);
+        }
+
+        [TestMethod]
+        public void Gate_Resolves_From_Di_Without_A_Registered_Client()
+        {
+            // Mirrors Program.cs: ILlmClient is registered only when an API key is configured.
+            // With no key the gate must still activate (null client => inactive) instead of
+            // crashing host startup with an unresolvable ILlmClient.
+            LlmSettings settings = LlmSettings.FromConfiguration(Config(new Dictionary<string, string?>()));
+            var services = new ServiceCollection();
+            services.AddSingleton(TimeProvider.System);
+            services.AddSingleton(settings);
+            services.AddSingleton<ILlmUsageTracker, LlmUsageTracker>();
+            services.AddSingleton<ILogger<LlmGate>>(NullLogger<LlmGate>.Instance);
+            services.AddSingleton<ILlmGate>(serviceProvider => new LlmGate(
+                serviceProvider.GetService<ILlmClient>(),
+                serviceProvider.GetRequiredService<ILlmUsageTracker>(),
+                settings,
+                serviceProvider.GetRequiredService<ILogger<LlmGate>>()));
+
+            using var provider = services.BuildServiceProvider();
+            ILlmGate gate = provider.GetRequiredService<ILlmGate>();
+
+            Assert.IsFalse(gate.IsConfigured);
         }
 
         [TestMethod]

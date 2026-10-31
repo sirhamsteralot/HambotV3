@@ -143,7 +143,13 @@ namespace HambotV2
                     new MistralLmClient(llmSettings.ApiKey, serviceProvider.GetRequiredService<ILlmModelResolver>()));
             }
             builder.Services.AddSingleton<ILlmUsageTracker, LlmUsageTracker>();
-            builder.Services.AddSingleton<ILlmGate, LlmGate>();
+            // GetService (not GetRequiredService) for the client: without an API key ILlmClient is
+            // unregistered and the gate activates with a null client, i.e. IsConfigured == false.
+            builder.Services.AddSingleton<ILlmGate>(serviceProvider => new LlmGate(
+                serviceProvider.GetService<ILlmClient>(),
+                serviceProvider.GetRequiredService<ILlmUsageTracker>(),
+                llmSettings,
+                serviceProvider.GetRequiredService<ILogger<LlmGate>>()));
             builder.Services.AddSingleton<LlmPromptBuilder>();
             builder.Services.AddSingleton<IChatContextCollector, ChatContextCollector>();
             builder.Services.AddSingleton<PresenceUpdateService>();
