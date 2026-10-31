@@ -66,6 +66,7 @@ services:
       Llm__ChatContext__MaxMessages: ${LLM_CHAT_CONTEXT_MAX_MESSAGES:-}
       Llm__ChatContext__MaxCharacters: ${LLM_CHAT_CONTEXT_MAX_CHARACTERS:-}
       Llm__BioUpdates__Enabled: ${LLM_BIO_UPDATES_ENABLED:-}
+      Llm__BioUpdates__IntervalMinutes: ${LLM_BIO_INTERVAL_MINUTES:-}
       Llm__DailyRequestBudget: ${LLM_DAILY_REQUEST_BUDGET:-}
     volumes:
       - backups:/app/backups

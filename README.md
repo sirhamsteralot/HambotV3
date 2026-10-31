@@ -75,7 +75,7 @@ The Compose `backup` sidecar (from `scripts/backup/`) dumps the database on sche
 
 ## LLM features (opt-in)
 
-Set `LLM_API_KEY` (Mistral API key, a secret) in `.env` to activate; without it every LLM feature is inactive and `!llm status` / `!health` report so. Settings live under `Llm:*` in `appsettings.json` (see the table in `docs/software-design.md` §3.12): model, persona seed, chat-context bounds, daily request budget (default 500/UTC day), and the opt-in presence/bio update jobs (`LLM_PRESENCE_UPDATES_ENABLED`, `LLM_BIO_UPDATES_ENABLED`, interval). Phase 1 automatically refreshes the bot's presence (and optionally bio) on the configured interval, in the persona's voice. Runtime controls: `!llm off|on` (in-memory kill switch), `!llm status`, `!model [list|<name>|clear]` (model override, validated against the provider's list), `!persona [<text...>|clear]` (global persona override) and `!settings persona <text...>|clear` (per-guild override). The watchdog alerts on budget exhaustion and on 3 consecutive LLM failures.
+Set `LLM_API_KEY` (Mistral API key, a secret) in `.env` to activate; without it every LLM feature is inactive and `!llm status` / `!health` report so. Settings live under `Llm:*` in `appsettings.json` (see the table in `docs/software-design.md` §3.12): model, persona seed, chat-context bounds, daily request budget (default 500/UTC day), and the opt-in presence/bio update jobs (`LLM_PRESENCE_UPDATES_ENABLED`, `LLM_BIO_UPDATES_ENABLED`, each with its own `LLM_*_INTERVAL_MINUTES`). Phase 1 automatically refreshes the bot's presence and bio on their own intervals, in the persona's voice. Runtime controls: `!llm status`, `!llm off|on` (in-memory kill switch), `!llm update [presence|bio]` (run an update now, even with the jobs off — still gated by the kill switch/budget), `!model [list|<name>|clear]` (model override, validated against the provider's list), `!persona [<text...>|clear]` (global persona override) and `!settings persona <text...>|clear` (per-guild override). The watchdog alerts on budget exhaustion and on 3 consecutive LLM failures.
 
 ## MCP endpoint (agent API)
 
@@ -134,7 +134,7 @@ Expected startup logs: `Bot version: <version>` → `Database migrations applied
 | `!commandpermission <name> [tier]` / `!userpermission <user> [tier]` | Show/set command or user tier. Admin tier. |
 | `!banuser <user> [duration]` / `!unbanuser <user>` / `!banlist` | Per-guild bot bans; banned users are ignored silently. Moderator tier. |
 | `!settings [commandidentifier <v>\|reset \| cooldown <tier> <s>\|reset \| persona <text...>\|clear]` | Guild identifier, per-tier cooldown overrides, and this server's LLM persona override. Admin tier. |
-| `!llm [status\|off\|on]` | LLM usage status; off/on toggles the in-memory kill switch (not persisted). Bot-owner tier; DM-usable. |
+| `!llm [status\|off\|on\|update [presence\|bio]]` | LLM usage status; off/on toggles the in-memory kill switch (not persisted); update triggers an LLM presence/bio update now. Bot-owner tier; DM-usable. |
 | `!persona [<text...>\|clear]` | Show/set/clear the global LLM persona override (persisted). Admin tier; DM-usable. |
 | `!model [list\|<name>\|clear]` | Show the effective LLM model, list the provider's models, or set/clear the runtime model override (validated against the API). Admin tier; DM-usable. |
 | `!agenttier [<tier 0-4>\|clear]` | Tier the MCP operator agent acts at here. Owner tier. |

@@ -76,7 +76,8 @@ namespace BotTests
         private static IServiceScopeFactory ScopeFactoryFor(DatabaseContext database)
         {
             var services = new ServiceCollection();
-            services.AddTransient<IDatabaseContext>(_ => database);
+            // Singleton so a disposed scope (one per persona resolution) never disposes the shared test database.
+            services.AddSingleton<IDatabaseContext>(database);
             return services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>();
         }
 
@@ -101,6 +102,7 @@ namespace BotTests
             Assert.IsFalse(settings.Active);
             Assert.AreEqual(LlmSettings.DefaultModel, settings.Model);
             Assert.AreEqual(60, settings.PresenceUpdatesIntervalMinutes);
+            Assert.AreEqual(60, settings.BioUpdatesIntervalMinutes);
             Assert.AreEqual(20, settings.ChatContextMaxMessages);
             Assert.AreEqual(4000, settings.ChatContextMaxCharacters);
             Assert.AreEqual(500, settings.DailyRequestBudget);
@@ -110,18 +112,36 @@ namespace BotTests
         }
 
         [TestMethod]
+        public void Settings_Bio_Interval_Parses_Valid_And_Rejects_Invalid_Values()
+        {
+            LlmSettings settings = LlmSettings.FromConfiguration(Config(new Dictionary<string, string?>
+            {
+                ["Llm:BioUpdates:IntervalMinutes"] = "15"
+            }));
+            Assert.AreEqual(15, settings.BioUpdatesIntervalMinutes);
+
+            LlmSettings fallback = LlmSettings.FromConfiguration(Config(new Dictionary<string, string?>
+            {
+                ["Llm:BioUpdates:IntervalMinutes"] = "0"
+            }));
+            Assert.AreEqual(60, fallback.BioUpdatesIntervalMinutes, "zero/negative falls back to the default");
+        }
+
+        [TestMethod]
         public void Settings_Invalid_Entries_Fall_Back_To_Defaults_Zero_Budget_Disables()
         {
             LlmSettings settings = LlmSettings.FromConfiguration(Config(new Dictionary<string, string?>
             {
                 ["Llm:ApiKey"] = "key",
                 ["Llm:PresenceUpdates:IntervalMinutes"] = "-5",
+                ["Llm:BioUpdates:IntervalMinutes"] = "not-a-number",
                 ["Llm:ChatContext:MaxMessages"] = "not-a-number",
                 ["Llm:DailyRequestBudget"] = "0",
                 ["Llm:PresenceUpdates:Enabled"] = "true"
             }));
 
             Assert.AreEqual(60, settings.PresenceUpdatesIntervalMinutes);
+            Assert.AreEqual(60, settings.BioUpdatesIntervalMinutes);
             Assert.AreEqual(20, settings.ChatContextMaxMessages);
             Assert.AreEqual(0, settings.DailyRequestBudget);
             Assert.IsFalse(settings.Active, "a zero budget disables the feature set like an absent key");
@@ -466,6 +486,84 @@ namespace BotTests
             Assert.IsFalse(client.Calls[0][0].Content.Contains("hello"), "chat never enters the system prompt");
         }
 
+        [TestMethod]
+        public async Task Update_Forces_A_Surface_Even_When_Its_Job_Is_Disabled()
+        {
+            var database = DiscordTestDoubles.CreateDatabase();
+            var (gate, _, client) = CreateGate(ActiveSettings(presence: false, bio: false));
+            client.Responses.Enqueue(new LlmResponse("manual presence", 1, 1));
+            var presence = CreatePresence();
+            var service = CreateService(ActiveSettings(presence: false, bio: false), gate, presence, database);
+
+            LlmUpdateOutcome outcome = await service.UpdateAsync(LlmSurface.Presence);
+
+            Assert.AreEqual(LlmUpdateOutcome.Applied, outcome);
+            presence.Verify(p => p.ApplyActivityAsync(It.IsAny<ActivityType>(), "manual presence"), Times.Once);
+            Assert.AreEqual(1, client.Calls.Count);
+        }
+
+        [TestMethod]
+        public async Task Update_Bio_Uses_The_Bio_Surface_Rules()
+        {
+            var database = DiscordTestDoubles.CreateDatabase();
+            var (gate, _, client) = CreateGate(ActiveSettings(presence: false, bio: false));
+            client.Responses.Enqueue(new LlmResponse("a fresh bio", 1, 1));
+            var presence = CreatePresence();
+            var service = CreateService(ActiveSettings(presence: false, bio: false), gate, presence, database);
+
+            LlmUpdateOutcome outcome = await service.UpdateAsync(LlmSurface.Bio);
+
+            Assert.AreEqual(LlmUpdateOutcome.Applied, outcome);
+            presence.Verify(p => p.ApplyBioAsync("a fresh bio"), Times.Once);
+            presence.Verify(p => p.ApplyActivityAsync(It.IsAny<ActivityType>(), It.IsAny<string>()), Times.Never);
+        }
+
+        [TestMethod]
+        public async Task Update_Reports_Inactive_Without_A_Configured_Client()
+        {
+            var database = DiscordTestDoubles.CreateDatabase();
+            var gate = new LlmGate(null, new LlmUsageTracker(new FakeTimeProvider()), ActiveSettings(), NullLogger<LlmGate>.Instance);
+            var presence = CreatePresence();
+            var service = CreateService(ActiveSettings(), gate, presence, database);
+
+            LlmUpdateOutcome outcome = await service.UpdateAsync(LlmSurface.Presence);
+
+            Assert.AreEqual(LlmUpdateOutcome.Inactive, outcome);
+            presence.Verify(p => p.ApplyActivityAsync(It.IsAny<ActivityType>(), It.IsAny<string>()), Times.Never);
+        }
+
+        [TestMethod]
+        public async Task Update_Reports_Blocked_When_The_Kill_Switch_Is_On()
+        {
+            var database = DiscordTestDoubles.CreateDatabase();
+            var (gate, _, client) = CreateGate(ActiveSettings());
+            gate.SetKillSwitch(true);
+            var presence = CreatePresence();
+            var service = CreateService(ActiveSettings(), gate, presence, database);
+
+            LlmUpdateOutcome outcome = await service.UpdateAsync(LlmSurface.Presence);
+
+            Assert.AreEqual(LlmUpdateOutcome.Blocked, outcome);
+            Assert.AreEqual(0, client.Calls.Count);
+            presence.Verify(p => p.ApplyActivityAsync(It.IsAny<ActivityType>(), It.IsAny<string>()), Times.Never);
+        }
+
+        [TestMethod]
+        public async Task Update_Invalid_Output_Is_Reported_And_Keeps_The_Current_State()
+        {
+            var database = DiscordTestDoubles.CreateDatabase();
+            var (gate, tracker, client) = CreateGate(ActiveSettings());
+            client.Responses.Enqueue(new LlmResponse("two\nlines", 1, 1));
+            var presence = CreatePresence();
+            var service = CreateService(ActiveSettings(), gate, presence, database);
+
+            LlmUpdateOutcome outcome = await service.UpdateAsync(LlmSurface.Presence);
+
+            Assert.AreEqual(LlmUpdateOutcome.InvalidOutput, outcome);
+            Assert.AreEqual(1, tracker.ConsecutiveFailures);
+            presence.Verify(p => p.ApplyActivityAsync(It.IsAny<ActivityType>(), It.IsAny<string>()), Times.Never);
+        }
+
         // --- commands ---
 
         private static async Task<List<string>> ExecuteAsync(ICommand command, DatabaseContext database, string content, ulong authorId, bool directMessage = false)
@@ -682,6 +780,88 @@ namespace BotTests
             var status = await ExecuteAsync(new LlmCommand(gate, ActiveSettings()), database, "!llm", authorId: 250);
 
             StringAssert.Contains(status[0], "Model: status-model (runtime override");
+        }
+
+        [TestMethod]
+        public async Task LlmCommand_Update_Runs_Both_Surfaces_Even_When_The_Jobs_Are_Disabled()
+        {
+            var database = DiscordTestDoubles.CreateDatabase();
+            var settings = ActiveSettings(presence: false, bio: false);
+            var (gate, _, client) = CreateGate(settings);
+            client.Responses.Enqueue(new LlmResponse("new activity", 1, 1));
+            client.Responses.Enqueue(new LlmResponse("new bio", 1, 1));
+            var presence = CreatePresence();
+            var service = CreateService(settings, gate, presence, database);
+            var command = new LlmCommand(gate, settings, service);
+
+            var replies = await ExecuteAsync(command, database, "!llm update", authorId: 250);
+
+            StringAssert.Contains(replies[0], "Presence update applied.");
+            StringAssert.Contains(replies[0], "Bio update applied.");
+            presence.Verify(p => p.ApplyActivityAsync(It.IsAny<ActivityType>(), "new activity"), Times.Once);
+            presence.Verify(p => p.ApplyBioAsync("new bio"), Times.Once);
+            Assert.AreEqual(2, client.Calls.Count);
+        }
+
+        [TestMethod]
+        public async Task LlmCommand_Update_With_A_Surface_Argument_Runs_Only_That_Surface()
+        {
+            var database = DiscordTestDoubles.CreateDatabase();
+            var (gate, _, client) = CreateGate(ActiveSettings());
+            client.Responses.Enqueue(new LlmResponse("bio only", 1, 1));
+            var presence = CreatePresence();
+            var service = CreateService(ActiveSettings(), gate, presence, database);
+            var command = new LlmCommand(gate, ActiveSettings(), service);
+
+            var replies = await ExecuteAsync(command, database, "!llm update bio", authorId: 250);
+
+            StringAssert.Contains(replies[0], "Bio update applied.");
+            Assert.AreEqual(1, client.Calls.Count);
+            presence.Verify(p => p.ApplyBioAsync("bio only"), Times.Once);
+            presence.Verify(p => p.ApplyActivityAsync(It.IsAny<ActivityType>(), It.IsAny<string>()), Times.Never);
+        }
+
+        [TestMethod]
+        public async Task LlmCommand_Update_With_An_Unknown_Surface_Shows_Usage()
+        {
+            var database = DiscordTestDoubles.CreateDatabase();
+            var (gate, _, client) = CreateGate(ActiveSettings());
+            var service = CreateService(ActiveSettings(), gate, CreatePresence(), database);
+            var command = new LlmCommand(gate, ActiveSettings(), service);
+
+            var replies = await ExecuteAsync(command, database, "!llm update banana", authorId: 250);
+
+            StringAssert.Contains(replies[0], "Unknown surface 'banana'");
+            StringAssert.Contains(replies[0], "update [presence|bio]");
+            Assert.AreEqual(0, client.Calls.Count);
+        }
+
+        [TestMethod]
+        public async Task LlmCommand_Update_Reports_Blocked_When_The_Kill_Switch_Is_On()
+        {
+            var database = DiscordTestDoubles.CreateDatabase();
+            var (gate, _, client) = CreateGate(ActiveSettings());
+            gate.SetKillSwitch(true);
+            var presence = CreatePresence();
+            var service = CreateService(ActiveSettings(), gate, presence, database);
+            var command = new LlmCommand(gate, ActiveSettings(), service);
+
+            var replies = await ExecuteAsync(command, database, "!llm update presence", authorId: 250);
+
+            StringAssert.Contains(replies[0], "blocked");
+            Assert.AreEqual(0, client.Calls.Count);
+            presence.Verify(p => p.ApplyActivityAsync(It.IsAny<ActivityType>(), It.IsAny<string>()), Times.Never);
+        }
+
+        [TestMethod]
+        public async Task LlmCommand_Update_Without_The_Update_Service_Reports_Not_Configured()
+        {
+            var database = DiscordTestDoubles.CreateDatabase();
+            var (gate, _, _) = CreateGate(ActiveSettings());
+
+            var replies = await ExecuteAsync(new LlmCommand(gate), database, "!llm update", authorId: 250);
+
+            StringAssert.Contains(replies[0], "not configured");
         }
     }
 }

@@ -23,6 +23,7 @@ Run against a **test deployment**: a second Discord application (own token), a t
    LLM_PRESENCE_UPDATES_ENABLED=
    LLM_PRESENCE_INTERVAL_MINUTES=
    LLM_BIO_UPDATES_ENABLED=
+   LLM_BIO_INTERVAL_MINUTES=
    LLM_DAILY_REQUEST_BUDGET=
    ```
 
@@ -233,7 +234,7 @@ Needs a test server with at least one quote and a channel the bot can post in; r
 
 ## 16. LLM integration — phase 1 (presence & bio updates)
 
-Opt-in (design §3.12): set `LLM_API_KEY=<Mistral API key>` and the job flags in `.env`, restart. Fast cadence: `LLM_PRESENCE_UPDATES_ENABLED=true`, `LLM_PRESENCE_INTERVAL_MINUTES=1`, `LLM_BIO_UPDATES_ENABLED=true`. The startup log distinguishes the states: "LLM features are inactive…", "LLM features are active but no update job is enabled.", "Presence/bio update service started (interval N minutes)".
+Opt-in (design §3.12): set `LLM_API_KEY=<Mistral API key>` and the job flags in `.env`, restart. Fast cadence: `LLM_PRESENCE_UPDATES_ENABLED=true`, `LLM_PRESENCE_INTERVAL_MINUTES=1`, `LLM_BIO_UPDATES_ENABLED=true`, `LLM_BIO_INTERVAL_MINUTES=1`. The startup log distinguishes the states: "LLM features are inactive…", "LLM features are active but no update job is enabled (manual !llm update still works).", "Presence update job started (interval N minutes)." / "Bio update job started (interval N minutes).".
 
 | # | Action | Expected |
 |---|---|---|
@@ -252,3 +253,7 @@ Opt-in (design §3.12): set `LLM_API_KEY=<Mistral API key>` and the job flags in
 | 16.13 | `!persona` / `!persona You are a cheerful hamster.` / `!persona` / `!persona clear`; a >2000-char persona | Shows the shipped default; after setting, the runtime-override layer; `clear` reverts; over-limit rejected naming the 2000-char limit. |
 | 16.14 | `!settings persona <text>`, `!settings persona`, `!settings persona clear` in the test server; same in a DM | Guild override set/shown/cleared (persisted per guild); the DM declines (guild-only). |
 | 16.15 | `!help` as bot owner | The **LLM** category group lists `llm`, `model`, `persona`. |
+| 16.16 | Jobs **off**, `!llm update` | Both surfaces update immediately (reply "Presence update applied." + "Bio update applied."); `!llm status` request count rises by 2 — the manual trigger works regardless of the job flags. | 
+| 16.17 | `!llm update presence` / `!llm update bio`; `!llm update banana` | Only the named surface updates (1 request); the bad surface gets the usage error and no call is made. |
+| 16.18 | `!llm off`, then `!llm update`; `!llm on`, then `!llm update` | Blocked reply ("kill switch … nothing changed"), no model call, nothing applied; after `on`, the update applies again. |
+| 16.19 | `LLM_PRESENCE_INTERVAL_MINUTES=5`, `LLM_BIO_INTERVAL_MINUTES=1`, both jobs on, restart, wait ~3 min | The bio changes at its own ~1 min cadence while the presence only changes on its ~5 min cadence (watch both servers' profiles + `!llm status` feature counters). |

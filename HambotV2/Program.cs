@@ -130,7 +130,9 @@ namespace HambotV2
             // registered only when an API key is configured, so without one every LLM feature is
             // inactive. The gate (kill switch + daily budget + accounting), prompt builder, chat
             // context collector, and the presence/bio update loop are singletons/hosted; the
-            // update loop no-ops while inactive or no job is enabled.
+            // update loop stays alive (idle) while no job is enabled so !llm update can trigger
+            // manually. One PresenceUpdateService instance serves both the hosted loops and the
+            // command's manual trigger.
             var llmSettings = LlmSettings.FromConfiguration(builder.Configuration);
             builder.Services.AddSingleton(llmSettings);
             builder.Services.AddSingleton<ILlmModelResolver, LlmModelResolver>();
@@ -144,7 +146,9 @@ namespace HambotV2
             builder.Services.AddSingleton<ILlmGate, LlmGate>();
             builder.Services.AddSingleton<LlmPromptBuilder>();
             builder.Services.AddSingleton<IChatContextCollector, ChatContextCollector>();
-            builder.Services.AddHostedService<PresenceUpdateService>();
+            builder.Services.AddSingleton<PresenceUpdateService>();
+            builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<PresenceUpdateService>());
+            builder.Services.AddSingleton<ILlmUpdateService>(serviceProvider => serviceProvider.GetRequiredService<PresenceUpdateService>());
 
             // MCP endpoint: the operator-agent tool surface, opt-in via Mcp:Enabled +
             // Mcp:ApiKey. The narrow Discord seam keeps the tools unit-testable without a

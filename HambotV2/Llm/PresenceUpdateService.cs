@@ -5,14 +5,17 @@ using HambotV2.Connections;
 namespace HambotV2.Llm
 {
     /// <summary>
-    /// The opt-in LLM loop: on each interval tick it builds the prompt (persona resolved per the
+    /// The opt-in LLM loop: on each job's interval tick it builds the prompt (persona resolved per the
     /// chain in <see cref="LlmPersona"/>, optional bounded chat context), calls the model through
-    /// the gate, validates the output per surface, and applies it via the presence service —
-    /// presence and, when enabled, the bio in the same tick. Any client error or invalid output
-    /// keeps the current state, is logged, and retries next tick; nothing ever crashes the bot.
-    /// Without an API key (or with a zero budget) the service stays inactive.
+    /// the gate, validates the output per surface, and applies it via the presence service. Presence
+    /// and bio run on their own cadences (<c>Llm:PresenceUpdates:IntervalMinutes</c> /
+    /// <c>Llm:BioUpdates:IntervalMinutes</c>); <see cref="UpdateAsync"/> triggers a surface manually
+    /// regardless of the job flags. Any client error or invalid output keeps the current state, is
+    /// logged, and retries next tick; nothing ever crashes the bot. Without an API key (or with a
+    /// zero budget) the service stays inactive, but while active with no job enabled it stays alive
+    /// so manual updates still work.
     /// </summary>
-    internal sealed class PresenceUpdateService : BackgroundService
+    internal sealed class PresenceUpdateService : BackgroundService, ILlmUpdateService
     {
         private readonly LlmSettings _settings;
         private readonly ILlmGate _gate;
@@ -23,6 +26,9 @@ namespace HambotV2.Llm
         private readonly string _botName;
         private readonly TimeProvider _timeProvider;
         private readonly ILogger<PresenceUpdateService> _logger;
+
+        /// <summary>Serializes scheduled ticks and manual updates so they never overlap.</summary>
+        private readonly SemaphoreSlim _runLock = new(1, 1);
 
         public PresenceUpdateService(
             LlmSettings settings,
@@ -56,17 +62,37 @@ namespace HambotV2.Llm
 
             if (!_settings.PresenceUpdatesEnabled && !_settings.BioUpdatesEnabled)
             {
-                _logger.LogInformation("LLM features are active but no update job is enabled.");
-                return;
+                _logger.LogInformation("LLM features are active but no update job is enabled (manual !llm update still works).");
+            }
+            else
+            {
+                if (_settings.PresenceUpdatesEnabled)
+                    _logger.LogInformation("Presence update job started (interval {Interval} minutes).", _settings.PresenceUpdatesIntervalMinutes);
+                if (_settings.BioUpdatesEnabled)
+                    _logger.LogInformation("Bio update job started (interval {Interval} minutes).", _settings.BioUpdatesIntervalMinutes);
             }
 
-            _logger.LogInformation("Presence/bio update service started (interval {Interval} minutes).", _settings.PresenceUpdatesIntervalMinutes);
+            var loops = new List<Task>();
+            if (_settings.PresenceUpdatesEnabled)
+                loops.Add(RunScheduledLoopAsync(LlmSurface.Presence, _settings.PresenceUpdatesIntervalMinutes, stoppingToken));
+            if (_settings.BioUpdatesEnabled)
+                loops.Add(RunScheduledLoopAsync(LlmSurface.Bio, _settings.BioUpdatesIntervalMinutes, stoppingToken));
 
+            if (loops.Count > 0)
+                await Task.WhenAll(loops);
+            else
+                await Task.Delay(Timeout.InfiniteTimeSpan, stoppingToken);
+
+            _logger.LogInformation("Presence/bio update service stopped.");
+        }
+
+        private async Task RunScheduledLoopAsync(LlmSurface surface, int intervalMinutes, CancellationToken stoppingToken)
+        {
             while (!stoppingToken.IsCancellationRequested)
             {
                 try
                 {
-                    await RunTickAsync(stoppingToken);
+                    await UpdateAsync(surface, stoppingToken);
                 }
                 catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
                 {
@@ -74,25 +100,55 @@ namespace HambotV2.Llm
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Presence/bio update tick failed; retrying at the next interval.");
+                    _logger.LogError(ex, "{Surface} update tick failed; retrying at the next interval.", surface);
                 }
 
                 try
                 {
-                    await Task.Delay(TimeSpan.FromMinutes(_settings.PresenceUpdatesIntervalMinutes), _timeProvider, stoppingToken);
+                    await Task.Delay(TimeSpan.FromMinutes(intervalMinutes), _timeProvider, stoppingToken);
                 }
                 catch (OperationCanceledException)
                 {
                     break;
                 }
             }
-
-            _logger.LogInformation("Presence/bio update service stopped.");
         }
 
-        /// <summary>One update pass; exposed so tests drive the cadence directly.</summary>
+        /// <summary>One update pass over the enabled surfaces; exposed so tests drive the cadence directly.</summary>
         internal async Task RunTickAsync(CancellationToken cancellationToken = default)
         {
+            await _runLock.WaitAsync(cancellationToken);
+            try
+            {
+                if (_settings.PresenceUpdatesEnabled)
+                    await UpdateSurfaceAsync(LlmSurface.Presence, cancellationToken);
+                if (_settings.BioUpdatesEnabled)
+                    await UpdateSurfaceAsync(LlmSurface.Bio, cancellationToken);
+            }
+            finally
+            {
+                _runLock.Release();
+            }
+        }
+
+        public async Task<LlmUpdateOutcome> UpdateAsync(LlmSurface surface, CancellationToken cancellationToken = default)
+        {
+            await _runLock.WaitAsync(cancellationToken);
+            try
+            {
+                return await UpdateSurfaceAsync(surface, cancellationToken);
+            }
+            finally
+            {
+                _runLock.Release();
+            }
+        }
+
+        private async Task<LlmUpdateOutcome> UpdateSurfaceAsync(LlmSurface surface, CancellationToken cancellationToken)
+        {
+            if (!_gate.IsConfigured)
+                return LlmUpdateOutcome.Inactive;
+
             string persona = ResolveGlobalPersona();
             string? chat = _settings.IncludeChat
                 ? await (_chatContext?.CollectAsync(_settings.ChatContextMaxMessages, _settings.ChatContextMaxCharacters, cancellationToken) ?? Task.FromResult<string?>(null))
@@ -102,40 +158,34 @@ namespace HambotV2.Llm
                 ? $"{PresenceActivityTypes.GetLabel(activity.Type)} {activity.Text}"
                 : "none";
 
-            if (_settings.PresenceUpdatesEnabled)
+            var input = new LlmPromptInput(persona, _botName, BotVersion.Current, _timeProvider.GetUtcNow(), currentActivity, chat, surface);
+            string feature = surface == LlmSurface.Presence ? "presence" : "bio";
+            LlmResponse? response = await _gate.ChatAsync(feature, _promptBuilder.Build(input), cancellationToken);
+            if (response is null)
+                return _gate.KillSwitchActive || _gate.BudgetExhausted ? LlmUpdateOutcome.Blocked : LlmUpdateOutcome.Failed;
+
+            string text;
+            bool valid = surface == LlmSurface.Presence
+                ? LlmOutputValidator.TryValidatePresence(response.Content, out text)
+                : LlmOutputValidator.TryValidateBio(response.Content, out text);
+            if (!valid)
             {
-                var input = new LlmPromptInput(persona, _botName, BotVersion.Current, _timeProvider.GetUtcNow(), currentActivity, chat, LlmSurface.Presence);
-                LlmResponse? response = await _gate.ChatAsync("presence", _promptBuilder.Build(input), cancellationToken);
-                if (response is null)
-                    return;
+                _logger.LogWarning("LLM returned an invalid {Surface} output; keeping the current one.", surface);
+                _gate.RecordInvalidOutput();
+                return LlmUpdateOutcome.InvalidOutput;
+            }
 
-                if (!LlmOutputValidator.TryValidatePresence(response.Content, out string text))
-                {
-                    _logger.LogWarning("LLM returned an invalid presence (empty, multi-line, or over {Max} chars); keeping the current one.", ProfileLimits.MaxActivityTextLength);
-                    _gate.RecordInvalidOutput();
-                    return;
-                }
-
+            if (surface == LlmSurface.Presence)
+            {
                 ActivityType type = _presence.CurrentActivity?.Type ?? ActivityType.Playing;
                 await _presence.ApplyActivityAsync(type, text);
             }
-
-            if (_settings.BioUpdatesEnabled)
+            else
             {
-                var input = new LlmPromptInput(persona, _botName, BotVersion.Current, _timeProvider.GetUtcNow(), currentActivity, chat, LlmSurface.Bio);
-                LlmResponse? response = await _gate.ChatAsync("bio", _promptBuilder.Build(input), cancellationToken);
-                if (response is null)
-                    return;
-
-                if (!LlmOutputValidator.TryValidateBio(response.Content, out string bio))
-                {
-                    _logger.LogWarning("LLM returned an invalid bio (empty or over {Max} chars); keeping the current one.", ProfileLimits.MaxBioLength);
-                    _gate.RecordInvalidOutput();
-                    return;
-                }
-
-                await _presence.ApplyBioAsync(bio);
+                await _presence.ApplyBioAsync(text);
             }
+
+            return LlmUpdateOutcome.Applied;
         }
 
         private string ResolveGlobalPersona()

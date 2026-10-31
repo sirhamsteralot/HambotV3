@@ -34,6 +34,8 @@ namespace HambotV2.Llm
 
         public bool BioUpdatesEnabled { get; init; }
 
+        public int BioUpdatesIntervalMinutes { get; init; } = DefaultIntervalMinutes;
+
         /// <summary>Per-UTC-day request hard stop; 0 disables the feature set like an absent key.</summary>
         public int DailyRequestBudget { get; init; } = DefaultDailyRequestBudget;
 
@@ -54,6 +56,10 @@ namespace HambotV2.Llm
             if (int.TryParse(configuration?["Llm:ChatContext:MaxMessages"], out int configuredMessages) && configuredMessages > 0)
                 maxMessages = configuredMessages;
 
+            int bioIntervalMinutes = DefaultIntervalMinutes;
+            if (int.TryParse(configuration?["Llm:BioUpdates:IntervalMinutes"], out int configuredBioInterval) && configuredBioInterval > 0)
+                bioIntervalMinutes = configuredBioInterval;
+
             int maxCharacters = DefaultMaxChatCharacters;
             if (int.TryParse(configuration?["Llm:ChatContext:MaxCharacters"], out int configuredCharacters) && configuredCharacters > 0)
                 maxCharacters = configuredCharacters;
@@ -73,6 +79,7 @@ namespace HambotV2.Llm
                 ChatContextMaxMessages = maxMessages,
                 ChatContextMaxCharacters = maxCharacters,
                 BioUpdatesEnabled = bool.TryParse(configuration?["Llm:BioUpdates:Enabled"], out bool bio) && bio,
+                BioUpdatesIntervalMinutes = bioIntervalMinutes,
                 DailyRequestBudget = budget
             };
         }

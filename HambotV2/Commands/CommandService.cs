@@ -48,6 +48,9 @@ namespace HambotV2.Commands
         /// <summary>The parsed <c>Llm</c> configuration section; defaults apply when no configuration is supplied (tests).</summary>
         private readonly LlmSettings _llmSettings;
 
+        /// <summary>The LLM update loop (manual <c>!llm update</c> trigger), resolved by production DI; null keeps the registry usable in tests.</summary>
+        private readonly ILlmUpdateService? _llmUpdateService;
+
         /// <summary>
         /// The signal defaults to an isolated instance, and the backup & stability and presence dependencies to null, which
         /// keeps the registry usable in tests that do not exercise those features (the affected
@@ -64,7 +67,8 @@ namespace HambotV2.Commands
             IImageContentDownloader? imageContentDownloader = null,
             IConfiguration? configuration = null,
             QuoteSearchBacklog? quoteSearchBacklog = null,
-            ILlmGate? llmGate = null)
+            ILlmGate? llmGate = null,
+            ILlmUpdateService? llmUpdateService = null)
         {
             _deliverySignal = deliverySignal ?? new ScheduledDeliverySignal();
             _backupManager = backupManager;
@@ -79,6 +83,7 @@ namespace HambotV2.Commands
             _quoteSearchBacklog = quoteSearchBacklog ?? new QuoteSearchBacklog();
             _llmGate = llmGate;
             _llmSettings = LlmSettings.FromConfiguration(configuration);
+            _llmUpdateService = llmUpdateService;
         }
 
         public Dictionary<string, ICommand> Commands { get; } = new();
@@ -88,7 +93,7 @@ namespace HambotV2.Commands
 
         public void RegisterCommands()
         {
-            RegisterAllCommands.RegisterCommands(this, _deliverySignal, _backupManager, _maintenanceMode, _notificationPublisher, _notificationChannelStore, _healthSnapshotProvider, _presenceService, _imageContentDownloader, _reminderSettings, _quoteOfTheDaySettings, _quoteSearchBacklog, _llmGate, _llmSettings);
+            RegisterAllCommands.RegisterCommands(this, _deliverySignal, _backupManager, _maintenanceMode, _notificationPublisher, _notificationChannelStore, _healthSnapshotProvider, _presenceService, _imageContentDownloader, _reminderSettings, _quoteOfTheDaySettings, _quoteSearchBacklog, _llmGate, _llmSettings, _llmUpdateService);
             CommandsRegistered = true;
         }
 

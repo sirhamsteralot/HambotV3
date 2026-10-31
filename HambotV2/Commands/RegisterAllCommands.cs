@@ -37,14 +37,15 @@ namespace HambotV2.Commands
             QuoteOfTheDaySettings? quoteOfTheDaySettings = null,
             QuoteSearchBacklog? quoteSearchBacklog = null,
             ILlmGate? llmGate = null,
-            LlmSettings? llmSettings = null)
+            LlmSettings? llmSettings = null,
+            ILlmUpdateService? llmUpdateService = null)
         {
             RegisterSystemCommands.RegisterCommands(commandService, notificationChannelStore, healthSnapshotProvider, presenceService, imageContentDownloader);
             RegisterQuoteCommands.RegisterCommands(commandService, quoteSearchBacklog ?? new QuoteSearchBacklog(), quoteOfTheDaySettings);
             RegisterResponseCommands.RegisterCommands(commandService);
             RegisterReminderCommands.RegisterCommands(commandService, deliverySignal, reminderSettings);
             RegisterBackupCommands.RegisterCommands(commandService, backupManager, maintenanceMode, notificationPublisher);
-            RegisterLlmCommands.RegisterCommands(commandService, llmGate, llmSettings);
+            RegisterLlmCommands.RegisterCommands(commandService, llmGate, llmSettings, llmUpdateService);
         }
     }
 }

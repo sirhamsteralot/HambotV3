@@ -8,29 +8,32 @@ namespace HambotV2.Commands.LlmCommands
     /// <summary>
     /// Manages the LLM features at runtime: no args (or <c>status</c>) report configuration,
     /// kill-switch state, today's usage and budget, and consecutive failures; <c>off</c>/<c>on</c>
-    /// toggle the in-memory kill switch. Bot-owner tier, DM-usable; the kill switch is not
-    /// persisted — a restart restores the configured state.
+    /// toggle the in-memory kill switch; <c>update [presence|bio]</c> triggers an LLM update for
+    /// one surface (both when omitted) immediately, regardless of the scheduled-job flags. Bot-owner
+    /// tier, DM-usable; the kill switch is not persisted — a restart restores the configured state.
     /// </summary>
     internal sealed class LlmCommand : ICommand
     {
         private readonly ILlmGate? _gate;
         private readonly LlmSettings? _settings;
+        private readonly ILlmUpdateService? _updates;
 
-        public LlmCommand(ILlmGate? gate = null, LlmSettings? settings = null)
+        public LlmCommand(ILlmGate? gate = null, LlmSettings? settings = null, ILlmUpdateService? updates = null)
         {
             _gate = gate;
             _settings = settings;
+            _updates = updates;
         }
 
         public string Name => "llm";
-        public string Description => "Shows LLM usage status, or switches the LLM features off/on";
-        public string Usage => "llm [status|off|on]";
+        public string Description => "Shows LLM usage status, switches the LLM features off/on, or triggers a presence/bio update now";
+        public string Usage => "llm [status|off|on|update [presence|bio]]";
         public int DefaultPermissionTier => PermissionTier.BotOwner;
         public CommandCategory Category => CommandCategory.Llm;
 
         /// <summary>Slash surface: the subcommand stays free-form, parsing as on the text surface.</summary>
         public ApplicationCommandDeclaration? ApplicationCommand =>
-            ApplicationCommandDeclaration.FreeForm("Omit or 'status' to show usage, 'off'/'on' to kill-switch the LLM features");
+            ApplicationCommandDeclaration.FreeForm("Omit/'status' for status, 'off'/'on' kill-switch, 'update [presence|bio]' runs now");
 
         public async Task ExecuteCommand(IMessage message, ICommandContext context)
         {
@@ -57,10 +60,61 @@ namespace HambotV2.Commands.LlmCommands
                     _gate.SetKillSwitch(false);
                     await message.Channel.SendMessageAsync("LLM features are ON again.");
                     break;
+                case "update":
+                    await HandleUpdateAsync(message, context, arguments);
+                    break;
                 default:
                     await message.Channel.SendMessageAsync($"Unknown subcommand '{subcommand}'. Usage: {context.CommandIdentifier}{Usage}");
                     break;
             }
+        }
+
+        private async Task HandleUpdateAsync(IMessage message, ICommandContext context, CommandArguments arguments)
+        {
+            if (_updates is null)
+            {
+                await message.Channel.SendMessageAsync("LLM features are not configured on this installation.");
+                return;
+            }
+
+            var surfaces = new List<LlmSurface>();
+            string? which = arguments.Get(1);
+            if (which is null)
+            {
+                surfaces.Add(LlmSurface.Presence);
+                surfaces.Add(LlmSurface.Bio);
+            }
+            else if (which == "presence")
+            {
+                surfaces.Add(LlmSurface.Presence);
+            }
+            else if (which == "bio")
+            {
+                surfaces.Add(LlmSurface.Bio);
+            }
+            else
+            {
+                await message.Channel.SendMessageAsync($"Unknown surface '{which}'. Usage: {context.CommandIdentifier}{Usage}");
+                return;
+            }
+
+            var lines = new List<string>();
+            foreach (LlmSurface surface in surfaces)
+            {
+                string name = surface == LlmSurface.Presence ? "Presence" : "Bio";
+                LlmUpdateOutcome outcome = await _updates.UpdateAsync(surface);
+                lines.Add(outcome switch
+                {
+                    LlmUpdateOutcome.Applied => $"{name} update applied.",
+                    LlmUpdateOutcome.Inactive => "LLM features are inactive (no Llm:ApiKey configured, or the daily budget is 0) — nothing was run.",
+                    LlmUpdateOutcome.Blocked => $"{name} update blocked: the kill switch is on or the daily budget is exhausted — nothing changed.",
+                    LlmUpdateOutcome.Failed => $"{name} update failed (logged; counts toward the consecutive-failure watchdog alert) — nothing changed.",
+                    LlmUpdateOutcome.InvalidOutput => $"{name} update produced invalid output — the current {name.ToLowerInvariant()} was kept.",
+                    _ => $"{name} update returned an unknown outcome."
+                });
+            }
+
+            await message.Channel.SendMessageAsync(string.Join('\n', lines));
         }
 
         private async Task SendStatusAsync(IMessage message, ICommandContext context)
