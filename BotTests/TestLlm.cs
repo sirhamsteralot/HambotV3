@@ -688,12 +688,14 @@ namespace BotTests
             var (gate, _, client) = CreateGate(ActiveSettings());
             client.Responses.Enqueue(new LlmResponse("ok", 3, 2));
             await gate.ChatAsync("presence", [new LlmMessage("user", "hi")]);
-            var command = new LlmCommand(gate);
+            var command = new LlmCommand(gate, ActiveSettings(presence: true, bio: true));
 
             var status = await ExecuteAsync(command, database, "!llm status", authorId: 250);
             StringAssert.Contains(status[0], "LLM: active");
             StringAssert.Contains(status[0], "Requests today: 1 / budget 500");
             StringAssert.Contains(status[0], "presence: 1 requests, 3 tokens in / 2 out");
+            StringAssert.Contains(status[0], "Presence job: on (every 60 min)");
+            StringAssert.Contains(status[0], "Bio job: on (every 60 min)");
 
             var off = await ExecuteAsync(command, database, "!llm off", authorId: 250);
             StringAssert.Contains(off[0], "OFF");
@@ -1106,6 +1108,41 @@ namespace BotTests
 
             await ExecuteAsync(command, database, "!settings llmchannels clear", authorId: 200);
             Assert.AreEqual(0, database.GuildLlmChannels.Count(r => r.GuildId == GuildId));
+        }
+
+        [TestMethod]
+        public async Task LlmCommand_Interval_Sets_And_Resets_The_Runtime_Interval()
+        {
+            var database = DiscordTestDoubles.CreateDatabase();
+            var settings = ActiveSettings(presence: true, bio: false);
+            var options = new LlmRuntimeOptions(settings);
+            var (gate, _, _) = CreateGate(settings);
+            var command = new LlmCommand(gate, settings, null, options);
+
+            var set = await ExecuteAsync(command, database, "!llm interval presence 5", authorId: 250);
+            StringAssert.Contains(set[0], "5 min");
+            Assert.AreEqual(5, options.GetInterval(LlmSurface.Presence));
+            Assert.IsTrue(options.IsRuntimeOverride(LlmSurface.Presence));
+
+            var status = await ExecuteAsync(command, database, "!llm status", authorId: 250);
+            StringAssert.Contains(status[0], "every 5 min");
+            StringAssert.Contains(status[0], "runtime");
+
+            var reset = await ExecuteAsync(command, database, "!llm interval presence reset", authorId: 250);
+            StringAssert.Contains(reset[0], "60 min");
+            Assert.AreEqual(60, options.GetInterval(LlmSurface.Presence));
+            Assert.IsFalse(options.IsRuntimeOverride(LlmSurface.Presence));
+
+            var zero = await ExecuteAsync(command, database, "!llm interval presence 0", authorId: 250);
+            StringAssert.Contains(zero[0], "at least 1");
+            Assert.AreEqual(60, options.GetInterval(LlmSurface.Presence), "invalid input changes nothing");
+
+            var badSurface = await ExecuteAsync(command, database, "!llm interval banana 5", authorId: 250);
+            StringAssert.Contains(badSurface[0], "Usage");
+
+            var show = await ExecuteAsync(command, database, "!llm interval bio", authorId: 250);
+            StringAssert.Contains(show[0], "60 min");
+            StringAssert.Contains(show[0], "configured");
         }
 
     }

@@ -54,6 +54,9 @@ namespace HambotV2.Commands
         /// <summary>The LLM update loop (manual <c>!llm update</c> trigger), resolved by production DI; null keeps the registry usable in tests.</summary>
         private readonly ILlmUpdateService? _llmUpdateService;
 
+        /// <summary>The runtime LLM job intervals, resolved by production DI; null keeps the registry usable in tests (the command then derives them from the settings).</summary>
+        private readonly LlmRuntimeOptions? _runtimeOptions;
+
         /// <summary>
         /// The signal defaults to an isolated instance, and the backup & stability and presence dependencies to null, which
         /// keeps the registry usable in tests that do not exercise those features (the affected
@@ -72,7 +75,8 @@ namespace HambotV2.Commands
             QuoteSearchBacklog? quoteSearchBacklog = null,
             IGuildChannelLookup? guildChannelLookup = null,
             ILlmGate? llmGate = null,
-            ILlmUpdateService? llmUpdateService = null)
+            ILlmUpdateService? llmUpdateService = null,
+            LlmRuntimeOptions? runtimeOptions = null)
         {
             _deliverySignal = deliverySignal ?? new ScheduledDeliverySignal();
             _backupManager = backupManager;
@@ -89,6 +93,7 @@ namespace HambotV2.Commands
             _llmGate = llmGate;
             _llmSettings = LlmSettings.FromConfiguration(configuration);
             _llmUpdateService = llmUpdateService;
+            _runtimeOptions = runtimeOptions;
         }
 
         public Dictionary<string, ICommand> Commands { get; } = new();
@@ -98,7 +103,7 @@ namespace HambotV2.Commands
 
         public void RegisterCommands()
         {
-            RegisterAllCommands.RegisterCommands(this, _deliverySignal, _backupManager, _maintenanceMode, _notificationPublisher, _notificationChannelStore, _healthSnapshotProvider, _presenceService, _imageContentDownloader, _reminderSettings, _quoteOfTheDaySettings, _quoteSearchBacklog, _guildChannelLookup, _llmGate, _llmSettings, _llmUpdateService);
+            RegisterAllCommands.RegisterCommands(this, _deliverySignal, _backupManager, _maintenanceMode, _notificationPublisher, _notificationChannelStore, _healthSnapshotProvider, _presenceService, _imageContentDownloader, _reminderSettings, _quoteOfTheDaySettings, _quoteSearchBacklog, _guildChannelLookup, _llmGate, _llmSettings, _llmUpdateService, _runtimeOptions);
             CommandsRegistered = true;
         }
 

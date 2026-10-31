@@ -19,23 +19,25 @@ namespace HambotV2.Commands.LlmCommands
         private readonly ILlmGate? _gate;
         private readonly LlmSettings? _settings;
         private readonly ILlmUpdateService? _updates;
+        private readonly LlmRuntimeOptions? _runtimeOptions;
 
-        public LlmCommand(ILlmGate? gate = null, LlmSettings? settings = null, ILlmUpdateService? updates = null)
+        public LlmCommand(ILlmGate? gate = null, LlmSettings? settings = null, ILlmUpdateService? updates = null, LlmRuntimeOptions? runtimeOptions = null)
         {
             _gate = gate;
             _settings = settings;
             _updates = updates;
+            _runtimeOptions = runtimeOptions;
         }
 
         public string Name => "llm";
-        public string Description => "Shows LLM usage status, switches the LLM features off/on, or triggers a presence/bio update now";
-        public string Usage => "llm [status|off|on|update [presence|bio]]";
+        public string Description => "LLM status, kill switch, manual update trigger, and job intervals";
+        public string Usage => "llm [status|off|on|update [presence|bio]|interval <presence|bio> [minutes|reset]]";
         public int DefaultPermissionTier => PermissionTier.BotOwner;
         public CommandCategory Category => CommandCategory.Llm;
 
         /// <summary>Slash surface: the subcommand stays free-form, parsing as on the text surface.</summary>
         public ApplicationCommandDeclaration? ApplicationCommand =>
-            ApplicationCommandDeclaration.FreeForm("Omit/'status' for status, 'off'/'on' kill-switch, 'update [presence|bio]' runs now");
+            ApplicationCommandDeclaration.FreeForm("status, off/on, update [presence|bio], interval <presence|bio> [min|reset]");
 
         public async Task ExecuteCommand(IMessage message, ICommandContext context)
         {
@@ -64,6 +66,9 @@ namespace HambotV2.Commands.LlmCommands
                     break;
                 case "update":
                     await HandleUpdateAsync(message, context, arguments);
+                    break;
+                case "interval":
+                    await HandleIntervalAsync(message, context, arguments);
                     break;
                 default:
                     await message.Channel.SendMessageAsync($"Unknown subcommand '{subcommand}'. Usage: {context.CommandIdentifier}{Usage}");
@@ -119,10 +124,60 @@ namespace HambotV2.Commands.LlmCommands
             await message.Channel.SendMessageAsync(string.Join('\n', lines));
         }
 
+        private async Task HandleIntervalAsync(IMessage message, ICommandContext context, CommandArguments arguments)
+        {
+            if (_runtimeOptions is null)
+            {
+                await message.Channel.SendMessageAsync("LLM features are not configured on this installation.");
+                return;
+            }
+
+            string? surfaceName = arguments.Get(1);
+            if (surfaceName is not ("presence" or "bio"))
+            {
+                await message.Channel.SendMessageAsync($"Usage: {context.CommandIdentifier}llm interval <presence|bio> [minutes|reset]");
+                return;
+            }
+
+            var surface = surfaceName == "presence" ? LlmSurface.Presence : LlmSurface.Bio;
+            string label = surfaceName == "presence" ? "Presence" : "Bio";
+
+            if (arguments.Count == 2)
+            {
+                int current = _runtimeOptions.GetInterval(surface);
+                await message.Channel.SendMessageAsync($"{label} job interval: {current} min" +
+                    (_runtimeOptions.IsRuntimeOverride(surface) ? " (runtime override)" : " (configured)"));
+                return;
+            }
+
+            string? value = arguments.Get(2);
+            if (value == "reset")
+            {
+                _runtimeOptions.ResetInterval(surface);
+                int configured = _runtimeOptions.GetInterval(surface);
+                await message.Channel.SendMessageAsync($"{label} job interval reset to the configured {configured} min — applies from the next tick (not persisted; a restart restores the configured value).");
+                return;
+            }
+
+            if (!arguments.TryGetInt(2, out int minutes) || minutes < 1)
+            {
+                await message.Channel.SendMessageAsync("The interval must be a whole number of minutes of at least 1, or 'reset'.");
+                return;
+            }
+
+            _runtimeOptions.SetInterval(surface, minutes);
+            await message.Channel.SendMessageAsync($"{label} job interval set to {minutes} min — applies from the next tick (not persisted; a restart restores the configured value).");
+        }
+
+        private static string FormatOverride(LlmRuntimeOptions options, LlmSurface surface) =>
+            options.IsRuntimeOverride(surface) ? ", runtime" : "";
+
         private async Task SendStatusAsync(IMessage message, ICommandContext context)
         {
             LlmStateSnapshot snapshot = _gate!.Snapshot();
-            (string model, string modelLayer) = LlmRuntimeSettings.ResolveModelWithLayer(context.DbContext, _settings ?? new LlmSettings());
+            var settings = _settings ?? new LlmSettings();
+            var options = _runtimeOptions ?? new LlmRuntimeOptions(settings);
+(string model, string modelLayer) = LlmRuntimeSettings.ResolveModelWithLayer(context.DbContext, settings);
 
             var lines = new List<string>
             {
@@ -131,6 +186,8 @@ namespace HambotV2.Commands.LlmCommands
                     : "LLM: inactive (no Llm:ApiKey configured, or the daily budget is 0)",
                 $"Model: {model} ({modelLayer})",
                 $"Kill switch: {(snapshot.KillSwitchActive ? "ON (all calls blocked)" : "off")}",
+                $"Presence job: {(settings.PresenceUpdatesEnabled ? $"on (every {options.GetInterval(LlmSurface.Presence)} min{FormatOverride(options, LlmSurface.Presence)})" : "off")}",
+                $"Bio job: {(settings.BioUpdatesEnabled ? $"on (every {options.GetInterval(LlmSurface.Bio)} min{FormatOverride(options, LlmSurface.Bio)})" : "off")}",
                 $"Requests today: {snapshot.RequestsToday} / budget {snapshot.DailyBudget}{(snapshot.BudgetExhausted ? " — EXHAUSTED for the rest of the UTC day" : "")}",
                 $"Consecutive failures: {snapshot.ConsecutiveFailures}"
             };

@@ -36,7 +36,7 @@ namespace HambotV2.Commands
     }
 
     /// <summary>
-    /// The shared virtual-invocation seam (design §3.11): resolves a transient command handler
+    /// The shared virtual-invocation seam: resolves a transient command handler
     /// from the container exactly like the gateway path (one per invocation, disposed after
     /// use), prefixes the guild's effective identifier so the pipeline resolves the command
     /// exactly as for a text message, and captures the replies instead of posting them.

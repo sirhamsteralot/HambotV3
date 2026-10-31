@@ -22,6 +22,7 @@ namespace HambotV2.Llm
         private readonly ILlmGate _gate;
         private readonly LlmPromptBuilder _promptBuilder;
         private readonly IChatContextCollector? _chatContext;
+        private readonly LlmRuntimeOptions _runtimeOptions;
         private readonly IPresenceService _presence;
         private readonly IServiceScopeFactory _scopeFactory;
         private readonly string _botName;
@@ -40,7 +41,8 @@ namespace HambotV2.Llm
             IConfiguration configuration,
             TimeProvider timeProvider,
             ILogger<PresenceUpdateService> logger,
-            IChatContextCollector? chatContext = null)
+            IChatContextCollector? chatContext = null,
+            LlmRuntimeOptions? runtimeOptions = null)
         {
             _settings = settings;
             _gate = gate;
@@ -51,6 +53,7 @@ namespace HambotV2.Llm
             _timeProvider = timeProvider;
             _logger = logger;
             _chatContext = chatContext;
+            _runtimeOptions = runtimeOptions ?? new LlmRuntimeOptions(settings);
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -68,16 +71,16 @@ namespace HambotV2.Llm
             else
             {
                 if (_settings.PresenceUpdatesEnabled)
-                    _logger.LogInformation("Presence update job started (interval {Interval} minutes).", _settings.PresenceUpdatesIntervalMinutes);
+                    _logger.LogInformation("Presence update job started (interval {Interval} minutes).", _runtimeOptions.GetInterval(LlmSurface.Presence));
                 if (_settings.BioUpdatesEnabled)
-                    _logger.LogInformation("Bio update job started (interval {Interval} minutes).", _settings.BioUpdatesIntervalMinutes);
+                    _logger.LogInformation("Bio update job started (interval {Interval} minutes).", _runtimeOptions.GetInterval(LlmSurface.Bio));
             }
 
             var loops = new List<Task>();
             if (_settings.PresenceUpdatesEnabled)
-                loops.Add(RunScheduledLoopAsync(LlmSurface.Presence, _settings.PresenceUpdatesIntervalMinutes, stoppingToken));
+                loops.Add(RunScheduledLoopAsync(LlmSurface.Presence, stoppingToken));
             if (_settings.BioUpdatesEnabled)
-                loops.Add(RunScheduledLoopAsync(LlmSurface.Bio, _settings.BioUpdatesIntervalMinutes, stoppingToken));
+                loops.Add(RunScheduledLoopAsync(LlmSurface.Bio, stoppingToken));
 
             if (loops.Count > 0)
                 await Task.WhenAll(loops);
@@ -87,7 +90,7 @@ namespace HambotV2.Llm
             _logger.LogInformation("Presence/bio update service stopped.");
         }
 
-        private async Task RunScheduledLoopAsync(LlmSurface surface, int intervalMinutes, CancellationToken stoppingToken)
+        private async Task RunScheduledLoopAsync(LlmSurface surface, CancellationToken stoppingToken)
         {
             while (!stoppingToken.IsCancellationRequested)
             {
@@ -107,7 +110,8 @@ namespace HambotV2.Llm
 
                 try
                 {
-                    await Task.Delay(TimeSpan.FromMinutes(intervalMinutes), _timeProvider, stoppingToken);
+                    // The interval is read every tick, so a runtime !llm interval change applies from the next tick.
+                    await Task.Delay(TimeSpan.FromMinutes(_runtimeOptions.GetInterval(surface)), _timeProvider, stoppingToken);
                 }
                 catch (OperationCanceledException)
                 {

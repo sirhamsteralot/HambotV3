@@ -6,7 +6,7 @@ using Microsoft.Extensions.Configuration;
 namespace HambotV2.SlashCommands
 {
     /// <summary>
-    /// The slash surface (design §3.15): opt-in via <c>SlashCommands:Enabled</c>.
+    /// The slash surface: opt-in via <c>SlashCommands:Enabled</c>.
     /// After the gateway connects it pushes one application-command definition per slash-eligible
     /// command (a bulk global overwrite, idempotent on every boot), and executes invocations
     /// through the real command pipeline via the shared virtual-invocation seam — so permission

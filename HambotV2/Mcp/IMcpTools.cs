@@ -3,7 +3,7 @@ using Discord;
 namespace HambotV2.Mcp
 {
     /// <summary>
-    /// The MCP tool surface (design §3.11): thin wrappers over the existing components —
+    /// The MCP tool surface: thin wrappers over the existing components —
     /// the shared client, the presence service, the scoped database reads, and the virtual
     /// command invocation seam — so nothing re-implements command or data logic. Implementations
     /// never throw: every call returns its outcome, failing calls as error results. Public

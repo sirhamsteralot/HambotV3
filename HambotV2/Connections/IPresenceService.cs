@@ -51,7 +51,7 @@ namespace HambotV2.Connections
     }
 
     /// <summary>
-    /// The single path for every change to the bot's Discord identity (design §3.10): startup
+    /// The single path for every change to the bot's Discord identity: startup
     /// configuration, the profile commands, and later the LLM job and MCP tools all converge
     /// here. Applies are single-flight with last-write-wins; requests before the gateway is
     /// ready are deferred to its Ready event; a failed apply is logged and returned as false,

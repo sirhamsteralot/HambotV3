@@ -39,14 +39,15 @@ namespace HambotV2.Commands
             IGuildChannelLookup? guildChannelLookup = null,
             ILlmGate? llmGate = null,
             LlmSettings? llmSettings = null,
-            ILlmUpdateService? llmUpdateService = null)
+            ILlmUpdateService? llmUpdateService = null,
+            LlmRuntimeOptions? runtimeOptions = null)
         {
             RegisterSystemCommands.RegisterCommands(commandService, notificationChannelStore, healthSnapshotProvider, presenceService, imageContentDownloader, guildChannelLookup);
             RegisterQuoteCommands.RegisterCommands(commandService, quoteSearchBacklog ?? new QuoteSearchBacklog(), quoteOfTheDaySettings);
             RegisterResponseCommands.RegisterCommands(commandService);
             RegisterReminderCommands.RegisterCommands(commandService, deliverySignal, reminderSettings);
             RegisterBackupCommands.RegisterCommands(commandService, backupManager, maintenanceMode, notificationPublisher);
-            RegisterLlmCommands.RegisterCommands(commandService, llmGate, llmSettings, llmUpdateService);
+            RegisterLlmCommands.RegisterCommands(commandService, llmGate, llmSettings, llmUpdateService, runtimeOptions);
         }
     }
 }

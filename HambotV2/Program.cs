@@ -139,6 +139,7 @@ namespace HambotV2
             // command's manual trigger.
             var llmSettings = LlmSettings.FromConfiguration(builder.Configuration);
             builder.Services.AddSingleton(llmSettings);
+            builder.Services.AddSingleton<LlmRuntimeOptions>();
             builder.Services.AddSingleton<ILlmModelResolver, LlmModelResolver>();
             if (!string.IsNullOrWhiteSpace(llmSettings.ApiKey))
             {

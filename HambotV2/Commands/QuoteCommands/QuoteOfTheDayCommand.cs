@@ -96,7 +96,7 @@ namespace HambotV2.Commands.QuoteCommands
             ulong? channelId;
             if (token == "clear")
                 channelId = null;
-            else if (token is not null && TryParseChannelId(token, out ulong parsed))
+            else if (token is not null && DiscordChannelId.TryParse(token, out ulong parsed))
                 channelId = parsed;
             else
             {
@@ -188,7 +188,5 @@ namespace HambotV2.Commands.QuoteCommands
             return setting;
         }
 
-        /// <summary>Accepts a raw channel id and a channel mention (`<#id>`).</summary>
-        private static bool TryParseChannelId(string token, out ulong channelId) => DiscordChannelId.TryParse(token, out channelId);
     }
 }

@@ -134,7 +134,7 @@ Expected startup logs: `Bot version: <version>` → `Database migrations applied
 | `!commandpermission <name> [tier]` / `!userpermission <user> [tier]` | Show/set command or user tier. Admin tier. |
 | `!banuser <user> [duration]` / `!unbanuser <user>` / `!banlist` | Per-guild bot bans; banned users are ignored silently. Moderator tier. |
 | `!settings [commandidentifier <v>\|reset \| cooldown <tier> <s>\|reset \| persona <text...>\|clear \| llmchat on\|off \| llmchannels [add|remove <#channel|id>|clear]]` | Guild identifier, per-tier cooldown overrides, this server's LLM persona override, the per-guild opt-in for LLM chat context, and its channel allowlist. Admin tier. |
-| `!llm [status\|off\|on\|update [presence\|bio]]` | LLM usage status; off/on toggles the in-memory kill switch (not persisted); update triggers an LLM presence/bio update now. Bot-owner tier; DM-usable. |
+| `!llm [status\|off\|on\|update [presence\|bio]\|interval <presence\|bio> [minutes\|reset]]` | LLM usage status (incl. the presence/bio job states and intervals); off/on toggles the in-memory kill switch (not persisted); update triggers an LLM presence/bio update now; interval sets one job's interval at runtime (in-memory, floor 1 min). Bot-owner tier; DM-usable. |
 | `!persona [<text...>\|clear]` | Show/set/clear the global LLM persona override (persisted). Admin tier; DM-usable. |
 | `!model [list\|<name>\|clear]` | Show the effective LLM model, list the provider's models, or set/clear the runtime model override (validated against the API). Admin tier; DM-usable. |
 | `!agenttier [<tier 0-4>\|clear]` | Tier the MCP operator agent acts at here. Owner tier. |

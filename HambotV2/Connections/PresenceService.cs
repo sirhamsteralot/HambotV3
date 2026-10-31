@@ -4,7 +4,7 @@ using Microsoft.Extensions.Logging;
 namespace HambotV2.Connections
 {
     /// <summary>
-    /// The <see cref="IPresenceService"/> implementation (design §3.10): the single path for
+    /// The <see cref="IPresenceService"/> implementation: the single path for
     /// activity, bio, avatar, and banner changes over the gateway. All applies run under one
     /// single-flight lock — the last request wins; requests before the gateway is ready
     /// are recorded and applied on its Ready event together with the startup configuration;

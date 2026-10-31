@@ -57,7 +57,7 @@ namespace HambotV2.Commands.SystemCommands
                 return;
             }
 
-            if (!TryParseChannelId(firstArgument, out ulong channelId))
+            if (!DiscordChannelId.TryParse(firstArgument, out ulong channelId))
             {
                 await message.Channel.SendMessageAsync("That does not look like a channel — pass a channel mention (e.g. #ops) or a raw channel id.");
                 return;
@@ -75,7 +75,5 @@ namespace HambotV2.Commands.SystemCommands
                 : "No notification channel is set — notifications go to logs and bot-owner DMs only.");
         }
 
-        /// <summary>Accepts a raw channel id and a channel mention (`<#id>`).</summary>
-        private static bool TryParseChannelId(string token, out ulong channelId) => DiscordChannelId.TryParse(token, out channelId);
     }
 }
