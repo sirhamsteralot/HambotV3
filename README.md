@@ -68,10 +68,14 @@ The Compose `backup` sidecar (from `scripts/backup/`) dumps the database on sche
 
 ## Health, watchdog & notifications
 
-- `!health` (bot-owner tier, DMs) — version, uptime, gateway, database, pending reminders, backup/restore-test status, notification channel, MCP state.
+- `!health` (bot-owner tier, DMs) — version, uptime, gateway, database, pending reminders, backup/restore-test status, notification channel, MCP state, LLM state.
 - `!notifychannel [<#channel> | clear]` (bot-owner tier, DMs) — sets the operator notification channel; persists across restarts; `NOTIFY_CHANNEL_ID` in `.env` is the default.
 - With a channel set, command failures, retry-exhausted reminders, maintenance/restore outcomes, and watchdog alerts are posted there — rate-limited (default 5/min) with identical consecutive messages collapsed.
-- The watchdog checks every 5 minutes and alerts the bot owner by DM (and the channel) on: gateway down > 10 min, failed/overdue backups or restore tests, maintenance mode, unreachable notification channel. Each condition alerts once, re-alerts hourly, announces recovery once. Without `BOT_OWNER_DISCORD_ID` it degrades to logs.
+- The watchdog checks every 5 minutes and alerts the bot owner by DM (and the channel) on: gateway down > 10 min, failed/overdue backups or restore tests, LLM budget exhaustion or 3 consecutive LLM failures, maintenance mode, unreachable notification channel. Each condition alerts once, re-alerts hourly, announces recovery once. Without `BOT_OWNER_DISCORD_ID` it degrades to logs.
+
+## LLM features (opt-in)
+
+Set `LLM_API_KEY` (Mistral API key, a secret) in `.env` to activate; without it every LLM feature is inactive and `!llm status` / `!health` report so. Settings live under `Llm:*` in `appsettings.json` (see the table in `docs/software-design.md` §3.12): model, persona seed, chat-context bounds, daily request budget (default 500/UTC day), and the opt-in presence/bio update jobs (`LLM_PRESENCE_UPDATES_ENABLED`, `LLM_BIO_UPDATES_ENABLED`, interval). Phase 1 automatically refreshes the bot's presence (and optionally bio) on the configured interval, in the persona's voice. Runtime controls: `!llm off|on` (in-memory kill switch), `!llm status`, `!model [list|<name>|clear]` (model override, validated against the provider's list), `!persona [<text...>|clear]` (global persona override) and `!settings persona <text...>|clear` (per-guild override). The watchdog alerts on budget exhaustion and on 3 consecutive LLM failures.
 
 ## MCP endpoint (agent API)
 
@@ -83,7 +87,7 @@ The agent acts at the lowest tier (0) per server; a guild owner or the bot owner
 
 ## Slash commands
 
-Opt-in via `SLASH_COMMANDS_ENABLED=true` (requires the `applications.commands` invite scope): the administrative/configuration commands, the reminder commands, `/searchquotes`, `/version`, and `/help` run through the same command pipeline with identical permissions and cooldowns, but every reply is ephemeral (visible only to the invoker); multi-page `/help` and `/searchquotes` replies carry previous/next buttons. Community-facing commands (`!quote` & co., custom responses) stay text-only. Global commands can take up to an hour to appear.
+Opt-in via `SLASH_COMMANDS_ENABLED=true` (requires the `applications.commands` invite scope): the administrative/configuration commands (including `/llm`, `/model`, `/persona`), the reminder commands, `/searchquotes`, `/version`, and `/help` run through the same command pipeline with identical permissions and cooldowns, but every reply is ephemeral (visible only to the invoker); multi-page `/help` and `/searchquotes` replies carry previous/next buttons. Community-facing commands (`!quote` & co., custom responses) stay text-only. Global commands can take up to an hour to appear.
 
 ## Building & running locally
 
@@ -112,7 +116,7 @@ The image is secret-free (`appsecrets.json` is `.dockerignore`d). CI: the Jenkin
 
 ## Smoke test
 
-Expected startup logs: `Bot version: <version>` → `Database migrations applied successfully` → `Initializing Discord connection...` → gateway `Ready` → the MCP state line (and, with slash enabled, `Registered N application commands with Discord.`). Then `!hello` in a channel the bot can see should reply `Hello World`. A wrong token logs a critical message and the bot keeps retrying — it does not crash.
+Expected startup logs: `Bot version: <version>` → `Database migrations applied successfully` → `Initializing Discord connection...` → gateway `Ready` → the MCP state line and the LLM state line (and, with slash enabled, `Registered N application commands with Discord.`). Then `!hello` in a channel the bot can see should reply `Hello World`. A wrong token logs a critical message and the bot keeps retrying — it does not crash.
 
 ## Commands
 

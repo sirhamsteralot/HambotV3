@@ -18,6 +18,12 @@ Run against a **test deployment**: a second Discord application (own token), a t
    BACKUP_INTERVAL=60
    BACKUP_RETENTION=3
    BACKUP_TEST_INTERVAL=300
+   # Optional, for §16 (LLM phase 1) — without LLM_API_KEY every LLM feature is inactive:
+   LLM_API_KEY=
+   LLM_PRESENCE_UPDATES_ENABLED=
+   LLM_PRESENCE_INTERVAL_MINUTES=
+   LLM_BIO_UPDATES_ENABLED=
+   LLM_DAILY_REQUEST_BUDGET=
    ```
 
 4. `docker compose up -d --build`; verify startup: `Bot version:`, `Database migrations applied successfully`, `Initializing Discord connection...`, `Gateway: Ready`.
@@ -126,10 +132,11 @@ Proves recovery when the *bot itself* is broken. Run once here and record the ou
 
 ## 10. Rollout checklist
 
-- [ ] §1–§9 pass (§3 and §8 recorded as the restore drill).
+- [ ] §1–§16 pass (§3 and §8 recorded as the restore drill).
 - [ ] Production `.env` uses the **production** intervals (`BACKUP_INTERVAL=86400`, `RETENTION=7`, `TEST_INTERVAL=2592000`, watchdog defaults) — not the fast test values.
 - [ ] `BACKUP_RCLONE_REMOTE` set in production if offsite push is wanted.
 - [ ] Production `NOTIFY_CHANNEL_ID` points at a channel the prod bot can see.
+- [ ] Production `.env` decides the LLM features deliberately: leave `LLM_API_KEY` empty to keep them inactive, or set it (plus the `LLM_*` job flags/budget) — the watchdog then also watches budget exhaustion and consecutive LLM failures.
 - [ ] After deploy: startup lines, first scheduled backup lands, `!health` shows the prod dump.
 
 ## 11. Presence & profile identity
@@ -168,6 +175,7 @@ Set `SLASH_COMMANDS_ENABLED=true`, restart; the log line "Registered N applicati
 | 12.11 | `/restorebackup <name>` without confirm | The destructive-restore warning, same as text. |
 | 12.12 | Set `SlashCommands__Enabled: false`, restart | Nothing registers; stale `/` entries persist until the next enabled boot's bulk overwrite (re-enable once before production to clear). Text surface unaffected. |
 | 12.13 | `/searchquotes <text>` in a server with matching quotes | Same ranked results as the text surface, visible **only to the invoker**; the previous/next buttons page through the matches. |
+| 12.14 | `/version` | Same version string as `!version`, visible only to the invoker (ephemeral). |
 
 ## 13. MCP endpoint
 
@@ -222,3 +230,25 @@ Needs a test server with at least one quote and a channel the bot can post in; r
 | 15.8 | Delete the target channel (or revoke Send Messages), wait past a boundary, restore it | The boundary is skipped, the feature stays on; the next publication arrives at the next boundary. |
 | 15.9 | `!quoteoftheday channel clear`; `!quoteoftheday` in a DM | Off; DM decline. |
 | 15.10 | `/quoteoftheday` (slash on) | Same set as text; reply visible only to the invoker. |
+
+## 16. LLM integration — phase 1 (presence & bio updates)
+
+Opt-in (design §3.12): set `LLM_API_KEY=<Mistral API key>` and the job flags in `.env`, restart. Fast cadence: `LLM_PRESENCE_UPDATES_ENABLED=true`, `LLM_PRESENCE_INTERVAL_MINUTES=1`, `LLM_BIO_UPDATES_ENABLED=true`. The startup log distinguishes the states: "LLM features are inactive…", "LLM features are active but no update job is enabled.", "Presence/bio update service started (interval N minutes)".
+
+| # | Action | Expected |
+|---|---|---|
+| 16.1 | No `LLM_API_KEY`: `!llm status`, `!health` | Status: "LLM: inactive (no Llm:ApiKey configured, or the daily budget is 0)"; the `!health` LLM line says the same; presence/bio never change. |
+| 16.2 | Key set, both jobs off: restart, `!llm status` | "LLM: active"; model `mistral-small-latest` (configuration layer); kill switch off; `Requests today: 0 / budget 500`; presence unchanged. |
+| 16.3 | Jobs on at 1 min: wait ~2 ticks, then `!presence` and the profile in **both** test servers | Activity changes to a new single line ≤ 128 chars in the persona voice; the bio changes too (≤ 190 chars, line breaks preserved); `!llm status` lists `presence`/`bio` with rising request and token counts. |
+| 16.4 | `!llm off`, wait a tick, `!llm status` | Confirmation; kill switch ON (all calls blocked); counters stop rising; presence/bio unchanged. `!llm on` re-enables. |
+| 16.5 | `!llm off`, then `docker compose restart bot`, `!llm status` | The kill switch is in-memory — after the restart it is off again (the configured state is restored). |
+| 16.6 | `!llm status` / `!llm off` in a DM; from a second account; `/llm status`, `/model`, `/persona` (slash on) | DM works (bot-owner tier for `llm`); second account denied (`llm` is tier 4, `model`/`persona` tier 2); the slash replies are ephemeral with the same content as text. |
+| 16.7 | `!llm banana` | "Unknown subcommand 'banana'" + usage. |
+| 16.8 | `LLM_DAILY_REQUEST_BUDGET=2`, restart, wait past a tick | Status: "Requests today: 2 / budget 2 — EXHAUSTED for the rest of the UTC day"; later ticks skip (logged, nothing changes); the watchdog alerts budget exhaustion (owner DM + notification channel, §7 mechanics); `!health` shows "(exhausted)". |
+| 16.9 | Wrong `LLM_API_KEY` with jobs on, wait ~3 ticks | Every tick logs a failure; presence/bio unchanged; the bot stays healthy; `!llm status` counts consecutive failures; at 3 the watchdog alerts. Restore the key → recovery announced once, counter resets. |
+| 16.10 | `LLM_INCLUDE_CHAT=true`, `LLM_CHAT_CONTEXT_MAX_MESSAGES=5`, `LLM_CHAT_CONTEXT_MAX_CHARACTERS=500`; post a few distinctive messages, wait a tick | The new presence/bio stays generic — no quoted chat, no user or channel names; `docker compose logs bot` contains none of the posted content (untrusted input is never logged). |
+| 16.11 | `!model` / `!model list` / `!model <a listed name>` / `!model` / `!model clear` | Shows the effective model + layer; `list` returns the provider's models; setting one persists as the runtime override (visible as the override layer in `!llm status` from the next call); `clear` reverts to `Llm:Model`/the shipped default. |
+| 16.12 | `!model not-a-real-model`; `!model` from a second (tier-0) account | "Unknown model…"; permission denied (admin tier). |
+| 16.13 | `!persona` / `!persona You are a cheerful hamster.` / `!persona` / `!persona clear`; a >2000-char persona | Shows the shipped default; after setting, the runtime-override layer; `clear` reverts; over-limit rejected naming the 2000-char limit. |
+| 16.14 | `!settings persona <text>`, `!settings persona`, `!settings persona clear` in the test server; same in a DM | Guild override set/shown/cleared (persisted per guild); the DM declines (guild-only). |
+| 16.15 | `!help` as bot owner | The **LLM** category group lists `llm`, `model`, `persona`. |

@@ -60,9 +60,9 @@ Registers `appsecrets.json` then environment variables (env wins), replaces logg
 
 | Lifetime | Registrations |
 |---|---|
-| Singleton | Shared `DiscordSocketClient` (intents below; container-disposed; also used by the reminder DM sender and the quote-of-the-day sender); `CommandService`; `GuildSettingsService` (per-guild identifier/tier cache); `IVirtualCommandRunner` + `SlashCommandService` (§3.15); `QuoteSearchBacklog` + `ButtonPaginationService` (§3.19); `ICooldownService` + `TimeProvider.System`; `IScheduledDeliverySignal` + reminder source/sender (§3.8); quote-of-the-day sender (§3.17); `IPresenceService` + gateway seam + `IImageContentDownloader` (§3.10); maintenance/backup/notification/health/gateway-status set (§3.13, §5.2); MCP client/tools/status set (§3.11); LLM foundation set (§3.12): `LlmSettings`, `ILlmClient` (only when `Llm:ApiKey` is set), `ILlmUsageTracker`, `ILlmGate`, `LlmPromptBuilder`, `IChatContextCollector`. `IPresenceService` is resolved eagerly in `Main` so its Ready subscription exists before the gateway starts. |
+| Singleton | Shared `DiscordSocketClient` (intents below; container-disposed; also used by the reminder DM sender and the quote-of-the-day sender); `CommandService`; `GuildSettingsService` (per-guild identifier/tier cache); `IVirtualCommandRunner` + `SlashCommandService` (§3.15); `QuoteSearchBacklog` + `ButtonPaginationService` (§3.19); `ICooldownService` + `TimeProvider.System`; `IScheduledDeliverySignal` + reminder source/sender (§3.8); quote-of-the-day sender (§3.17); `IPresenceService` + gateway seam + `IImageContentDownloader` (§3.10); maintenance/backup/notification/health/gateway-status set (§3.13, §5.2); MCP client/tools/status set (§3.11); LLM foundation set (§3.12): `LlmSettings`, `ILlmClient` (only when `Llm:ApiKey` is set), `ILlmModelResolver`, `ILlmUsageTracker`, `ILlmGate`, `LlmPromptBuilder`, `IChatContextCollector`. `IPresenceService` is resolved eagerly in `Main` so its Ready subscription exists before the gateway starts. |
 | Transient | `ICommandHandler` → `CommandHandler` (per message, disposed after use), `IPermissionsService`, `DatabaseContext` (also mapped onto `IDatabaseContext`). |
-| Hosted | The five services listed above. |
+| Hosted | The six active services listed above (plus the planned `ContextPipelineHost`, §3.20). |
 
 ## 3. Component Design
 
@@ -233,7 +233,7 @@ Tests: `TestReminders.cs` (parsing, persistence/caps, DM usage, the engine over 
 
 ### 3.9 Version reporting — embedded build version and `!version`
 
-Semver of the latest `v`-prefixed tag reachable from the built commit + 7-char hash, as build metadata: `v1.2.3` @ `1639324…` → `1.2.3+1639324`; untagged → `0.0.0+<hash>`; no git → `0.0.0+unknown`. The MSBuild target `ComputeBotVersion` in `HambotV2.csproj` embeds the raw pieces as `AssemblyMetadata` (also settable via `-p:` for git-less builds); the pure `BotVersion.Format` composes the string (unit-tested). `Program.Main` logs `Bot version: <version>` right after the host is built — the line deploy verification matches (§5.1). `!version` (tier 0, DM-usable) replies with it. Docker: `ARG BOT_VERSION_TAG`/`BOT_VERSION_COMMIT`, mapped by compose and passed by `scripts/deploy.sh`, which verifies the log line.
+Semver of the latest `v`-prefixed tag reachable from the built commit + 7-char hash, as build metadata: `v1.2.3` @ `1639324…` → `1.2.3+1639324`; untagged → `0.0.0+<hash>`; no git → `0.0.0+unknown`. The MSBuild target `ComputeBotVersion` in `HambotV2.csproj` embeds the raw pieces as `AssemblyMetadata` (also settable via `-p:` for git-less builds); the pure `BotVersion.Format` composes the string (unit-tested). `Program.Main` logs `Bot version: <version>` right after the host is built — the line deploy verification matches (§5.1). `!version` (tier 0, DM-usable, slash-eligible as `/version` per §3.15) replies with it. Docker: `ARG BOT_VERSION_TAG`/`BOT_VERSION_COMMIT`, mapped by compose and passed by `scripts/deploy.sh`, which verifies the log line.
 
 Tests: `TestVersion.cs`.
 
@@ -284,7 +284,7 @@ MCP client ──HTTP──► McpBearerAuthentication (401 without "Authorizati
 
 Tests: `TestMcp.cs`, `TestAgentTier.cs` — lookups run over EF InMemory through the real `IDatabaseContext` behind a fake `IMcpDiscordClient`.
 
-### 3.12 LLM integration — foundation toolkit + phase 1: presence updates
+### 3.12 LLM integration — foundation toolkit + phase 1: presence & bio updates
 
 Phase 1 is not a one-off presence generator: it ships a small **LLM foundation** in `Llm/` (registered as singletons, §2.1) that every later stage — conversation participation, memory & personality (roadmap phase #2) — hooks into instead of growing its own client, prompt assembly, or guardrails. What starts those later stages and what feeds their prompts is not hardcoded: registered triggers and collectors (§3.20).
 
@@ -319,13 +319,13 @@ Phase 1 is not a one-off presence generator: it ships a small **LLM foundation**
 | `ChatContextCollector` | Shared bounded chat reader: newest messages from the bot's readable guild channels, `Llm:ChatContext:MaxMessages` (default 20) / `Llm:ChatContext:MaxCharacters` (default 4000), never DMs (FR-154). | Registered as an `IContextCollector` (§3.20); phase 1 includes it only via `Llm:PresenceUpdates:IncludeChat` (default false). |
 | `LlmOutputValidator` | Per-surface output rules: presence = non-empty, single line, ≤ 128 chars (FR-93); bio = non-empty, ≤ 190 chars, line breaks allowed (FR-114). | Register additional surfaces (channel message ≤ 2000). |
 
-- Phase 1 feature — `Llm/PresenceUpdateService.cs`: opt-in hosted loop (`Llm:PresenceUpdates:Enabled`, `Llm:PresenceUpdates:IntervalMinutes` default 60) that builds the prompt through the builder, calls through the gate, validates, and applies via `IPresenceService` (§3.10); `Llm:BioUpdates:Enabled` refreshes the bio in the same tick.
+- Phase 1 feature — `Llm/PresenceUpdateService.cs`: opt-in hosted loop (`Llm:PresenceUpdates:Enabled`, `Llm:PresenceUpdates:IntervalMinutes` default 60) that builds the prompt through the builder, calls through the gate, validates, and applies via `IPresenceService` (§3.10); `Llm:BioUpdates:Enabled` refreshes the bio in the same tick. Startup logs distinguish the three states: "LLM features are inactive (no Llm:ApiKey, or the daily budget is 0)." / "LLM features are active but no update job is enabled." / "Presence/bio update service started (interval N minutes)."
 
 **Commands** (`Commands/LlmCommands/`, registered via `RegisterLlmCommands` in the chain; always registered — without `Llm:ApiKey` they just report the features inactive, FR-92; slash-eligible as administrative commands per §3.15, so they run through the standard pipeline with cooldown and audit):
 
 | Command | Tier | Behavior |
 |---|---|---|
-| `llm` / `llm status` | 4 | Report: active/inactive (key present), kill-switch state, per-feature usage for the current UTC day (requests, tokens in/out — FR-102), daily budget used/limit, consecutive failures. DM-usable. |
+| `llm` / `llm status` | 4 | Report: active/inactive (key present), effective model + layer (FR-161), kill-switch state, per-feature usage for the current UTC day (requests, tokens in/out — FR-102), daily budget used/limit, consecutive failures. DM-usable. |
 | `llm off` / `llm on` | 4 | Set/clear the in-memory kill switch — the gate refuses every call; replies with a confirmation. A restart restores the configured state (FR-104). DM-usable. |
 | `persona` | 2 | No args: show the effective *global* persona and which layer is active. `persona <text...>`: set the global runtime override (persisted in `BotSetting`, FR-155). `persona clear`: remove it → fall back to config/shipped seed. DM-usable. |
 | `model` | 2 | No args: show the effective model + layer. `model list`: the provider's available model ids (through the gate's guardrails). `model <name>`: set the global runtime override (persisted in `BotSetting`, validated against the API list, FR-161). `model clear`: remove it → `Llm:Model`/default. DM-usable. |
@@ -400,7 +400,7 @@ s slash interaction ──► SlashCommandLineBuilder ──► virtual text lin
                                                      carries components, so buttons work on ephemeral replies (§3.19)
 ```
 
-- **Eligibility** is declared per command via `ICommand.ApplicationCommand` (typed options, a single free-form `arguments` fallback, or none): administrative/configuration commands (permissions, settings, bans, agent tier, presence/bio/images, health, notifications, backups, `quoteoftheday`), invoker-scoped commands (reminders), `/searchquotes`, `/version`, `/help`. Community-facing commands (`quote`, `removequote`, `importquotes`, custom responses, `hello`) stay text-only.
+- **Eligibility** is declared per command via `ICommand.ApplicationCommand` (typed options, a single free-form `arguments` fallback, or none): administrative/configuration commands (permissions, settings, bans, agent tier, presence/bio/images, health, notifications, backups, `quoteoftheday`, the LLM commands `llm`/`model`/`persona`), invoker-scoped commands (reminders), `/searchquotes`, `/version`, `/help`. Community-facing commands (`quote`, `removequote`, `importquotes`, custom responses, `hello`) stay text-only.
 - On the first gateway Ready, `SlashCommandService` builds one definition per eligible command (validating Discord's limits) and pushes them as one bulk global overwrite (idempotent); failure logs critical and leaves the text surface intact.
 
 Tests: `TestSlashCommands.cs`.
@@ -514,7 +514,7 @@ Tests (planned): fake `ILlmClient` + fake triggers/collectors — registry resol
 | Quote of the day (§3.17) | `QuoteOfTheDay:MinIntervalMinutes` (1) | Deployment-level interval floor. |
 | Slash surface (§3.15) | `SlashCommands:Enabled` (false) | Pagination buttons (§3.19) are always active. |
 | Backups (§5.2) | `Backups:Directory` | In-bot backup commands only; scheduling itself is compose-side env (`BACKUP_INTERVAL` 24 h, `BACKUP_RETENTION` 7, `BACKUP_TEST_INTERVAL` 30 d, `BACKUP_RCLONE_REMOTE` + S3 credentials). |
-| LLM (§3.12) | All `Llm:*` keys — full settings table in §3.12 | Secret `Llm:ApiKey` via env (`Llm__ApiKey`); absent/invalid → defaults, absent key → features inactive. Runtime persona overrides (`!persona`, `!settings persona`) beat the `Llm:Persona` config seed. |
+| LLM (§3.12) | All `Llm:*` keys — full settings table in §3.12 | Compose `.env`: `LLM_API_KEY`, `LLM_PERSONA`, `LLM_PRESENCE_UPDATES_ENABLED`, `LLM_PRESENCE_INTERVAL_MINUTES`, `LLM_INCLUDE_CHAT`, `LLM_CHAT_CONTEXT_MAX_MESSAGES`, `LLM_CHAT_CONTEXT_MAX_CHARACTERS`, `LLM_BIO_UPDATES_ENABLED`, `LLM_DAILY_REQUEST_BUDGET` (mapped to `Llm__*`; absent/invalid → defaults, absent key → features inactive). Runtime persona overrides (`!persona`, `!settings persona`) beat the `Llm:Persona` config seed. |
 | Context pipeline **(planned)** (§3.20) | `Llm:Triggers:<Name>:Enabled` (true), `Llm:Collectors:<Name>:Enabled` (true); guild-scoped opt-ins and phase-B cadence bounds via `GuildSetting`/config | One key per registered trigger/collector name. |
 
 ## 5. Deployment

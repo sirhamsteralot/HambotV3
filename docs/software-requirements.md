@@ -151,7 +151,7 @@ HamBot is a Discord chat bot. It recognizes messages starting with a configurabl
 - **FR-143**: `search_users(guildId, query, limit ≤ 25)` — a case-insensitive member search over username, display name, and server nickname, resolving a name the agent encountered (a message author, "who is X") to a user id for the other lookup tools; backed by Discord's REST member search within the bot's existing guild access, its candidate set ranked closest-first locally (FR-151). A missing query is an error; members who left are not findable (current members only).
 - **FR-142**: The lookup tools (FR-139–FR-143) are read-only: nothing is written, executed, or posted, so the operator-agent tier (FR-120) does not gate them; they share the endpoint's authentication (FR-87), tracing, and error semantics, and read only what the bot already holds or can already read (no new gateway intents, no external data enrichment). During maintenance mode (FR-98) they decline with the same captured notice as `run_command`. The bot compiles and stores nothing — interpreting the records is the calling agent's job.
 
-### 2.14 LLM integration (phase 1: presence updates)
+### 2.14 LLM integration (phase 1: presence & bio updates)
 
 - **FR-92**: A Mistral LLM client configured via `Llm:ApiKey` (a secret, NFR-3) and `Llm:Model` (default `mistral-small-latest`); no key → all LLM features inactive.
 - **FR-93**: An opt-in presence-update job (`Llm:PresenceUpdates:Enabled`, interval `Llm:PresenceUpdates:IntervalMinutes` default 60 min): each tick builds the prompt (FR-154), validates the output (non-empty, single line, ≤ 128 chars), and applies it via the presence service.
@@ -160,7 +160,7 @@ HamBot is a Discord chat bot. It recognizes messages starting with a configurabl
 - **FR-99**: A documented, configuration-overridable default persona seed ships with the bot; authoring and tuning it is part of the feature work.
 - **FR-102**: Usage is accounted per feature per UTC day (requests, tokens in/out) and exposed to `!llm status` and `!health`; in-memory.
 - **FR-103**: A daily request budget (`Llm:DailyRequestBudget`, default 500) hard-stops API calls for the rest of the UTC day; `0` disables the feature set like an absent key.
-- **FR-104**: `!llm status|off|on` manages the LLM features at runtime (tier bot owner, DM-usable); the kill switch is in-memory — a restart restores the configured state.
+- **FR-104**: `!llm status|off|on` manages the LLM features at runtime (tier bot owner, DM-usable, slash-eligible); the kill switch is in-memory — a restart restores the configured state.
 - **FR-114**: With `Llm:BioUpdates:Enabled`, the same job refreshes the bio — same prompt inputs (FR-154), non-empty, ≤ 190 chars, line breaks allowed — with identical validation, failure handling, and budget accounting.
 - **FR-154**: The presence/bio prompt inputs are the persona seed (FR-99), the bot's name and version, the current UTC date/time, and the current presence. `Llm:PresenceUpdates:IncludeChat` (default false) additionally includes recent guild chat — the newest messages from the bot's readable guild channels, bounded (configurable, defaults 20 messages and 4000 characters total), never DMs. Chat content is untrusted input — data, never instructions: it is never stored, logged, or executed, never triggers commands, tools, database writes, or persona/config changes, and the prompt requires generic output (no quoting, no user or channel names); secrets (NFR-3) are never prompt input.
 - **FR-155**: `!persona` (tier admin, DM-usable, slash-eligible) shows, sets (`!persona <text...>`), and clears (`!persona clear`) the global runtime persona override, persisted in global storage; the fallback chain is the `Llm:Persona` config value → the shipped default seed (FR-99); the override survives restarts. Persona text is non-empty and ≤ 2000 chars.
@@ -170,7 +170,7 @@ HamBot is a Discord chat bot. It recognizes messages starting with a configurabl
 
 ### 2.15 Watchdog, health reporting & operator notifications
 
-- **FR-105**: `!health` reports version, uptime, gateway state, database reachability, backup/restore-test outcomes, LLM state (when it lands), MCP state, pending reminder count, and the notification channel. Tier bot owner; DM-usable.
+- **FR-105**: `!health` reports version, uptime, gateway state, database reachability, backup/restore-test outcomes, LLM state (active/inactive, kill switch, budget used, consecutive failures), MCP state, pending reminder count, and the notification channel. Tier bot owner; DM-usable.
 - **FR-106**: A watchdog loop (default 5 min) alerts the bot owner by DM on: gateway down past a threshold (default 10 min); backup validation failure, overdue backup, or failed/overdue restore test; LLM budget exhaustion or three consecutive LLM failures; maintenance mode. Each condition alerts once, re-alerts at most hourly, announces recovery once; also posted to the notification channel; log-only without a configured owner; checks never crash the bot.
 - **FR-117**: An operator notification channel: configurable default (`Notifications:ChannelId`), runtime-managed via `!notifychannel` (show / `<channel mention or id>` / `clear`) persisting in global storage; tier bot owner; DM-usable.
 - **FR-118**: With a channel set, watchdog alerts/recoveries, command failures, retry-exhausted reminders, maintenance/restore outcomes, and notification delivery failures are posted there, rate-limited (default 5/min) with identical consecutive messages collapsed; failed posts never affect the originating feature; startup criticals stay log-only.
@@ -207,7 +207,7 @@ HamBot is a Discord chat bot. It recognizes messages starting with a configurabl
 
 ### 2.20 Help command grouping (readability)
 
-- **FR-132**: Every command declares one category from a fixed code-defined set (General, Quotes, Custom responses, Reminders, Permissions & settings, Moderation, Backups & stability, Bot profile); undefined categories are rejected at registration. Presentation-only.
+- **FR-132**: Every command declares one category from a fixed code-defined set (General, Quotes, Custom responses, Reminders, Permissions & settings, Moderation, Backups & stability, Bot profile, LLM); undefined categories are rejected at registration. Presentation-only.
 - **FR-133**: Grouping never leaks: only commands the invoker can see are rendered, empty groups are omitted, and both help surfaces render identically. Pagination stays group-aware: a group that fits a page is never split; an oversized group repeats its header on continuation pages.
 
 ### 2.21 User bot bans (moderation)
@@ -294,8 +294,8 @@ HamBot is a Discord chat bot. It recognizes messages starting with a configurabl
 The full command list with arguments and default tiers is in [`software-design.md`](software-design.md) §3.5 and the command-family sections, and in the README's command table. Cross-cutting rules:
 
 - Argument errors produce in-channel errors. Guild-state commands decline in DMs ("only available in servers"); the reminder commands and the bot-owner global commands are DM-usable.
-- An unknown token is checked against the guild's custom responses (same permission and cooldown checks) before the "unavailable" reply; custom responses never apply in DMs. *(Planned)* When no match exists there either, a sufficiently close runnable candidate appends one "did you mean" suggestion line to the reply (FR-144–FR-148, text surface only — the slash surface has Discord's own autocomplete).
-- *(Planned)* The administrative/configuration commands, the reminder commands, `!searchquotes`, `!version`, and `!help` will additionally be exposed as ephemeral slash commands with identical tiers and cooldowns (FR-110–FR-112, FR-119); the remaining community-facing commands stay text-only.
+- An unknown token is checked against the guild's custom responses (same permission and cooldown checks) before the "unavailable" reply; custom responses never apply in DMs. When no match exists there either, a sufficiently close runnable candidate appends one "did you mean" suggestion line to the reply (FR-144–FR-148, text surface only — the slash surface has Discord's own autocomplete).
+- When `SlashCommands:Enabled` is set, the administrative/configuration commands (including the LLM commands `llm`/`model`/`persona`), the reminder commands, `!searchquotes`, `!version`, and `!help` are additionally exposed as ephemeral slash commands with identical tiers and cooldowns (FR-110–FR-112, FR-119); the remaining community-facing commands stay text-only.
 
 ## 6. Out of Scope
 
