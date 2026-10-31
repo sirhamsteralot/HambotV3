@@ -25,6 +25,9 @@ Run against a **test deployment**: a second Discord application (own token), a t
    LLM_BIO_UPDATES_ENABLED=
    LLM_BIO_INTERVAL_MINUTES=
    LLM_DAILY_REQUEST_BUDGET=
+   LLM_PERSONA=
+   LLM_CHAT_CONTEXT_MAX_MESSAGES=
+   LLM_CHAT_CONTEXT_MAX_CHARACTERS=
    ```
 
 4. `docker compose up -d --build`; verify startup: `Bot version:`, `Database migrations applied successfully`, `Initializing Discord connection...`, `Gateway: Ready`.

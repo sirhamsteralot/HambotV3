@@ -507,7 +507,7 @@ Tests (planned): fake `ILlmClient` + fake triggers/collectors — registry resol
 | Area | Keys (defaults) | Notes |
 |---|---|---|
 | Core (`appsettings.json`, committed) | `BotConfiguration:BotName`, `LogFormat`, `CommandIdentifier` (`!`), `CooldownSecondsByTier` (missing tiers default 3 s; `0` disables; invalid = absent), `Serilog` (console + daily `logs/` file), optional `Presence`/`Bio` (§3.10) | Required keys validated at startup (`ConfigurationValidator`); missing → critical log + non-zero exit. |
-| Secrets (`HambotV2/appsecrets.json`, gitignored) | `Secrets:BotToken`, `ConnectionStrings:DefaultConnection`, optional `Mcp` | Env vars take precedence (re-added after the file); the file is `.dockerignore`d, so images are secret-free. |
+| Secrets (`HambotV2/appsecrets.json`, gitignored) | `Secrets:BotToken`, `ConnectionStrings:DefaultConnection`, optional `Mcp` and `Llm` (`Llm:ApiKey`, §3.12) | Env vars take precedence (re-added after the file); the file is `.dockerignore`d, so images are secret-free. |
 | Permissions | `Permissions:BotOwnerDiscordId` (`BOT_OWNER_DISCORD_ID`) | Optional; tier 4 in every guild. |
 | MCP (§3.11) | `Mcp:Enabled` (false), `Mcp:ListenUri` (`http://0.0.0.0:2525`), `Mcp:ApiKey` (required when enabled) | Compose: `MCP_ENABLED`/`MCP_API_KEY`/`MCP_LISTEN_URI`, port loopback-only. |
 | Watchdog / notifications (§3.13) | `Watchdog:CheckIntervalMinutes` (5), `GatewayDownAlertMinutes` (10), `ReAlertMinutes` (60); `Notifications:ChannelId`, `MaxPostsPerMinute` (5) | Compose: `WATCHDOG_*`, `NOTIFY_CHANNEL_ID`. |

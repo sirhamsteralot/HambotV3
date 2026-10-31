@@ -20,14 +20,14 @@ Tests run without a database or Discord token. The build is warning-free; keep i
 - Entry point `HambotV2/Program.cs`: registers `DatabaseContext` (transient Npgsql), hosted services (the `DiscordClient` gateway, the reminder delivery engine in `Scheduling/`, the quote-of-the-day loop in `QuoteOfTheDay/`, the `Watchdog/` health-check loop, the opt-in `Mcp/` endpoint, the `Llm/` presence/bio update loop), and the command pipeline.
 - Message flow: `Connections/DiscordClient.cs` forwards messages starting with the guild's effective command identifier to `ICommandHandler` (`Commands/CommandHandler.cs`), which checks bot bans (`Commands/BotBans.cs`), resolves the command via `ICommandService.TryGetCommand`, checks permissions (`PermissionsService`), then executes with a `CommandContext` wrapping a `DatabaseContext`.
 - Gateway intents are `Guilds | GuildMessages | DirectMessages | MessageContent` — add new intents explicitly, never switch back to `AllUnprivileged` (it warns).
-- To add a command: implement `Commands/ICommand.cs` (`Name`, `Description`, `Usage`, `DefaultPermissionTier`, `Category` + `ExecuteCommand`), then register it in the relevant `Commands/Register*Commands.cs` class (system commands in `Commands/SystemCommands/`).
+- To add a command: implement `Commands/ICommand.cs` (`Name`, `Description`, `Usage`, `DefaultPermissionTier`, `Category` + `ExecuteCommand`), then register it in the relevant `Commands/Register*Commands.cs` class (system commands in `Commands/SystemCommands/`, LLM commands in `Commands/LlmCommands/`).
 - Command names must be lowercase; registration rejects commands missing help text or category — the registration-contract test enforces this for every command, so don't re-assert it per command in tests.
 - Permissions are tiered integers (`PermissionsService`): user tier >= command tier. Tiers: 0 everyone, 1 moderator, 2 admin, 3 owner (guild owner), 4 bot owner (config only). Managed at runtime via `!commandpermission` / `!userpermission`.
 - Data model (`Connections/DatabaseContext.cs`): `User`, `CommandMetaData`, `GuildSetting`, `Quote`, `CustomResponse` (per guild), `Reminder` (per user), `BotSetting` (global), `BotBan` (per guild). Migrations live in `HambotV2/Migrations/`; regenerate with `dotnet ef migrations add <Name>` from `HambotV2/` (the `DesignTimeDatabaseContextFactory` avoids running startup).
 
 ## Configuration & Secrets
 
-- `appsettings.json`: non-secret config. `HambotV2/appsecrets.json` (gitignored): `Secrets:BotToken`, `ConnectionStrings:DefaultConnection`, and the optional `Mcp` section. Never commit secrets.
+- `appsettings.json`: non-secret config. `HambotV2/appsecrets.json` (gitignored): `Secrets:BotToken`, `ConnectionStrings:DefaultConnection`, and the optional `Mcp` and `Llm` (`Llm:ApiKey`) sections. Never commit secrets.
 - Startup validates required keys and applies migrations automatically; failures exit non-zero with a critical log line.
 
 ## Docker
