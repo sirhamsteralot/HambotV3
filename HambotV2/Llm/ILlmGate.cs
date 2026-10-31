@@ -67,67 +67,43 @@ namespace HambotV2.Llm
 
         public void RecordInvalidOutput() => _usage.RecordFailure();
 
-        public async Task<LlmResponse?> ChatAsync(string feature, IReadOnlyList<LlmMessage> messages, CancellationToken cancellationToken = default)
+        public Task<LlmResponse?> ChatAsync(string feature, IReadOnlyList<LlmMessage> messages, CancellationToken cancellationToken = default) =>
+            CallGuardedAsync(feature, "call", () => _client!.ChatAsync(messages, cancellationToken), response => (response.InputTokens, response.OutputTokens));
+
+        public Task<IReadOnlyList<string>?> ListModelsAsync(string feature, CancellationToken cancellationToken = default) =>
+            CallGuardedAsync(feature, "model list", () => _client!.ListModelsAsync(cancellationToken));
+
+        /// <summary>Shared guardrails — configured, kill switch, daily budget — then the call with accounting. A blocked or failed call returns null: failures are logged and counted, never thrown out of the gate.</summary>
+        private async Task<T?> CallGuardedAsync<T>(string feature, string action, Func<Task<T>> call, Func<T, (int Input, int Output)>? usageOf = null) where T : class
         {
             if (!IsConfigured)
                 return null;
 
             if (_killSwitch)
             {
-                _logger.LogInformation("LLM call for '{Feature}' skipped: the kill switch is on.", feature);
+                _logger.LogInformation("LLM {Action} for '{Feature}' skipped: the kill switch is on.", action, feature);
                 return null;
             }
 
             if (BudgetExhausted)
             {
-                _logger.LogWarning("LLM call for '{Feature}' skipped: the daily request budget ({Budget}) is exhausted.", feature, _settings.DailyRequestBudget);
+                _logger.LogWarning("LLM {Action} for '{Feature}' skipped: the daily request budget ({Budget}) is exhausted.", action, feature, _settings.DailyRequestBudget);
                 return null;
             }
 
             try
             {
-                LlmResponse response = await _client!.ChatAsync(messages, cancellationToken);
-                _usage.Record(feature, response.InputTokens, response.OutputTokens);
+                T result = await call();
+                (int input, int output) = usageOf?.Invoke(result) ?? (0, 0);
+                _usage.Record(feature, input, output);
                 _usage.RecordSuccess();
-                return response;
+                return result;
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 // A failed call keeps the current state and counts toward the watchdog's
                 // consecutive-failure alert; it never propagates out of the gate.
-                _logger.LogError(ex, "LLM call for '{Feature}' failed.", feature);
-                _usage.RecordFailure();
-                return null;
-            }
-        }
-
-        public async Task<IReadOnlyList<string>?> ListModelsAsync(string feature, CancellationToken cancellationToken = default)
-        {
-            if (!IsConfigured)
-                return null;
-
-            if (_killSwitch)
-            {
-                _logger.LogInformation("LLM model list for '{Feature}' skipped: the kill switch is on.", feature);
-                return null;
-            }
-
-            if (BudgetExhausted)
-            {
-                _logger.LogWarning("LLM model list for '{Feature}' skipped: the daily request budget ({Budget}) is exhausted.", feature, _settings.DailyRequestBudget);
-                return null;
-            }
-
-            try
-            {
-                IReadOnlyList<string> models = await _client!.ListModelsAsync(cancellationToken);
-                _usage.Record(feature, 0, 0);
-                _usage.RecordSuccess();
-                return models;
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                _logger.LogError(ex, "LLM model list for '{Feature}' failed.", feature);
+                _logger.LogError(ex, "LLM {Action} for '{Feature}' failed.", action, feature);
                 _usage.RecordFailure();
                 return null;
             }

@@ -1,6 +1,5 @@
 using Discord;
 
-using HambotV2.Connections;
 using HambotV2.Llm;
 using HambotV2.SlashCommands;
 
@@ -62,10 +61,7 @@ namespace HambotV2.Commands.LlmCommands
 
             if (first == "clear" && arguments.Count == 1)
             {
-                var existing = context.DbContext.BotSettings.FirstOrDefault(setting => setting.Key == LlmRuntimeSettings.ModelKey);
-                if (existing is not null)
-                    context.DbContext.BotSettings.Remove(existing);
-                await context.DbContext.SaveChangesAsync();
+                await BotSettingOverride.ClearAsync(context.DbContext, LlmRuntimeSettings.ModelKey);
                 await message.Channel.SendMessageAsync("Model override cleared — the Llm:Model configuration or the shipped default applies again.");
                 return;
             }
@@ -90,15 +86,7 @@ namespace HambotV2.Commands.LlmCommands
                 return;
             }
 
-            var setting = context.DbContext.BotSettings.FirstOrDefault(item => item.Key == LlmRuntimeSettings.ModelKey);
-            if (setting is null)
-            {
-                setting = new DatabaseContext.BotSetting { Key = LlmRuntimeSettings.ModelKey };
-                context.DbContext.BotSettings.Add(setting);
-            }
-
-            setting.Value = name;
-            await context.DbContext.SaveChangesAsync();
+            await BotSettingOverride.SetAsync(context.DbContext, LlmRuntimeSettings.ModelKey, name);
             await message.Channel.SendMessageAsync($"LLM model override set to '{name}' — applies from the next model call.");
         }
 

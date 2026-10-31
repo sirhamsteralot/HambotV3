@@ -256,7 +256,7 @@ namespace BotTests
             var replies = await harness.Execute(Search(), "!searchquotes dog");
 
             Assert.AreEqual(1, replies.Count);
-            Assert.AreEqual("Quotes matching 'dog':\n#0: Big Dog\n#2: another DOG here", replies[0]);
+            Assert.AreEqual("Quotes matching 'dog':" + Environment.NewLine + "#0: Big Dog" + Environment.NewLine + "#2: another DOG here", replies[0]);
         }
 
         [TestMethod]
@@ -265,7 +265,7 @@ namespace BotTests
             var harness = Harness();
             await harness.Execute(new QuoteCommand(), "!quote a big dog barks");
 
-            CollectionAssert.AreEqual(new List<string> { "Quotes matching 'big dog':\n#0: a big dog barks" }, await harness.Execute(Search(), "!searchquotes big dog"));
+            CollectionAssert.AreEqual(new List<string> { "Quotes matching 'big dog':" + Environment.NewLine + "#0: a big dog barks" }, await harness.Execute(Search(), "!searchquotes big dog"));
         }
 
         [TestMethod]
@@ -281,7 +281,7 @@ namespace BotTests
 
             Assert.AreEqual(1, replies.Count);
             StringAssert.Contains(replies[0], "(page 1 of 2):");
-            Assert.AreEqual(11, replies[0].Split('\n').Length, "One page holds the header and 10 results");
+            Assert.AreEqual(11, replies[0].Split(Environment.NewLine).Length, "One page holds the header and 10 results");
             StringAssert.Contains(replies[0], "#9: common text 10", "The first page keeps the relevance order");
             Assert.IsFalse(replies[0].Contains("#10:"), "Only the page's ten results are sent");
             Assert.IsNotNull(sentComponents[0], "A multi-page search attaches the previous/next buttons");
@@ -296,7 +296,7 @@ namespace BotTests
             var sentComponents = new List<MessageComponent?>();
             var replies = await harness.Execute(Search(), "!searchquotes big dog", sentComponents: sentComponents);
 
-            Assert.AreEqual("Quotes matching 'big dog':\n#0: a big dog barks", replies[0]);
+            Assert.AreEqual("Quotes matching 'big dog':" + Environment.NewLine + "#0: a big dog barks", replies[0]);
             Assert.IsNull(sentComponents[0], "A search that fits one page has no buttons to attach");
         }
 
@@ -311,7 +311,7 @@ namespace BotTests
             var replies = await harness.Execute(Search(), "!searchquotes common");
 
             StringAssert.Contains(replies[0], "(page 1 of 10, showing the 100 most relevant):");
-            Assert.AreEqual(11, replies[0].Split('\n').Length, "One page holds the header and 10 results");
+            Assert.AreEqual(11, replies[0].Split(Environment.NewLine).Length, "One page holds the header and 10 results");
             Assert.IsFalse(replies[0].Contains("#10:"), "Only the page's ten results are sent");
         }
 
@@ -349,7 +349,7 @@ namespace BotTests
 
             button.Verify(b => b.DeferAsync(), Times.Once);
             button.Verify(b => b.ModifyListInPlaceAsync(
-                "Quotes matching 'common' (page 2 of 2):\n#10: common text 11\n#11: common text 12",
+                "Quotes matching 'common' (page 2 of 2):" + Environment.NewLine + "#10: common text 11" + Environment.NewLine + "#11: common text 12",
                 It.IsAny<MessageComponent>()), Times.Once);
             button.Verify(b => b.SendEphemeralAsync(It.IsAny<string>()), Times.Never);
         }
@@ -372,7 +372,7 @@ namespace BotTests
             await QuoteSearchPagination.HandleClickAsync(click, backlog);
 
             button.Verify(b => b.ModifyListInPlaceAsync(
-                "Quotes matching 'dog' (page 2 of 2):\n#10: a hog here\n#11: a cot everywhere",
+                "Quotes matching 'dog' (page 2 of 2):" + Environment.NewLine + "#10: a hog here" + Environment.NewLine + "#11: a cot everywhere",
                 It.IsAny<MessageComponent>()), Times.Once,
                 "Distance ties break by quote number and the distance-2 match ranks last, across the page boundary");
         }
@@ -442,7 +442,7 @@ namespace BotTests
             await harness.Execute(new QuoteCommand(), "!quote a big dog barks");
 
             CollectionAssert.AreEqual(
-                new List<string> { "Quotes matching 'dg':\n#0: a big dog barks" },
+                new List<string> { "Quotes matching 'dg':" + Environment.NewLine + "#0: a big dog barks" },
                 await harness.Execute(Search(), "!searchquotes dg"),
                 "A near miss of a word (edit distance 1) matches the quote.");
         }
@@ -457,7 +457,7 @@ namespace BotTests
             var replies = await harness.Execute(Search(), "!searchquotes cat");
 
             Assert.AreEqual(1, replies.Count);
-            Assert.AreEqual("Quotes matching 'cat':\n#1: concatenate this\n#0: a bat flies", replies[0],
+            Assert.AreEqual("Quotes matching 'cat':" + Environment.NewLine + "#1: concatenate this" + Environment.NewLine + "#0: a bat flies", replies[0],
                 "The substring match ranks ahead of the closer fuzzy match.");
         }
 
@@ -471,7 +471,7 @@ namespace BotTests
             var replies = await harness.Execute(Search(), "!searchquotes cat");
 
             Assert.AreEqual(1, replies.Count);
-            Assert.AreEqual("Quotes matching 'cat':\n#0: the cap fits\n#1: a bat flies", replies[0],
+            Assert.AreEqual("Quotes matching 'cat':" + Environment.NewLine + "#0: the cap fits" + Environment.NewLine + "#1: a bat flies", replies[0],
                 "An equal word distance is ordered by quote number.");
         }
 

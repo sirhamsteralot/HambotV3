@@ -119,50 +119,30 @@ namespace HambotV2.Llm
         /// <summary>One update pass over the enabled surfaces; exposed so tests drive the cadence directly.</summary>
         internal async Task RunTickAsync(CancellationToken cancellationToken = default)
         {
-            await _runLock.WaitAsync(cancellationToken);
-            try
-            {
-                if (_settings.PresenceUpdatesEnabled)
-                    await UpdateSurfaceAsync(LlmSurface.Presence, guildId: null, automatic: true, cancellationToken);
-                if (_settings.BioUpdatesEnabled)
-                    await UpdateSurfaceAsync(LlmSurface.Bio, guildId: null, automatic: true, cancellationToken);
-            }
-            finally
-            {
-                _runLock.Release();
-            }
+            if (_settings.PresenceUpdatesEnabled)
+                await RunSerializedAsync(LlmSurface.Presence, guildId: null, automatic: true, cancellationToken);
+            if (_settings.BioUpdatesEnabled)
+                await RunSerializedAsync(LlmSurface.Bio, guildId: null, automatic: true, cancellationToken);
         }
 
         public async Task<LlmUpdateOutcome> UpdateAsync(LlmSurface surface, ulong? guildId = null, CancellationToken cancellationToken = default)
         {
-            await _runLock.WaitAsync(cancellationToken);
-            try
-            {
-                // Manual trigger: a guild run reads that guild's chat when opted in; a DM run (no
-                // guild) reads no chat.
-                return await UpdateSurfaceAsync(surface, guildId, automatic: false, cancellationToken);
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                // The manual !llm update trigger must never crash the command pipeline; an
-                // unexpected failure (chat context, persona read, ...) is reported as Failed.
-                // The scheduled loop retries at the next interval either way.
-                _logger.LogError(ex, "{Surface} update failed; keeping the current state.", surface);
-                return LlmUpdateOutcome.Failed;
-            }
-            finally
-            {
-                _runLock.Release();
-            }
+            // Manual trigger: a guild run reads that guild's chat when opted in; a DM run (no
+            // guild) reads no chat.
+            return await RunSerializedAsync(surface, guildId, automatic: false, cancellationToken);
         }
 
         /// <summary>The scheduled-job entry point: a global run reading chat from every opted-in guild.</summary>
-        private async Task<LlmUpdateOutcome> RunAutomaticAsync(LlmSurface surface, CancellationToken cancellationToken)
+        private Task<LlmUpdateOutcome> RunAutomaticAsync(LlmSurface surface, CancellationToken cancellationToken) =>
+            RunSerializedAsync(surface, guildId: null, automatic: true, cancellationToken);
+
+        /// <summary>Serializes scheduled ticks and manual updates so they never overlap; an unexpected failure is reported as Failed and never crashes the caller.</summary>
+        private async Task<LlmUpdateOutcome> RunSerializedAsync(LlmSurface surface, ulong? guildId, bool automatic, CancellationToken cancellationToken)
         {
             await _runLock.WaitAsync(cancellationToken);
             try
             {
-                return await UpdateSurfaceAsync(surface, guildId: null, automatic: true, cancellationToken);
+                return await UpdateSurfaceAsync(surface, guildId, automatic, cancellationToken);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -183,8 +163,8 @@ namespace HambotV2.Llm
             var (persona, chatGuilds) = ResolveRunScope(guildId, automatic);
             // Chat context is per-guild opt-in: a guild-triggered run reads only that guild (when
             // opted in), an automatic run reads every opted-in guild, a DM run reads none.
-            string? chat = chatGuilds.Count > 0
-                ? await (_chatContext?.CollectAsync(chatGuilds, _settings.ChatContextMaxMessages, _settings.ChatContextMaxCharacters, cancellationToken) ?? Task.FromResult<string?>(null))
+            string? chat = chatGuilds.Count > 0 && _chatContext is not null
+                ? await _chatContext.CollectAsync(chatGuilds, _settings.ChatContextMaxMessages, _settings.ChatContextMaxCharacters, cancellationToken)
                 : null;
 
             string currentActivity = _presence.CurrentActivity is { } activity

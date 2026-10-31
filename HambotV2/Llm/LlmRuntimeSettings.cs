@@ -20,7 +20,7 @@ namespace HambotV2.Llm
         /// <summary>Resolves the effective model and reports which layer supplied it.</summary>
         public static (string Model, string Layer) ResolveModelWithLayer(IDatabaseContext? database, LlmSettings settings)
         {
-            string? runtimeOverride = database?.BotSettings.FirstOrDefault(setting => setting.Key == ModelKey)?.Value;
+            string? runtimeOverride = BotSettingOverride.Get(database, ModelKey);
             if (!string.IsNullOrWhiteSpace(runtimeOverride))
                 return (runtimeOverride, "runtime override (!model)");
 

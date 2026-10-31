@@ -1,6 +1,5 @@
 using Discord;
 
-using HambotV2.Connections;
 using HambotV2.Llm;
 using HambotV2.SlashCommands;
 
@@ -44,10 +43,7 @@ namespace HambotV2.Commands.LlmCommands
 
             if (arguments.Get(0) == "clear" && arguments.Count == 1)
             {
-                var existing = context.DbContext.BotSettings.FirstOrDefault(setting => setting.Key == LlmPersona.GlobalOverrideKey);
-                if (existing is not null)
-                    context.DbContext.BotSettings.Remove(existing);
-                await context.DbContext.SaveChangesAsync();
+                await BotSettingOverride.ClearAsync(context.DbContext, LlmPersona.GlobalOverrideKey);
                 await message.Channel.SendMessageAsync("Global persona override cleared — the Llm:Persona configuration or the shipped default applies again.");
                 return;
             }
@@ -65,15 +61,7 @@ namespace HambotV2.Commands.LlmCommands
                 return;
             }
 
-            var setting = context.DbContext.BotSettings.FirstOrDefault(item => item.Key == LlmPersona.GlobalOverrideKey);
-            if (setting is null)
-            {
-                setting = new DatabaseContext.BotSetting { Key = LlmPersona.GlobalOverrideKey };
-                context.DbContext.BotSettings.Add(setting);
-            }
-
-            setting.Value = text;
-            await context.DbContext.SaveChangesAsync();
+            await BotSettingOverride.SetAsync(context.DbContext, LlmPersona.GlobalOverrideKey, text);
             await message.Channel.SendMessageAsync($"Global persona override set ({text.Length} characters). It applies to every LLM run from the next tick.");
         }
     }
