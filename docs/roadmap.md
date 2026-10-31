@@ -6,23 +6,6 @@ Each task carries: **Problem** (what's missing today), **Steps** (ordered checkl
 
 ## Phase #2: LLM Integration
 
-- [ ] **LLM integration, phase 1 — automatic presence and bio updates, including the bot's persona (FR-92–FR-95, FR-99, FR-102–FR-104, FR-114 / NFR-21, NFR-25; design §3.12)**
-
-    **Problem**: the bot's presence and bio are static. Use an LLM (a raw Mistral API key) to keep its identity surfaces fresh. Conversation participation and memory are later phases, deliberately out of scope.
-
-    **Steps**:
-
-    1. `Llm/ILlmClient.cs` (chat-completion abstraction) + `Llm/MistralLmClient.cs` (Mistral API; key `Llm:ApiKey`, model `Llm:Model` default `mistral-small-latest`); no key = every LLM feature inactive.
-    2. `Llm/PresenceUpdateService.cs` — opt-in hosted loop (`Llm:PresenceUpdates:Enabled`, interval default 60 min): prompt from `Llm:Persona` + bot name/version + date/time + current presence; validate (single line ≤ 128 chars); apply via `IPresenceService`.
-    3. Author the default persona seed (FR-99) — the hamster character's voice — as a documented, configuration-overridable default, tuned against real outputs. Part of the feature, not an afterthought.
-    4. Failure path (FR-94): error or invalid output → keep current presence/bio, log, retry next tick.
-    5. Bio updates (FR-114): `Llm:BioUpdates:Enabled` makes the same tick generate and apply a bio (≤ 190 chars, line breaks allowed) with identical handling and budget accounting.
-    6. Guardrails (FR-102–FR-104): per-feature/per-day usage accounting; `Llm:DailyRequestBudget` hard stop (like any other failure: skip, change nothing, log); `!llm status|off|on` kill switch (tier 4, DM-usable; restart restores the configured state). Persona commands (FR-155/FR-156): `!persona` sets/clears the global runtime override (persisted in `BotSetting`), `!settings persona` the per-guild one (persisted in `GuildSetting`) — both tier admin, slash-eligible; resolution chain guild → global → config → shipped seed.
-    7. Wire config defaults into `appsettings.json`; secrets per NFR-3; document in design §4.
-    8. Unit tests per NFR-21/NFR-25 (fake `ILlmClient`, `FakeTimeProvider`): prompts, both validation boundaries, scheduling, failure path, inactive-without-key, accounting, budget suspension/rollover, kill switch.
-
-    **Acceptance criteria**: the FRs above hold; with a key and the flags on, presence and bio change on schedule in the bot's own voice; without them, nothing changes; the budget is observable via `!llm status` and enforced until UTC rollover; `!llm off` stops all calls until re-enabled or restarted; tests green and warning-free; design §3.12 loses its **(planned)** marker.
-
 - [ ] **LLM conversation participation & memory — future (not yet specified)**
 
     **Problem**: phase 1 only generates presence text. The end goal is a bot that occasionally participates in conversation with memories and a personality.

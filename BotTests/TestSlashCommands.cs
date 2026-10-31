@@ -29,7 +29,7 @@ namespace BotTests
         private static readonly string[] ExpectedSlashEligible =
         [
             "agenttier", "backup", "backups", "banlist", "banuser", "bio", "cancelreminder", "commandpermission", "health",
-            "help", "notifychannel", "presence", "quoteoftheday", "remindme", "reminders", "restorebackup",
+            "help", "llm", "model", "notifychannel", "persona", "presence", "quoteoftheday", "remindme", "reminders", "restorebackup",
             "searchquotes", "settings", "unbanuser", "userpermission", "version", "avatar", "banner",
         ];
 

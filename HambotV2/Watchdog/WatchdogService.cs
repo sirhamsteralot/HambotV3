@@ -1,4 +1,5 @@
 using HambotV2.Backups;
+using HambotV2.Llm;
 using HambotV2.Maintenance;
 
 namespace HambotV2.Watchdog
@@ -28,6 +29,7 @@ namespace HambotV2.Watchdog
         private readonly IConfiguration _configuration;
         private readonly TimeProvider _timeProvider;
         private readonly ILogger<WatchdogService> _logger;
+        private readonly ILlmGate? _llmGate;
 
         private readonly Dictionary<string, ConditionState> _conditions = new();
 
@@ -39,7 +41,8 @@ namespace HambotV2.Watchdog
             IOperatorNotificationSender sender,
             IConfiguration configuration,
             TimeProvider timeProvider,
-            ILogger<WatchdogService> logger)
+            ILogger<WatchdogService> logger,
+            ILlmGate? llmGate = null)
         {
             _gateway = gateway;
             _maintenanceMode = maintenanceMode;
@@ -49,6 +52,7 @@ namespace HambotV2.Watchdog
             _configuration = configuration;
             _timeProvider = timeProvider;
             _logger = logger;
+            _llmGate = llmGate;
 
             RegisterCondition("gateway-down",
                 "the Discord gateway has been disconnected",
@@ -78,6 +82,18 @@ namespace HambotV2.Watchdog
                 "the notification channel could not be posted to",
                 "the notification channel is reachable again",
                 () => Task.FromResult(_publisher.ChannelDeliveryFailed));
+
+            if (llmGate is not null)
+            {
+                RegisterCondition("llm-budget-exhausted",
+                    "the LLM daily request budget is exhausted",
+                    "the LLM daily budget has rolled over to a new UTC day",
+                    () => Task.FromResult(llmGate.BudgetExhausted));
+                RegisterCondition("llm-consecutive-failures",
+                    "the LLM has failed 3 times in a row",
+                    "the LLM is succeeding again",
+                    () => Task.FromResult(llmGate.Snapshot().ConsecutiveFailures >= 3));
+            }
         }
 
         private DateTimeOffset? _gatewayDownSince;

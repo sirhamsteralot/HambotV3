@@ -33,6 +33,7 @@ Non-secret settings in `appsettings.json`:
 | `BotConfiguration:CommandIdentifier` | `!` | Command prefix (per-guild override via `!settings`). |
 | `BotConfiguration:CooldownSecondsByTier` | `{ "0": 3, "1": 3, "2": 2, "3": 1 }` | Per-tier cooldown seconds; `0` disables throttling for that tier. |
 | `BotConfiguration:Presence` / `BotConfiguration:Bio` | *(unset)* | Optional startup activity / profile bio; absent → left untouched. Invalid values fail startup. |
+| `Llm:*` | see `HambotV2/appsettings.json` | Optional LLM features (automatic presence/bio updates). `Llm:ApiKey` is a secret — set via `LLM_API_KEY` in `.env` or `Llm__ApiKey`; absent → all LLM features inactive. |
 | `Serilog` | Console + daily `logs/` file | Logging; changeable without rebuilding. |
 
 Secrets (never commit; `.env` and `appsecrets.json` are gitignored):
@@ -42,6 +43,7 @@ Secrets (never commit; `.env` and `appsecrets.json` are gitignored):
 | `Secrets:BotToken` | Discord bot token. |
 | `ConnectionStrings:DefaultConnection` | PostgreSQL connection string. |
 | `Mcp:Enabled` / `Mcp:ApiKey` / `Mcp:ListenUri` | Optional MCP endpoint; `ApiKey` required when enabled. |
+| `Llm:ApiKey` | Optional Mistral API key for the LLM features; absent → inactive. |
 
 - **Compose**: set `DISCORD_BOT_TOKEN` and `POSTGRES_PASSWORD` in `.env`; they reach the container as `Secrets__BotToken` / `ConnectionStrings__DefaultConnection` (env vars win over files).
 - **From source / plain Docker**: put both in `HambotV2/appsecrets.json`:
@@ -127,7 +129,10 @@ Expected startup logs: `Bot version: <version>` → `Database migrations applied
 | `!addresponse <name> <text...>` / `!listresponses` / `!removeresponse <name>` | Manage custom responses (moderator tier; `!listresponses` everyone). |
 | `!commandpermission <name> [tier]` / `!userpermission <user> [tier]` | Show/set command or user tier. Admin tier. |
 | `!banuser <user> [duration]` / `!unbanuser <user>` / `!banlist` | Per-guild bot bans; banned users are ignored silently. Moderator tier. |
-| `!settings [commandidentifier <v>\|reset \| cooldown <tier> <s>\|reset]` | Guild identifier and per-tier cooldown overrides. Admin tier. |
+| `!settings [commandidentifier <v>\|reset \| cooldown <tier> <s>\|reset \| persona <text...>\|clear]` | Guild identifier, per-tier cooldown overrides, and this server's LLM persona override. Admin tier. |
+| `!llm [status\|off\|on]` | LLM usage status; off/on toggles the in-memory kill switch (not persisted). Bot-owner tier; DM-usable. |
+| `!persona [<text...>\|clear]` | Show/set/clear the global LLM persona override (persisted). Admin tier; DM-usable. |
+| `!model [list\|<name>\|clear]` | Show the effective LLM model, list the provider's models, or set/clear the runtime model override (validated against the API). Admin tier; DM-usable. |
 | `!agenttier [<tier 0-4>\|clear]` | Tier the MCP operator agent acts at here. Owner tier. |
 | `!health` / `!notifychannel [<#ch>\|clear]` / `!backup` / `!backups` / `!restorebackup <name> [confirm]` | Bot-owner tier; all DM-usable. |
 | `!presence [<type> <text...>\|clear]` / `!bio [<text...>\|clear]` | Activity ("About Me"). Bot-owner tier; not persisted across restarts. |

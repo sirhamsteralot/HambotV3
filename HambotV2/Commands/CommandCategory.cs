@@ -14,14 +14,15 @@ namespace HambotV2.Commands
         PermissionsAndSettings,
         Moderation,
         BackupsAndStability,
-        BotProfile
+        BotProfile,
+        Llm
     }
 
     /// <summary>The validity check and the help list's group header for each category.</summary>
     internal static class CommandCategories
     {
         public const CommandCategory Minimum = CommandCategory.General;
-        public const CommandCategory Maximum = CommandCategory.BotProfile;
+        public const CommandCategory Maximum = CommandCategory.Llm;
 
         public static bool IsValid(CommandCategory category) => category >= Minimum && category <= Maximum;
 
@@ -35,6 +36,7 @@ namespace HambotV2.Commands
             CommandCategory.Moderation => "Moderation",
             CommandCategory.BackupsAndStability => "Backups & stability",
             CommandCategory.BotProfile => "Bot profile",
+            CommandCategory.Llm => "LLM",
             _ => "Unknown"
         };
     }

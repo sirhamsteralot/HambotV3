@@ -49,7 +49,8 @@ namespace HambotV2.Commands.SystemCommands
                 $"Last restore test: {snapshot.RestoreTest}\n" +
                 $"Pending reminders: {snapshot.PendingReminders}\n" +
                 $"Notification channel: {snapshot.NotificationChannel}\n" +
-                $"MCP: {snapshot.Mcp}");
+                $"MCP: {snapshot.Mcp}\n" +
+                $"LLM: {snapshot.Llm}");
         }
 
         private static string FormatUptime(TimeSpan uptime) => uptime.Days > 0

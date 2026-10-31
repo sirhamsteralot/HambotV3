@@ -1,10 +1,12 @@
 using HambotV2.Backups;
 using HambotV2.Commands.BackupCommands;
+using HambotV2.Commands.LlmCommands;
 using HambotV2.Commands.QuoteCommands;
 using HambotV2.Commands.ReminderCommands;
 using HambotV2.Commands.ResponseCommands;
 using HambotV2.Commands.SystemCommands;
 using HambotV2.Connections;
+using HambotV2.Llm;
 using HambotV2.Maintenance;
 using HambotV2.QuoteOfTheDay;
 using HambotV2.Scheduling;
@@ -33,13 +35,16 @@ namespace HambotV2.Commands
             IImageContentDownloader? imageContentDownloader = null,
             ReminderSettings? reminderSettings = null,
             QuoteOfTheDaySettings? quoteOfTheDaySettings = null,
-            QuoteSearchBacklog? quoteSearchBacklog = null)
+            QuoteSearchBacklog? quoteSearchBacklog = null,
+            ILlmGate? llmGate = null,
+            LlmSettings? llmSettings = null)
         {
             RegisterSystemCommands.RegisterCommands(commandService, notificationChannelStore, healthSnapshotProvider, presenceService, imageContentDownloader);
             RegisterQuoteCommands.RegisterCommands(commandService, quoteSearchBacklog ?? new QuoteSearchBacklog(), quoteOfTheDaySettings);
             RegisterResponseCommands.RegisterCommands(commandService);
             RegisterReminderCommands.RegisterCommands(commandService, deliverySignal, reminderSettings);
             RegisterBackupCommands.RegisterCommands(commandService, backupManager, maintenanceMode, notificationPublisher);
+            RegisterLlmCommands.RegisterCommands(commandService, llmGate, llmSettings);
         }
     }
 }

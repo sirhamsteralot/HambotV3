@@ -123,6 +123,9 @@ namespace HambotV2.Migrations
                     b.Property<int?>("OperatorAgentTier")
                         .HasColumnType("integer");
 
+                    b.Property<string>("Persona")
+                        .HasColumnType("text");
+
                     b.Property<DateTimeOffset?>("QuoteOfTheDayAnchorUtc")
                         .HasColumnType("timestamp with time zone");
 

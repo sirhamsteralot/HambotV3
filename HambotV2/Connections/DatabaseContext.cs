@@ -80,6 +80,9 @@ namespace HambotV2.Connections
             public int? CooldownSecondsTier2 { get; set; }
             public int? CooldownSecondsTier3 { get; set; }
 
+            /// <summary>The guild's LLM persona override; null = inherit the global persona chain.</summary>
+            public string? Persona { get; set; }
+
             /// <summary>The guild's cooldown override for the given tier (0–3, the per-guild configurable tiers); null = inherit the global default.</summary>
             public int? GetCooldownOverride(int tier) => tier switch
             {

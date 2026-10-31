@@ -1,5 +1,6 @@
 using HambotV2.Backups;
 using HambotV2.Connections;
+using HambotV2.Llm;
 using HambotV2.Mcp;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
@@ -22,6 +23,9 @@ namespace HambotV2.Watchdog
         public required string RestoreTest { get; init; }
         public required string NotificationChannel { get; init; }
         public required string Mcp { get; init; }
+
+        /// <summary>LLM state; defaults to "not configured" when no gate is registered (tests).</summary>
+        public string Llm { get; init; } = "not configured";
     }
 
     /// <summary>
@@ -40,6 +44,7 @@ namespace HambotV2.Watchdog
         private readonly INotificationChannelStore _notificationChannel;
         private readonly IBackupStatusReader _backupStatus;
         private readonly IMcpEndpointStatus _mcpEndpoint;
+        private readonly ILlmGate? _llmGate;
         private readonly IServiceScopeFactory _scopeFactory;
         private readonly string _connectionString;
         private readonly TimeProvider _timeProvider;
@@ -52,12 +57,14 @@ namespace HambotV2.Watchdog
             IMcpEndpointStatus mcpEndpoint,
             IServiceScopeFactory scopeFactory,
             IConfiguration configuration,
-            TimeProvider timeProvider)
+            TimeProvider timeProvider,
+            ILlmGate? llmGate = null)
         {
             _gateway = gateway;
             _notificationChannel = notificationChannel;
             _backupStatus = backupStatus;
             _mcpEndpoint = mcpEndpoint;
+            _llmGate = llmGate;
             _scopeFactory = scopeFactory;
             _connectionString = configuration.GetConnectionString("DefaultConnection") ?? string.Empty;
             _timeProvider = timeProvider;
@@ -78,7 +85,8 @@ namespace HambotV2.Watchdog
                 Backup = FormatLastBackup(),
                 RestoreTest = FormatRestoreTest(),
                 NotificationChannel = FormatNotificationChannel(await _notificationChannel.GetChannelIdAsync(cancellationToken)),
-                Mcp = _mcpEndpoint.State
+                Mcp = _mcpEndpoint.State,
+                Llm = FormatLlm()
             };
         }
 
@@ -137,6 +145,21 @@ namespace HambotV2.Watchdog
         private static string FormatNotificationChannel(ulong? channelId)
         {
             return channelId is ulong channel ? $"<#{channel}> ({channel})" : "not set (notifications go to logs and bot-owner DMs)";
+        }
+
+        private string FormatLlm()
+        {
+            if (_llmGate is null)
+                return "not configured";
+
+            LlmStateSnapshot snapshot = _llmGate.Snapshot();
+            if (!snapshot.Configured)
+                return "inactive (no Llm:ApiKey, or the daily budget is 0)";
+
+            return $"active; requests today {snapshot.RequestsToday}/{snapshot.DailyBudget}"
+                + (snapshot.BudgetExhausted ? " (exhausted)" : "")
+                + $"; kill switch {(snapshot.KillSwitchActive ? "ON" : "off")}"
+                + $"; consecutive failures {snapshot.ConsecutiveFailures}";
         }
     }
 }

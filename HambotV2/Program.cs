@@ -4,6 +4,7 @@ using HambotV2.Backups;
 using HambotV2.Commands;
 using HambotV2.Commands.QuoteCommands;
 using HambotV2.Connections;
+using HambotV2.Llm;
 using HambotV2.Maintenance;
 using HambotV2.Mcp;
 using HambotV2.QuoteOfTheDay;
@@ -124,6 +125,26 @@ namespace HambotV2
             builder.Services.AddSingleton<INotificationPublisher, NotificationPublisher>();
             builder.Services.AddSingleton<IHealthSnapshotProvider, HealthReport>();
             builder.Services.AddHostedService<WatchdogService>();
+
+            // LLM foundation: settings parsed once from the optional Llm section; the client is
+            // registered only when an API key is configured, so without one every LLM feature is
+            // inactive. The gate (kill switch + daily budget + accounting), prompt builder, chat
+            // context collector, and the presence/bio update loop are singletons/hosted; the
+            // update loop no-ops while inactive or no job is enabled.
+            var llmSettings = LlmSettings.FromConfiguration(builder.Configuration);
+            builder.Services.AddSingleton(llmSettings);
+            builder.Services.AddSingleton<ILlmModelResolver, LlmModelResolver>();
+            if (!string.IsNullOrWhiteSpace(llmSettings.ApiKey))
+            {
+                // The client resolves the effective model per call, so a runtime !model override applies without a restart.
+                builder.Services.AddSingleton<ILlmClient>(serviceProvider =>
+                    new MistralLmClient(llmSettings.ApiKey, serviceProvider.GetRequiredService<ILlmModelResolver>()));
+            }
+            builder.Services.AddSingleton<ILlmUsageTracker, LlmUsageTracker>();
+            builder.Services.AddSingleton<ILlmGate, LlmGate>();
+            builder.Services.AddSingleton<LlmPromptBuilder>();
+            builder.Services.AddSingleton<IChatContextCollector, ChatContextCollector>();
+            builder.Services.AddHostedService<PresenceUpdateService>();
 
             // MCP endpoint: the operator-agent tool surface, opt-in via Mcp:Enabled +
             // Mcp:ApiKey. The narrow Discord seam keeps the tools unit-testable without a

@@ -1,5 +1,6 @@
 using Discord;
 using HambotV2.Connections;
+using HambotV2.Llm;
 using HambotV2.SlashCommands;
 
 namespace HambotV2.Commands.SystemCommands
@@ -15,8 +16,8 @@ namespace HambotV2.Commands.SystemCommands
         private const int MaxIdentifierLength = 5;
 
         public string Name => "settings";
-        public string Description => "Show this server's bot settings, or set the command identifier or per-tier cooldown overrides";
-        public string Usage => "settings [commandidentifier <value>|commandidentifier reset|cooldown <tier> <seconds>|cooldown <tier> reset]";
+        public string Description => "Show or set this server's bot settings (identifier, cooldowns, persona)";
+        public string Usage => "settings [commandidentifier <value>|commandidentifier reset|cooldown <tier> <seconds>|cooldown <tier> reset|persona <text...>|persona clear]";
         public int DefaultPermissionTier => PermissionTier.Admin;
         public CommandCategory Category => CommandCategory.PermissionsAndSettings;
 
@@ -25,7 +26,7 @@ namespace HambotV2.Commands.SystemCommands
         /// (<c>commandidentifier</c>, <c>cooldown</c>) parse exactly as on the text surface.
         /// </summary>
         public ApplicationCommandDeclaration? ApplicationCommand =>
-            ApplicationCommandDeclaration.FreeForm("Omit to show, or: commandidentifier <value>|reset, cooldown <tier> <seconds>|reset");
+            ApplicationCommandDeclaration.FreeForm("Omit to show, or set: commandidentifier, cooldown, persona");
 
         public async Task ExecuteCommand(IMessage message, ICommandContext context)
         {
@@ -51,6 +52,9 @@ namespace HambotV2.Commands.SystemCommands
                     break;
                 case "cooldown":
                     await HandleCooldown(message, context, guildId, arguments);
+                    break;
+                case "persona":
+                    await HandlePersona(message, context, guildId, arguments);
                     break;
                 default:
                     await message.Channel.SendMessageAsync($"Unknown setting '{arguments.Get(0)}'. Usage: !{Usage}");
@@ -135,6 +139,51 @@ namespace HambotV2.Commands.SystemCommands
                 : $"Cooldown for tier {tier} in this server set to {cooldownSeconds} seconds");
         }
 
+        /// <summary>
+        /// Manages the guild's LLM persona override: guild-scoped LLM runs use it ahead of the
+        /// global chain; null means the guild inherits the global persona.
+        /// </summary>
+        private async Task HandlePersona(IMessage message, ICommandContext context, ulong guildId, CommandArguments arguments)
+        {
+            // Read path stays read-only: the row is only created when a value is actually set.
+            var setting = context.DbContext.GuildSettings.FirstOrDefault(item => item.GuildId == guildId);
+
+            if (arguments.Count == 1)
+            {
+                await message.Channel.SendMessageAsync(setting?.Persona is { } persona
+                    ? $"Persona override for this server ({persona.Length} characters):\n{persona}"
+                    : "Persona override: none set (this server inherits the global persona)");
+                return;
+            }
+
+            if (arguments.Get(1) == "clear" && arguments.Count == 2)
+            {
+                if (setting is not null)
+                    setting.Persona = null;
+                await context.DbContext.SaveChangesAsync();
+                await message.Channel.SendMessageAsync("Persona override cleared — this server inherits the global persona again");
+                return;
+            }
+
+            string? text = arguments.GetJoined(1);
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                await message.Channel.SendMessageAsync($"The persona must not be empty. Usage: !{Usage}");
+                return;
+            }
+
+            if (text.Length > LlmPersona.MaxPersonaLength)
+            {
+                await message.Channel.SendMessageAsync($"The persona must be at most {LlmPersona.MaxPersonaLength} characters (got {text.Length}).");
+                return;
+            }
+
+            setting ??= GetOrAddGuildSetting(context, guildId);
+            setting.Persona = text;
+            await context.DbContext.SaveChangesAsync();
+            await message.Channel.SendMessageAsync($"Persona override for this server set ({text.Length} characters)");
+        }
+
         private static DatabaseContext.GuildSetting GetOrAddGuildSetting(ICommandContext context, ulong guildId)
         {
             var setting = context.DbContext.GuildSettings.FirstOrDefault(item => item.GuildId == guildId);
@@ -163,6 +212,10 @@ namespace HambotV2.Commands.SystemCommands
             await message.Channel.SendMessageAsync(overrides.Any()
                 ? $"Cooldown overrides: {string.Join(", ", overrides)} (unset tiers use the global defaults)"
                 : "Cooldown overrides: none set (all tiers use the global defaults)");
+
+            await message.Channel.SendMessageAsync(setting?.Persona is { } persona
+                ? $"Persona override: set ({persona.Length} characters)"
+                : "Persona override: none set (inherits the global persona)");
         }
     }
 }

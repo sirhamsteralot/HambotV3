@@ -3,6 +3,7 @@ using HambotV2.Backups;
 using HambotV2.Commands.QuoteCommands;
 using HambotV2.Commands.ReminderCommands;
 using HambotV2.Connections;
+using HambotV2.Llm;
 using HambotV2.Maintenance;
 using HambotV2.QuoteOfTheDay;
 using HambotV2.Scheduling;
@@ -41,6 +42,12 @@ namespace HambotV2.Commands
         /// <summary>The quote search backlog shared with the pagination button handler; production DI supplies the one singleton.</summary>
         private readonly QuoteSearchBacklog _quoteSearchBacklog;
 
+        /// <summary>The LLM gate, resolved by production DI; null keeps the registry usable in tests (the llm command then reports "not configured").</summary>
+        private readonly ILlmGate? _llmGate;
+
+        /// <summary>The parsed <c>Llm</c> configuration section; defaults apply when no configuration is supplied (tests).</summary>
+        private readonly LlmSettings _llmSettings;
+
         /// <summary>
         /// The signal defaults to an isolated instance, and the backup & stability and presence dependencies to null, which
         /// keeps the registry usable in tests that do not exercise those features (the affected
@@ -56,7 +63,8 @@ namespace HambotV2.Commands
             IPresenceService? presenceService = null,
             IImageContentDownloader? imageContentDownloader = null,
             IConfiguration? configuration = null,
-            QuoteSearchBacklog? quoteSearchBacklog = null)
+            QuoteSearchBacklog? quoteSearchBacklog = null,
+            ILlmGate? llmGate = null)
         {
             _deliverySignal = deliverySignal ?? new ScheduledDeliverySignal();
             _backupManager = backupManager;
@@ -69,6 +77,8 @@ namespace HambotV2.Commands
             _reminderSettings = ReminderSettings.FromConfiguration(configuration);
             _quoteOfTheDaySettings = QuoteOfTheDaySettings.FromConfiguration(configuration);
             _quoteSearchBacklog = quoteSearchBacklog ?? new QuoteSearchBacklog();
+            _llmGate = llmGate;
+            _llmSettings = LlmSettings.FromConfiguration(configuration);
         }
 
         public Dictionary<string, ICommand> Commands { get; } = new();
@@ -78,7 +88,7 @@ namespace HambotV2.Commands
 
         public void RegisterCommands()
         {
-            RegisterAllCommands.RegisterCommands(this, _deliverySignal, _backupManager, _maintenanceMode, _notificationPublisher, _notificationChannelStore, _healthSnapshotProvider, _presenceService, _imageContentDownloader, _reminderSettings, _quoteOfTheDaySettings, _quoteSearchBacklog);
+            RegisterAllCommands.RegisterCommands(this, _deliverySignal, _backupManager, _maintenanceMode, _notificationPublisher, _notificationChannelStore, _healthSnapshotProvider, _presenceService, _imageContentDownloader, _reminderSettings, _quoteOfTheDaySettings, _quoteSearchBacklog, _llmGate, _llmSettings);
             CommandsRegistered = true;
         }
 
