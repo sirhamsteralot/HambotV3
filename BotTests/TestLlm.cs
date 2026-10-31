@@ -500,14 +500,14 @@ namespace BotTests
             var (gate, _, client) = CreateGate(ActiveSettings());
             client.Responses.Enqueue(new LlmResponse("ok", 1, 1));
             var chat = new Mock<IChatContextCollector>();
-            chat.Setup(c => c.CollectAsync(It.Is<IReadOnlyCollection<ulong>>(ids => ids.Count == 1 && ids.Contains(GuildId)), 20, 4000, It.IsAny<CancellationToken>()))
+            chat.Setup(c => c.CollectAsync(It.Is<IReadOnlyDictionary<ulong, IReadOnlyCollection<ulong>>>(d => d.Count == 1 && d.ContainsKey(GuildId)), 20, 4000, It.IsAny<CancellationToken>()))
                 .ReturnsAsync("[2026-01-01 10:00 UTC] user: hello");
             var service = CreateService(ActiveSettings(), gate, CreatePresence(), database, chat.Object);
 
             LlmUpdateOutcome outcome = await service.UpdateAsync(LlmSurface.Presence, GuildId);
 
             Assert.AreEqual(LlmUpdateOutcome.Applied, outcome);
-            chat.Verify(c => c.CollectAsync(It.Is<IReadOnlyCollection<ulong>>(ids => ids.Count == 1 && ids.Contains(GuildId)), 20, 4000, It.IsAny<CancellationToken>()), Times.Once);
+            chat.Verify(c => c.CollectAsync(It.Is<IReadOnlyDictionary<ulong, IReadOnlyCollection<ulong>>>(d => d.Count == 1 && d.ContainsKey(GuildId)), 20, 4000, It.IsAny<CancellationToken>()), Times.Once);
             StringAssert.Contains(client.Calls[0][1].Content, "hello", "chat context rides as a data-marked user message");
             StringAssert.Contains(client.Calls[0][1].Content, "untrusted");
             Assert.IsFalse(client.Calls[0][0].Content.Contains("hello"), "chat never enters the system prompt");
@@ -525,7 +525,7 @@ namespace BotTests
             LlmUpdateOutcome outcome = await service.UpdateAsync(LlmSurface.Presence, GuildId);
 
             Assert.AreEqual(LlmUpdateOutcome.Applied, outcome);
-            chat.Verify(c => c.CollectAsync(It.IsAny<IReadOnlyCollection<ulong>>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never);
+            chat.Verify(c => c.CollectAsync(It.IsAny<IReadOnlyDictionary<ulong, IReadOnlyCollection<ulong>>>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never);
             Assert.IsFalse(client.Calls[0][1].Content.Contains("untrusted"), "no chat block without the guild opt-in");
         }
 
@@ -544,7 +544,7 @@ namespace BotTests
             LlmUpdateOutcome outcome = await service.UpdateAsync(LlmSurface.Presence);
 
             Assert.AreEqual(LlmUpdateOutcome.Applied, outcome);
-            chat.Verify(c => c.CollectAsync(It.IsAny<IReadOnlyCollection<ulong>>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never);
+            chat.Verify(c => c.CollectAsync(It.IsAny<IReadOnlyDictionary<ulong, IReadOnlyCollection<ulong>>>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never);
         }
 
         [TestMethod]
@@ -560,14 +560,14 @@ namespace BotTests
             var (gate, _, client) = CreateGate(ActiveSettings());
             client.Responses.Enqueue(new LlmResponse("ok", 1, 1));
             var chat = new Mock<IChatContextCollector>();
-            chat.Setup(c => c.CollectAsync(It.IsAny<IReadOnlyCollection<ulong>>(), 20, 4000, It.IsAny<CancellationToken>()))
+            chat.Setup(c => c.CollectAsync(It.IsAny<IReadOnlyDictionary<ulong, IReadOnlyCollection<ulong>>>(), 20, 4000, It.IsAny<CancellationToken>()))
                 .ReturnsAsync("[2026-01-01 10:00 UTC] user: hello");
             var service = CreateService(ActiveSettings(), gate, CreatePresence(), database, chat.Object);
 
             await service.RunTickAsync();
 
             chat.Verify(c => c.CollectAsync(
-                It.Is<IReadOnlyCollection<ulong>>(ids => ids.Count == 2 && ids.Contains(GuildId) && ids.Contains(otherOptedIn)),
+                It.Is<IReadOnlyDictionary<ulong, IReadOnlyCollection<ulong>>>(d => d.Count == 2 && d.ContainsKey(GuildId) && d.ContainsKey(otherOptedIn)),
                 20, 4000, It.IsAny<CancellationToken>()), Times.Once);
             StringAssert.Contains(client.Calls[0][1].Content, "hello");
         }
@@ -643,7 +643,7 @@ namespace BotTests
             var settings = ActiveSettings();
             var (gate, _, _) = CreateGate(settings);
             var chat = new Mock<IChatContextCollector>();
-            chat.Setup(c => c.CollectAsync(It.IsAny<IReadOnlyCollection<ulong>>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            chat.Setup(c => c.CollectAsync(It.IsAny<IReadOnlyDictionary<ulong, IReadOnlyCollection<ulong>>>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
                 .ThrowsAsync(new InvalidOperationException("channel unreadable"));
             var service = CreateService(settings, gate, CreatePresence(), database, chat.Object);
 
@@ -977,7 +977,7 @@ namespace BotTests
             var settings = ActiveSettings();
             var (gate, _, _) = CreateGate(settings);
             var chat = new Mock<IChatContextCollector>();
-            chat.Setup(c => c.CollectAsync(It.IsAny<IReadOnlyCollection<ulong>>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            chat.Setup(c => c.CollectAsync(It.IsAny<IReadOnlyDictionary<ulong, IReadOnlyCollection<ulong>>>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
                 .ThrowsAsync(new InvalidOperationException("channel unreadable"));
             var service = CreateService(settings, gate, CreatePresence(), database, chat.Object);
             var command = new LlmCommand(gate, settings, service);
@@ -1015,5 +1015,98 @@ namespace BotTests
 
             StringAssert.Contains(replies[0], "only available in servers");
         }
+
+        [TestMethod]
+        public async Task Update_In_An_Opted_In_Guild_Passes_Its_Channel_Allowlist()
+        {
+            const ulong otherOptedIn = 999;
+            var database = DiscordTestDoubles.CreateDatabase();
+            database.GuildSettings.Add(new DatabaseContext.GuildSetting { GuildId = GuildId, LlmIncludeChat = true });
+            database.GuildSettings.Add(new DatabaseContext.GuildSetting { GuildId = otherOptedIn, LlmIncludeChat = true });
+            database.GuildLlmChannels.Add(new DatabaseContext.GuildLlmChannel { GuildId = GuildId, ChannelId = 111 });
+            database.GuildLlmChannels.Add(new DatabaseContext.GuildLlmChannel { GuildId = GuildId, ChannelId = 222 });
+            database.SaveChanges();
+            var (gate, _, client) = CreateGate(ActiveSettings());
+            client.Responses.Enqueue(new LlmResponse("ok", 1, 1));
+            var chat = new Mock<IChatContextCollector>();
+            var service = CreateService(ActiveSettings(), gate, CreatePresence(), database, chat.Object);
+
+            LlmUpdateOutcome outcome = await service.UpdateAsync(LlmSurface.Presence, GuildId);
+
+            Assert.AreEqual(LlmUpdateOutcome.Applied, outcome);
+            chat.Verify(c => c.CollectAsync(
+                It.Is<IReadOnlyDictionary<ulong, IReadOnlyCollection<ulong>>>(d =>
+                    d.Count == 1 && d.ContainsKey(GuildId) && d[GuildId].Count == 2 && d[GuildId].Contains(111UL) && d[GuildId].Contains(222UL)),
+                20, 4000, It.IsAny<CancellationToken>()), Times.Once,
+                "a guild-scoped run passes only that guild, with its allowlist");
+        }
+
+        [TestMethod]
+        public async Task Scheduled_Tick_Passes_Allowlists_Of_Opted_In_Guilds_Only()
+        {
+            const ulong otherOptedIn = 999;
+            const ulong notOptedIn = 1000;
+            var database = DiscordTestDoubles.CreateDatabase();
+            database.GuildSettings.Add(new DatabaseContext.GuildSetting { GuildId = GuildId, LlmIncludeChat = true });
+            database.GuildSettings.Add(new DatabaseContext.GuildSetting { GuildId = otherOptedIn, LlmIncludeChat = true });
+            database.GuildSettings.Add(new DatabaseContext.GuildSetting { GuildId = notOptedIn });
+            database.GuildLlmChannels.Add(new DatabaseContext.GuildLlmChannel { GuildId = GuildId, ChannelId = 111 });
+            database.GuildLlmChannels.Add(new DatabaseContext.GuildLlmChannel { GuildId = notOptedIn, ChannelId = 333 });
+            database.SaveChanges();
+            var (gate, _, client) = CreateGate(ActiveSettings());
+            client.Responses.Enqueue(new LlmResponse("ok", 1, 1));
+            var chat = new Mock<IChatContextCollector>();
+            var service = CreateService(ActiveSettings(), gate, CreatePresence(), database, chat.Object);
+
+            await service.RunTickAsync();
+
+            chat.Verify(c => c.CollectAsync(
+                It.Is<IReadOnlyDictionary<ulong, IReadOnlyCollection<ulong>>>(d =>
+                    d.Count == 2 && d.ContainsKey(GuildId) && d.ContainsKey(otherOptedIn)
+                    && d[GuildId].Count == 1 && d[GuildId].Contains(111UL)
+                    && d[otherOptedIn].Count == 0),
+                20, 4000, It.IsAny<CancellationToken>()), Times.Once,
+                "the non-opted-in guild's rows are ignored; an opted-in guild without rows gets an empty allowlist (all its readable channels)");
+        }
+
+        [TestMethod]
+        public async Task SettingsCommand_LlmChannels_Manages_The_Allowlist()
+        {
+            var database = DiscordTestDoubles.CreateDatabase();
+            var lookup = new Mock<IGuildChannelLookup>();
+            lookup.Setup(l => l.IsTextChannelOf(GuildId, It.IsAny<ulong>())).Returns((ulong _, ulong id) => id == 111 || id == 222);
+            var command = new SettingsCommand(lookup.Object);
+
+            var show = await ExecuteAsync(command, database, "!settings llmchannels", authorId: 200);
+            StringAssert.Contains(show[0], "all readable channels");
+
+            await ExecuteAsync(command, database, "!settings llmchannels add 111", authorId: 200);
+            await ExecuteAsync(command, database, "!settings llmchannels add <#222>", authorId: 200);
+            var rows = database.GuildLlmChannels.Where(r => r.GuildId == GuildId).Select(r => r.ChannelId).OrderBy(id => id).ToList();
+            CollectionAssert.AreEqual(new List<ulong> { 111, 222 }, rows, "raw ids and <#id> mentions both parse");
+
+            var dup = await ExecuteAsync(command, database, "!settings llmchannels add 111", authorId: 200);
+            StringAssert.Contains(dup[0], "already");
+
+            var foreign = await ExecuteAsync(command, database, "!settings llmchannels add 999", authorId: 200);
+            StringAssert.Contains(foreign[0], "not a text channel");
+            Assert.AreEqual(2, database.GuildLlmChannels.Count(r => r.GuildId == GuildId));
+
+            var bad = await ExecuteAsync(command, database, "!settings llmchannels add banana", authorId: 200);
+            StringAssert.Contains(bad[0], "does not look like a channel");
+
+            await ExecuteAsync(command, database, "!settings llmchannels remove 111", authorId: 200);
+            Assert.IsFalse(database.GuildLlmChannels.Any(r => r.GuildId == GuildId && r.ChannelId == 111));
+
+            var unlisted = await ExecuteAsync(command, database, "!settings llmchannels remove 111", authorId: 200);
+            StringAssert.Contains(unlisted[0], "not on the LLM channel allowlist");
+
+            var showListed = await ExecuteAsync(command, database, "!settings llmchannels", authorId: 200);
+            StringAssert.Contains(showListed[0], "<#222>");
+
+            await ExecuteAsync(command, database, "!settings llmchannels clear", authorId: 200);
+            Assert.AreEqual(0, database.GuildLlmChannels.Count(r => r.GuildId == GuildId));
+        }
+
     }
 }

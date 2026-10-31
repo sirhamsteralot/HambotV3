@@ -51,21 +51,6 @@ Each task carries: **Problem** (what's missing today), **Steps** (ordered checkl
 
     **Acceptance criteria**: none yet — specifying this task is the first step once scheduled; after that: `!remindme at <datetime> <message...>` stores and delivers at the exact UTC instant like any other reminder, invalid or past input is an in-channel error with nothing stored, the existing duration and `every` forms are unchanged, build warning-free and tests green.
 
-- [ ] **Per-guild LLM chat-context channel allowlist — `!settings llmchannels [add|remove <#channel|id> | clear]` (FR-164–FR-166; extends §2.14 and design §3.12's chat context)**
-
-    **Problem**: `!settings llmchat on` opts a whole server into LLM chat context — every readable text channel is read. There is no way to keep the feature on while excluding specific channels (secret, off-topic, or noisy ones).
-
-    **Steps** (initial plan; the as-built design folds into §3.12 when scheduled):
-
-    1. Requirements are authored with this entry (FR-164–FR-166 at the end of §2.14, NFR-21 coverage); when scheduled, add the as-built notes to design §3.12 (ChatContextCollector row, `settings` command row, §3.4 entity list) and mark the FRs implemented.
-    2. Data: new entity `GuildLlmChannel` (key `(GuildId, ChannelId)`, cascade-deleted with the guild row) + migration (`dotnet ef migrations add AddGuildLlmChannels` from `HambotV2/`).
-    3. Command: extend `SettingsCommand` with `llmchannels` — show / `add <#channel|id>` / `remove <#channel|id>` / `clear` — tier 2, guild-only, free-form slash; accept a raw channel id or a `<#id>` mention; reject channels outside this guild or non-text channels with an in-channel error.
-    4. Read path: `PresenceUpdateService.ResolveRunScope` loads each opted-in guild's allowlist together with `LlmIncludeChat` and passes the per-guild allowlists to `ChatContextCollector.CollectAsync` (signature gains them; an empty list = all readable channels); unlisted and unreadable channels are skipped, never fail the run.
-    5. Tests per the NFR-21 pattern (InMemory + fakes): allowlist filtering per guild, empty-means-all, a non-opted-in guild contributing nothing even with rows, add/remove/clear command behavior incl. invalid channel, scheduled vs guild-triggered scope.
-    6. Docs when built: design §3.12/§3.5/§3.4, the README `!settings` row, and a manual-test-plan §16 case.
-
-    **Acceptance criteria**: in an opted-in guild with an allowlist, `!llm update` run there and scheduled ticks read only the listed (and readable) channels; `clear` restores all-readable behavior; a non-opted-in guild still contributes no chat; nothing is stored or logged from unlisted channels; build warning-free and tests green.
-
 - [ ] **Further extra features — placeholder (not yet specified)**
 
     Candidates get their own entry here (Problem / Steps / Acceptance criteria) once proposed and agreed, then are fully specified in the requirements and design docs before implementation.

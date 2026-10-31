@@ -12,7 +12,8 @@ namespace HambotV2.Llm
     /// </summary>
     internal interface IChatContextCollector
     {
-        Task<string?> CollectAsync(IReadOnlyCollection<ulong> guildIds, int maxMessages, int maxCharacters, CancellationToken cancellationToken = default);
+        /// <summary>Reads the given guilds' chat. Each dictionary key is a guild to read; its value is that guild's channel allowlist — an empty list means all of its readable channels.</summary>
+        Task<string?> CollectAsync(IReadOnlyDictionary<ulong, IReadOnlyCollection<ulong>> guilds, int maxMessages, int maxCharacters, CancellationToken cancellationToken = default);
     }
 
     internal sealed class ChatContextCollector : IChatContextCollector
@@ -26,22 +27,25 @@ namespace HambotV2.Llm
             _logger = logger;
         }
 
-        public async Task<string?> CollectAsync(IReadOnlyCollection<ulong> guildIds, int maxMessages, int maxCharacters, CancellationToken cancellationToken = default)
+        public async Task<string?> CollectAsync(IReadOnlyDictionary<ulong, IReadOnlyCollection<ulong>> guilds, int maxMessages, int maxCharacters, CancellationToken cancellationToken = default)
         {
             var latest = new List<(DateTimeOffset At, string Author, string Text)>();
 
             // Only the given guilds are read — the invoking guild for a guild-triggered command,
-            // every opted-in guild for an automatic run; DM-triggered runs pass an empty set.
-            foreach (ulong guildId in guildIds)
+            // every opted-in guild for an automatic run; DM-triggered runs pass an empty dictionary.
+            foreach (var (guildId, allowedChannels) in guilds)
             {
                 if (_client.GetGuild(guildId) is not { } guild)
                     continue;
 
                 foreach (SocketTextChannel channel in guild.TextChannels)
                 {
-                    // A channel the bot cannot read (50001 Missing Access), that was deleted (404),
-                    // or that otherwise errors is skipped — the remaining readable channels still
+                    // A non-empty allowlist narrows the read to the listed channels; a channel the
+                    // bot cannot read (50001 Missing Access), that was deleted (404), or that
+                    // otherwise errors is skipped — the remaining readable channels still
                     // contribute; one bad channel must not fail the whole update.
+                    if (allowedChannels.Count > 0 && !allowedChannels.Contains(channel.Id))
+                        continue;
                     try
                     {
                         await foreach (IReadOnlyCollection<IMessage> page in ((IMessageChannel)channel).GetMessagesAsync(1, CacheMode.AllowDownload, new RequestOptions { CancelToken = cancellationToken }))

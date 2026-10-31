@@ -62,6 +62,10 @@ namespace HambotV2
                 GatewayIntents = GatewayIntents.Guilds | GatewayIntents.GuildMessages | GatewayIntents.DirectMessages | GatewayIntents.MessageContent
             }));
 
+            // Read-only channel lookup over the shared client, so commands can validate channel arguments.
+            builder.Services.AddSingleton<IGuildChannelLookup>(serviceProvider =>
+                new DiscordGuildChannelLookup(serviceProvider.GetRequiredService<DiscordSocketClient>()));
+
             // Scheduled message delivery: the generic engine is wired to one message kind at a
             // time — reminders today. The commands and the delivery loop share one wake-up
             // signal, so a schedule change re-schedules immediately.

@@ -42,6 +42,9 @@ namespace HambotV2.Commands
         /// <summary>The quote search backlog shared with the pagination button handler; production DI supplies the one singleton.</summary>
         private readonly QuoteSearchBacklog _quoteSearchBacklog;
 
+        /// <summary>Channel lookup over the shared gateway client, resolved by production DI; null keeps the registry usable in tests (channel validation is then skipped).</summary>
+        private readonly IGuildChannelLookup? _guildChannelLookup;
+
         /// <summary>The LLM gate, resolved by production DI; null keeps the registry usable in tests (the llm command then reports "not configured").</summary>
         private readonly ILlmGate? _llmGate;
 
@@ -67,6 +70,7 @@ namespace HambotV2.Commands
             IImageContentDownloader? imageContentDownloader = null,
             IConfiguration? configuration = null,
             QuoteSearchBacklog? quoteSearchBacklog = null,
+            IGuildChannelLookup? guildChannelLookup = null,
             ILlmGate? llmGate = null,
             ILlmUpdateService? llmUpdateService = null)
         {
@@ -81,6 +85,7 @@ namespace HambotV2.Commands
             _reminderSettings = ReminderSettings.FromConfiguration(configuration);
             _quoteOfTheDaySettings = QuoteOfTheDaySettings.FromConfiguration(configuration);
             _quoteSearchBacklog = quoteSearchBacklog ?? new QuoteSearchBacklog();
+            _guildChannelLookup = guildChannelLookup;
             _llmGate = llmGate;
             _llmSettings = LlmSettings.FromConfiguration(configuration);
             _llmUpdateService = llmUpdateService;
@@ -93,7 +98,7 @@ namespace HambotV2.Commands
 
         public void RegisterCommands()
         {
-            RegisterAllCommands.RegisterCommands(this, _deliverySignal, _backupManager, _maintenanceMode, _notificationPublisher, _notificationChannelStore, _healthSnapshotProvider, _presenceService, _imageContentDownloader, _reminderSettings, _quoteOfTheDaySettings, _quoteSearchBacklog, _llmGate, _llmSettings, _llmUpdateService);
+            RegisterAllCommands.RegisterCommands(this, _deliverySignal, _backupManager, _maintenanceMode, _notificationPublisher, _notificationChannelStore, _healthSnapshotProvider, _presenceService, _imageContentDownloader, _reminderSettings, _quoteOfTheDaySettings, _quoteSearchBacklog, _guildChannelLookup, _llmGate, _llmSettings, _llmUpdateService);
             CommandsRegistered = true;
         }
 

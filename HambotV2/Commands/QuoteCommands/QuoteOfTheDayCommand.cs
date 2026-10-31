@@ -189,14 +189,6 @@ namespace HambotV2.Commands.QuoteCommands
         }
 
         /// <summary>Accepts a raw channel id and a channel mention (`<#id>`).</summary>
-        private static bool TryParseChannelId(string token, out ulong channelId)
-        {
-            channelId = 0;
-
-            if (token.StartsWith("<#", StringComparison.Ordinal) && token.EndsWith(">", StringComparison.Ordinal))
-                token = token[2..^1];
-
-            return ulong.TryParse(token, out channelId) && channelId != 0;
-        }
+        private static bool TryParseChannelId(string token, out ulong channelId) => DiscordChannelId.TryParse(token, out channelId);
     }
 }

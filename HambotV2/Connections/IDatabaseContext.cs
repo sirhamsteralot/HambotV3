@@ -25,6 +25,8 @@ namespace HambotV2.Connections
 
         DbSet<DatabaseContext.BotBan> BotBans { get; }
 
+        DbSet<DatabaseContext.GuildLlmChannel> GuildLlmChannels { get; }
+
         Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
     }
 }

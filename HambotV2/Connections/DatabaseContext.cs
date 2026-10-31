@@ -22,6 +22,8 @@ namespace HambotV2.Connections
 
         public DbSet<BotBan> BotBans { get; set; }
 
+        public DbSet<GuildLlmChannel> GuildLlmChannels { get; set; }
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             // Per-guild scoping: tiers and settings are keyed per guild.
@@ -36,6 +38,7 @@ namespace HambotV2.Connections
             // Global key-value settings: the global analog of GuildSetting.
             modelBuilder.Entity<BotSetting>().HasKey(setting => setting.Key);
             modelBuilder.Entity<BotBan>().HasKey(ban => new { ban.GuildId, ban.DiscordId });
+            modelBuilder.Entity<GuildLlmChannel>().HasKey(row => new { row.GuildId, row.ChannelId });
         }
 
         public class User
@@ -199,6 +202,17 @@ namespace HambotV2.Connections
 
             /// <summary>When a temporary ban lifts itself; null = permanent.</summary>
             public DateTimeOffset? ExpiresAtUtc { get; set; }
+        }
+
+        /// <summary>
+        /// One channel of a guild's LLM chat-context allowlist: while a guild has rows, the LLM chat
+        /// reader reads only these channels of that guild; no rows = all readable channels.
+        /// </summary>
+        public class GuildLlmChannel
+        {
+            public ulong GuildId { get; set; }
+
+            public ulong ChannelId { get; set; }
         }
     }
 }

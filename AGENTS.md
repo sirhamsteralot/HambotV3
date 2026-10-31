@@ -23,7 +23,7 @@ Tests run without a database or Discord token. The build is warning-free; keep i
 - To add a command: implement `Commands/ICommand.cs` (`Name`, `Description`, `Usage`, `DefaultPermissionTier`, `Category` + `ExecuteCommand`), then register it in the relevant `Commands/Register*Commands.cs` class (system commands in `Commands/SystemCommands/`, LLM commands in `Commands/LlmCommands/`).
 - Command names must be lowercase; registration rejects commands missing help text or category — the registration-contract test enforces this for every command, so don't re-assert it per command in tests.
 - Permissions are tiered integers (`PermissionsService`): user tier >= command tier. Tiers: 0 everyone, 1 moderator, 2 admin, 3 owner (guild owner), 4 bot owner (config only). Managed at runtime via `!commandpermission` / `!userpermission`.
-- Data model (`Connections/DatabaseContext.cs`): `User`, `CommandMetaData`, `GuildSetting`, `Quote`, `CustomResponse` (per guild), `Reminder` (per user), `BotSetting` (global), `BotBan` (per guild). Migrations live in `HambotV2/Migrations/`; regenerate with `dotnet ef migrations add <Name>` from `HambotV2/` (the `DesignTimeDatabaseContextFactory` avoids running startup).
+- Data model (`Connections/DatabaseContext.cs`): `User`, `CommandMetaData`, `GuildSetting`, `Quote`, `CustomResponse` (per guild), `Reminder` (per user), `BotSetting` (global), `BotBan` (per guild), `GuildLlmChannel` (per guild). Migrations live in `HambotV2/Migrations/`; regenerate with `dotnet ef migrations add <Name>` from `HambotV2/` (the `DesignTimeDatabaseContextFactory` avoids running startup).
 
 ## Configuration & Secrets
 

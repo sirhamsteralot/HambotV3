@@ -99,6 +99,19 @@ namespace HambotV2.Migrations
                     b.ToTable("CustomResponses");
                 });
 
+            modelBuilder.Entity("HambotV2.Connections.DatabaseContext+GuildLlmChannel", b =>
+                {
+                    b.Property<decimal>("GuildId")
+                        .HasColumnType("numeric(20,0)");
+
+                    b.Property<decimal>("ChannelId")
+                        .HasColumnType("numeric(20,0)");
+
+                    b.HasKey("GuildId", "ChannelId");
+
+                    b.ToTable("GuildLlmChannels");
+                });
+
             modelBuilder.Entity("HambotV2.Connections.DatabaseContext+GuildSetting", b =>
                 {
                     b.Property<decimal>("GuildId")

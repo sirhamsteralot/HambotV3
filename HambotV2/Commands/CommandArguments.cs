@@ -94,5 +94,14 @@ namespace HambotV2.Commands
         {
             return DiscordUserId.TryParse(Get(index) ?? string.Empty, out discordId);
         }
+
+        /// <summary>
+        /// Gets the argument at <paramref name="index"/> as a Discord channel id, accepting raw ids
+        /// and mentions (<c>&lt;#id&gt;</c>).
+        /// </summary>
+        public bool TryGetDiscordChannelId(int index, out ulong channelId)
+        {
+            return DiscordChannelId.TryParse(Get(index), out channelId);
+        }
     }
 }

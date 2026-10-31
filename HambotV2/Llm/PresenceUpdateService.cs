@@ -162,7 +162,8 @@ namespace HambotV2.Llm
 
             var (persona, chatGuilds) = ResolveRunScope(guildId, automatic);
             // Chat context is per-guild opt-in: a guild-triggered run reads only that guild (when
-            // opted in), an automatic run reads every opted-in guild, a DM run reads none.
+            // opted in), an automatic run reads every opted-in guild, a DM run reads none; each
+            // entry's value is the guild's channel allowlist (empty = all readable channels).
             string? chat = chatGuilds.Count > 0 && _chatContext is not null
                 ? await _chatContext.CollectAsync(chatGuilds, _settings.ChatContextMaxMessages, _settings.ChatContextMaxCharacters, cancellationToken)
                 : null;
@@ -201,10 +202,11 @@ namespace HambotV2.Llm
             return LlmUpdateOutcome.Applied;
         }
 
-        /// <summary>Resolves the global persona and which guilds' chat this run may read: the invoking
-        /// guild alone (when opted in) for a guild-triggered manual run, every opted-in guild for an
-        /// automatic run, none for a DM-triggered manual run.</summary>
-        private (string Persona, IReadOnlyList<ulong> ChatGuilds) ResolveRunScope(ulong? guildId, bool automatic)
+        /// <summary>Resolves the global persona and which guilds' chat this run may read, with each
+        /// guild's channel allowlist: the invoking guild alone (when opted in) for a guild-triggered
+        /// manual run, every opted-in guild for an automatic run, none for a DM-triggered manual run.
+        /// An empty allowlist value means all of the guild's readable channels.</summary>
+        private (string Persona, IReadOnlyDictionary<ulong, IReadOnlyCollection<ulong>> ChatGuilds) ResolveRunScope(ulong? guildId, bool automatic)
         {
             using IServiceScope scope = _scopeFactory.CreateScope();
             var database = scope.ServiceProvider.GetRequiredService<IDatabaseContext>();
@@ -213,9 +215,28 @@ namespace HambotV2.Llm
                 .Where(setting => setting.LlmIncludeChat)
                 .Select(setting => setting.GuildId)
                 .ToList();
-            IReadOnlyList<ulong> chatGuilds = guildId is { } guild
-                ? optedIn.Contains(guild) ? [guild] : []
-                : automatic ? optedIn : [];
+            var allowlists = database.GuildLlmChannels
+                .Where(row => optedIn.Contains(row.GuildId))
+                .AsEnumerable() // small per-guild sets: group in memory — GroupBy after Where is not translatable
+                .GroupBy(row => row.GuildId)
+                .ToDictionary(group => group.Key, group => (IReadOnlyCollection<ulong>)group.Select(row => row.ChannelId).ToList());
+
+            IReadOnlyCollection<ulong> AllowlistFor(ulong guild) =>
+                allowlists.TryGetValue(guild, out var list) ? list : [];
+
+            IReadOnlyDictionary<ulong, IReadOnlyCollection<ulong>> chatGuilds;
+            if (guildId is { } guild)
+            {
+                chatGuilds = optedIn.Contains(guild)
+                    ? new Dictionary<ulong, IReadOnlyCollection<ulong>> { [guild] = AllowlistFor(guild) }
+                    : new Dictionary<ulong, IReadOnlyCollection<ulong>>();
+            }
+            else
+            {
+                chatGuilds = automatic
+                    ? optedIn.ToDictionary(guild => guild, AllowlistFor)
+                    : new Dictionary<ulong, IReadOnlyCollection<ulong>>();
+            }
             return (persona, chatGuilds);
         }
     }
