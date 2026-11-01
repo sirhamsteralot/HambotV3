@@ -256,7 +256,7 @@ Opt-in (design §3.12): set `LLM_API_KEY=<Mistral API key>` and the job flags in
 | 16.13 | `!persona` / `!persona You are a cheerful hamster.` / `!persona` / `!persona clear`; a >2000-char persona | Shows the shipped default; after setting, the runtime-override layer; `clear` reverts; over-limit rejected naming the 2000-char limit. |
 | 16.14 | `!settings persona <text>`, `!settings persona`, `!settings persona clear` in the test server; same in a DM | Guild override set/shown/cleared (persisted per guild); the DM declines (guild-only). |
 | 16.15 | `!help` as bot owner | The **LLM** category group lists `llm`, `model`, `persona`. |
-| 16.16 | Jobs **off**, `!llm update` | Both surfaces update immediately (reply "Presence update applied." + "Bio update applied."); `!llm status` request count rises by 2 — the manual trigger works regardless of the job flags. | 
+| 16.16 | Jobs **off**, `!llm update` | Both surfaces update immediately (reply "Presence update applied." + "Bio update applied."); `!llm status` request count rises by 2 — the manual trigger works regardless of the job flags. |
 | 16.17 | `!llm update presence` / `!llm update bio`; `!llm update banana` | Only the named surface updates (1 request); the bad surface gets the usage error and no call is made. |
 | 16.18 | `!llm off`, then `!llm update`; `!llm on`, then `!llm update` | Blocked reply ("kill switch … nothing changed"), no model call, nothing applied; after `on`, the update applies again. |
 | 16.19 | `LLM_PRESENCE_INTERVAL_MINUTES=5`, `LLM_BIO_INTERVAL_MINUTES=1`, both jobs on, restart, wait ~3 min | The bio changes at its own ~1 min cadence while the presence only changes on its ~5 min cadence (watch both servers' profiles + `!llm status` feature counters). |

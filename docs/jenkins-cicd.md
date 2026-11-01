@@ -107,7 +107,7 @@ Tool versions are pinned in `Jenkinsfile.security`; bump them deliberately. The 
 |---|---|
 | `dotnet: not found` in Build | `DOTNET_ROOT`/`PATH` in the Jenkinsfile don't match the agent install (§3). |
 | Nullable warning CS86xx fails the build | By design (`/warnaserror:nullable`); fix the warning. |
-| Deploy skipped on a tag | Tag discovery/refspec not configured (§7.4), or the tag doesn't match `v<major.minor.patch>`. |
+| Deploy skipped on a tag | Tag discovery/refspec not configured (§7, step 3), or the tag doesn't match `v<major.minor.patch>`. |
 | `sshagent` step not found | SSH Agent plugin missing, or credential ID ≠ `DEPLOY_SSH_CREDENTIAL`. |
 | `Permission denied (publickey,password)` | `authorized_keys` missing/incomplete (§2), key mismatch (compare fingerprints), or bad ownership/modes silently ignored by sshd — check `sudo journalctl -u ssh -n 50`. |
 | `Deploy verification FAILED` | The bot didn't reach its startup lines (e.g. bad token in the server `.env`); the old image was rolled back — check the bot logs. |
