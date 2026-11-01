@@ -32,7 +32,7 @@ namespace HambotV2.Commands
             INotificationChannelStore? notificationChannelStore = null,
             IHealthSnapshotProvider? healthSnapshotProvider = null,
             IPresenceService? presenceService = null,
-            IImageContentDownloader? imageContentDownloader = null,
+            IHttpContentDownloader? httpContentDownloader = null,
             ReminderSettings? reminderSettings = null,
             QuoteOfTheDaySettings? quoteOfTheDaySettings = null,
             QuoteSearchBacklog? quoteSearchBacklog = null,
@@ -42,8 +42,8 @@ namespace HambotV2.Commands
             ILlmUpdateService? llmUpdateService = null,
             LlmRuntimeOptions? runtimeOptions = null)
         {
-            RegisterSystemCommands.RegisterCommands(commandService, notificationChannelStore, healthSnapshotProvider, presenceService, imageContentDownloader, guildChannelLookup);
-            RegisterQuoteCommands.RegisterCommands(commandService, quoteSearchBacklog ?? new QuoteSearchBacklog(), quoteOfTheDaySettings);
+            RegisterSystemCommands.RegisterCommands(commandService, notificationChannelStore, healthSnapshotProvider, presenceService, httpContentDownloader, guildChannelLookup);
+            RegisterQuoteCommands.RegisterCommands(commandService, quoteSearchBacklog ?? new QuoteSearchBacklog(), quoteOfTheDaySettings, httpContentDownloader);
             RegisterResponseCommands.RegisterCommands(commandService);
             RegisterReminderCommands.RegisterCommands(commandService, deliverySignal, reminderSettings);
             RegisterBackupCommands.RegisterCommands(commandService, backupManager, maintenanceMode, notificationPublisher);

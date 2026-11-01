@@ -13,11 +13,11 @@ namespace HambotV2.Commands.QuoteCommands
     /// </summary>
     internal class ImportQuotesCommand : ICommand
     {
-        private readonly IAttachmentContentDownloader _downloader;
+        private readonly IHttpContentDownloader _downloader;
 
-        public ImportQuotesCommand(IAttachmentContentDownloader? downloader = null)
+        public ImportQuotesCommand(IHttpContentDownloader? downloader = null)
         {
-            _downloader = downloader ?? new AttachmentContentDownloader();
+            _downloader = downloader ?? new HttpContentDownloader();
         }
 
         public string Name => "importquotes";
@@ -44,7 +44,7 @@ namespace HambotV2.Commands.QuoteCommands
             string content;
             try
             {
-                content = await _downloader.DownloadTextAsync(attachment.Url);
+                content = await _downloader.DownloadTextAsync(attachment.Url, HttpContentDownloader.MaxTextBytes);
             }
             catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
             {

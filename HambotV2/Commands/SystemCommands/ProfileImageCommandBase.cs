@@ -14,12 +14,12 @@ namespace HambotV2.Commands.SystemCommands
     internal abstract class ProfileImageCommandBase : ICommand
     {
         private readonly IPresenceService? _presenceService;
-        private readonly IImageContentDownloader? _imageDownloader;
+        private readonly IHttpContentDownloader? _contentDownloader;
 
-        protected ProfileImageCommandBase(IPresenceService? presenceService, IImageContentDownloader? imageDownloader)
+        protected ProfileImageCommandBase(IPresenceService? presenceService, IHttpContentDownloader? contentDownloader)
         {
             _presenceService = presenceService;
-            _imageDownloader = imageDownloader;
+            _contentDownloader = contentDownloader;
         }
 
         public abstract string Name { get; }
@@ -54,7 +54,7 @@ namespace HambotV2.Commands.SystemCommands
 
         public async Task ExecuteCommand(IMessage message, ICommandContext context)
         {
-            if (_presenceService is null || _imageDownloader is null)
+            if (_presenceService is null || _contentDownloader is null)
             {
                 await message.Channel.SendMessageAsync("Profile image management is not configured on this installation.");
                 return;
@@ -86,7 +86,7 @@ namespace HambotV2.Commands.SystemCommands
                 return;
             }
 
-            byte[]? imageData = await TryDownloadImageAsync(message, arguments, firstArgument, attachments, _imageDownloader);
+            byte[]? imageData = await TryDownloadImageAsync(message, arguments, firstArgument, attachments, _contentDownloader);
             if (imageData is null)
                 return; // already replied in-channel
 
@@ -103,7 +103,7 @@ namespace HambotV2.Commands.SystemCommands
         }
 
         /// <summary>Downloads from exactly one attachment or a single image URL; every failure replies in-channel and returns null.</summary>
-        private async Task<byte[]?> TryDownloadImageAsync(IMessage message, CommandArguments arguments, string? firstArgument, IReadOnlyCollection<IAttachment> attachments, IImageContentDownloader downloader)
+        private async Task<byte[]?> TryDownloadImageAsync(IMessage message, CommandArguments arguments, string? firstArgument, IReadOnlyCollection<IAttachment> attachments, IHttpContentDownloader downloader)
         {
             if (attachments.Count > 1)
             {
@@ -139,11 +139,13 @@ namespace HambotV2.Commands.SystemCommands
                 "The image could not be downloaded from that URL — check the link and try again.");
         }
 
-        private async Task<byte[]?> DownloadAsync(IMessage message, string url, IImageContentDownloader downloader, string failureReply)
+        private async Task<byte[]?> DownloadAsync(IMessage message, string url, IHttpContentDownloader downloader, string failureReply)
         {
             try
             {
-                return await downloader.DownloadBytesAsync(url);
+                // The download is capped at Discord's image limit; the signature sniff and the
+                // exact size/type checks stay the post-step in ProfileImages.TryValidate.
+                return await downloader.DownloadBytesAsync(url, ProfileImages.MaxImageBytes);
             }
             catch (Exception)
             {

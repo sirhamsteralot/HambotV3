@@ -15,13 +15,13 @@ namespace BotTests
         private static readonly byte[] GifBytes = [0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 0x01, 0x02];
         private static readonly byte[] NotAnImage = [0x68, 0x65, 0x6C, 0x6C, 0x6F]; // "hello"
 
-        private sealed class FakeImageDownloader : IImageContentDownloader
+        private sealed class FakeImageDownloader : IHttpContentDownloader
         {
             public Dictionary<string, byte[]> ImagesByUrl { get; } = [];
             public HashSet<string> FailingUrls { get; } = [];
             public List<string> RequestedUrls { get; } = [];
 
-            public Task<byte[]> DownloadBytesAsync(string url)
+            public Task<byte[]> DownloadBytesAsync(string url, long maxBytes, CancellationToken cancellationToken = default)
             {
                 RequestedUrls.Add(url);
 
@@ -30,6 +30,9 @@ namespace BotTests
 
                 return Task.FromResult(ImagesByUrl[url]);
             }
+
+            public Task<string> DownloadTextAsync(string url, long maxBytes, CancellationToken cancellationToken = default)
+                => throw new NotSupportedException("the image commands never download text");
         }
 
         private sealed class ImageCommandHarness

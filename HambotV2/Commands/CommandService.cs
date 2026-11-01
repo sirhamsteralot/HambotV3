@@ -25,7 +25,7 @@ namespace HambotV2.Commands
 
         /// <summary>Presence & profile identity dependencies, same treatment as the backup & stability set.</summary>
         private readonly IPresenceService? _presenceService;
-        private readonly IImageContentDownloader? _imageContentDownloader;
+        private readonly IHttpContentDownloader? _httpContentDownloader;
 
         /// <summary>
         /// The recurring-reminder limits, parsed from the optional <c>Reminders</c>
@@ -70,7 +70,7 @@ namespace HambotV2.Commands
             INotificationChannelStore? notificationChannelStore = null,
             IHealthSnapshotProvider? healthSnapshotProvider = null,
             IPresenceService? presenceService = null,
-            IImageContentDownloader? imageContentDownloader = null,
+            IHttpContentDownloader? httpContentDownloader = null,
             IConfiguration? configuration = null,
             QuoteSearchBacklog? quoteSearchBacklog = null,
             IGuildChannelLookup? guildChannelLookup = null,
@@ -85,7 +85,7 @@ namespace HambotV2.Commands
             _notificationChannelStore = notificationChannelStore;
             _healthSnapshotProvider = healthSnapshotProvider;
             _presenceService = presenceService;
-            _imageContentDownloader = imageContentDownloader;
+            _httpContentDownloader = httpContentDownloader;
             _reminderSettings = ReminderSettings.FromConfiguration(configuration);
             _quoteOfTheDaySettings = QuoteOfTheDaySettings.FromConfiguration(configuration);
             _quoteSearchBacklog = quoteSearchBacklog ?? new QuoteSearchBacklog();
@@ -103,7 +103,7 @@ namespace HambotV2.Commands
 
         public void RegisterCommands()
         {
-            RegisterAllCommands.RegisterCommands(this, _deliverySignal, _backupManager, _maintenanceMode, _notificationPublisher, _notificationChannelStore, _healthSnapshotProvider, _presenceService, _imageContentDownloader, _reminderSettings, _quoteOfTheDaySettings, _quoteSearchBacklog, _guildChannelLookup, _llmGate, _llmSettings, _llmUpdateService, _runtimeOptions);
+            RegisterAllCommands.RegisterCommands(this, _deliverySignal, _backupManager, _maintenanceMode, _notificationPublisher, _notificationChannelStore, _healthSnapshotProvider, _presenceService, _httpContentDownloader, _reminderSettings, _quoteOfTheDaySettings, _quoteSearchBacklog, _guildChannelLookup, _llmGate, _llmSettings, _llmUpdateService, _runtimeOptions);
             CommandsRegistered = true;
         }
 

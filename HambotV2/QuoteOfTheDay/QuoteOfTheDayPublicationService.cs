@@ -1,6 +1,7 @@
 using HambotV2.Commands.QuoteCommands;
 using HambotV2.Connections;
 using HambotV2.Maintenance;
+using HambotV2.Scheduling;
 using Microsoft.EntityFrameworkCore;
 
 namespace HambotV2.QuoteOfTheDay
@@ -15,8 +16,8 @@ namespace HambotV2.QuoteOfTheDay
     /// state only, so a restart re-baselines every guild and boundaries that passed while the
     /// bot was down are skipped — one publication at the next boundary, never a catch-up burst.
     /// A failed post consumes its boundary and leaves the schedule unchanged; maintenance mode
-    /// pauses publications like reminder deliveries, and boundaries that pass during it are
-    /// skipped the same way.
+    /// pauses the loop on the shared periodic-job host (§3.8) like reminder deliveries, and
+    /// boundaries that pass during it are skipped the same way.
     /// </summary>
     internal sealed class QuoteOfTheDayPublicationService : BackgroundService
     {
@@ -35,8 +36,6 @@ namespace HambotV2.QuoteOfTheDay
         /// </summary>
         private readonly Dictionary<ulong, GuildBoundary> _lastBoundary = new();
 
-        private bool _maintenanceWasActive;
-
         public QuoteOfTheDayPublicationService(
             IServiceScopeFactory scopeFactory,
             IQuoteOfTheDayChannelSender sender,
@@ -53,35 +52,26 @@ namespace HambotV2.QuoteOfTheDay
 
         private sealed record GuildBoundary(QuoteOfTheDaySchedule Schedule, DateTimeOffset Boundary);
 
-        protected override async Task ExecuteAsync(CancellationToken stoppingToken)
-        {
-            _logger.LogInformation("Quote of the day publication service started.");
-
-            while (!stoppingToken.IsCancellationRequested)
+        /// <summary>
+        /// The publication loop lives on the shared periodic-job host (§3.8) at the poll cadence.
+        /// Maintenance mode pauses the run; when it ends, the boundary memory is dropped so the
+        /// first pass re-baselines every guild — boundaries that passed during the restore are
+        /// skipped, never caught up. Exposed so tests drive the loop over FakeTimeProvider.
+        /// </summary>
+        internal PeriodicJobHost CreateJobHost() => new(
+            "quote-of-the-day",
+            () => PollInterval,
+            RunPassAsync,
+            _timeProvider,
+            _logger,
+            _maintenanceMode,
+            onMaintenanceResumed: () =>
             {
-                try
-                {
-                    await RunPassAsync(_timeProvider.GetUtcNow(), stoppingToken);
-                }
-                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-                {
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Quote of the day publication pass failed; retrying at the next poll.");
-                }
+                _lastBoundary.Clear();
+                return Task.CompletedTask;
+            });
 
-                try
-                {
-                    await Task.Delay(PollInterval, _timeProvider, stoppingToken);
-                }
-                catch (OperationCanceledException)
-                {
-                }
-            }
-
-            _logger.LogInformation("Quote of the day publication service stopped.");
-        }
+        protected override Task ExecuteAsync(CancellationToken stoppingToken) => CreateJobHost().RunAsync(stoppingToken);
 
         /// <summary>
         /// One publication pass at <paramref name="now"/>: baselines or publishes per configured
@@ -92,21 +82,6 @@ namespace HambotV2.QuoteOfTheDay
         /// </summary>
         internal async Task RunPassAsync(DateTimeOffset now, CancellationToken cancellationToken = default)
         {
-            // Maintenance mode pauses publications like reminder deliveries: the pass does
-            // nothing, and the first pass after it ends re-baselines every guild, so boundaries
-            // that passed during the restore are skipped — no catch-up burst.
-            if (_maintenanceMode?.IsActive == true)
-            {
-                _maintenanceWasActive = true;
-                return;
-            }
-
-            if (_maintenanceWasActive)
-            {
-                _lastBoundary.Clear();
-                _maintenanceWasActive = false;
-            }
-
             using IServiceScope scope = _scopeFactory.CreateScope();
             var database = scope.ServiceProvider.GetRequiredService<IDatabaseContext>();
 

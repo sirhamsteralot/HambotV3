@@ -7,6 +7,7 @@ using HambotV2.QuoteOfTheDay;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Time.Testing;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -319,23 +320,67 @@ namespace BotTests
         }
 
         [TestMethod]
+        public async Task Host_Publishes_At_The_Schedule_Boundary_Not_Before()
+        {
+            using var harness = new PublicationHarness();
+            await harness.SeedGuildAsync(GuildId, ChannelId, quotes: ["first", "second"]);
+            using var stop = new CancellationTokenSource();
+            Task loop = harness.Service.CreateJobHost().RunAsync(stop.Token);
+
+            // The first tick at Day1Noon baselines; hourly advances up to 11 h later publish nothing
+            // (the first boundary, Day2Midnight, is 12 h after the start).
+            for (int hour = 1; hour <= 11; hour++)
+            {
+                harness.Time.Advance(TimeSpan.FromHours(1));
+                await Task.Delay(50);
+                Assert.AreEqual(0, harness.Sender.Sent.Count, $"nothing publishes before the boundary (hour {hour})");
+            }
+
+            await DiscordTestDoubles.AdvanceUntilAsync(harness.Time, () => harness.Sender.Sent.Count == 1, TimeSpan.FromHours(1), maxSteps: 5);
+            Assert.AreEqual(1, harness.Sender.Sent.Count, "the first publication happens at the next boundary");
+
+            stop.Cancel();
+            Task completed = await Task.WhenAny(loop, Task.Delay(TimeSpan.FromSeconds(10)));
+            Assert.AreSame(loop, completed, "the loop must stop when the token is cancelled");
+        }
+
+        [TestMethod]
         public async Task Publication_Pauses_During_Maintenance_And_Skips_Its_Boundaries()
         {
             using var harness = new PublicationHarness();
             await harness.SeedGuildAsync(GuildId, ChannelId, quotes: ["first", "second"]);
-            var service = harness.Service;
-            await service.RunPassAsync(Day1Noon);
+            using var stop = new CancellationTokenSource();
+            Task loop = harness.Service.CreateJobHost().RunAsync(stop.Token);
+
+            // The first tick baselines the guild at Day1Noon.
+            harness.Time.Advance(TimeSpan.FromHours(1));
+            await Task.Delay(100);
 
             harness.Maintenance.Enter();
-            await service.RunPassAsync(Day2Midnight.AddSeconds(1));
+            // A whole day passes in maintenance mode: nothing publishes.
+            for (int hour = 0; hour < 24; hour++)
+            {
+                harness.Time.Advance(TimeSpan.FromHours(1));
+                await Task.Delay(50);
+            }
             Assert.AreEqual(0, harness.Sender.Sent.Count, "No publication while maintenance mode is active");
 
             harness.Maintenance.Exit();
-            await service.RunPassAsync(Day2Midnight.AddMinutes(5));
+            // The loop observes the end of maintenance within one fallback poll and re-baselines:
+            // the boundary that passed during maintenance is skipped, not caught up.
+            for (int i = 0; i < 6; i++)
+            {
+                harness.Time.Advance(TimeSpan.FromSeconds(10));
+                await Task.Delay(50);
+            }
             Assert.AreEqual(0, harness.Sender.Sent.Count, "The boundary that passed during maintenance is skipped, not caught up");
 
-            await service.RunPassAsync(Day2Midnight.AddDays(1));
+            await DiscordTestDoubles.AdvanceUntilAsync(harness.Time, () => harness.Sender.Sent.Count == 1, TimeSpan.FromHours(1), maxSteps: 30);
             Assert.AreEqual(1, harness.Sender.Sent.Count, "The next publication happens at the next boundary after maintenance ends");
+
+            stop.Cancel();
+            Task completed = await Task.WhenAny(loop, Task.Delay(TimeSpan.FromSeconds(10)));
+            Assert.AreSame(loop, completed, "the loop must stop when the token is cancelled");
         }
 
         [TestMethod]
@@ -431,6 +476,7 @@ namespace BotTests
 
             public RecordingSender Sender { get; } = new();
             public MaintenanceMode Maintenance { get; } = new();
+            public FakeTimeProvider Time { get; } = new(Day1Noon);
             public QuoteOfTheDayPublicationService Service { get; }
 
             public PublicationHarness()
@@ -442,7 +488,7 @@ namespace BotTests
                 Service = new QuoteOfTheDayPublicationService(
                     _provider.GetRequiredService<IServiceScopeFactory>(),
                     Sender,
-                    TimeProvider.System,
+                    Time,
                     NullLogger<QuoteOfTheDayPublicationService>.Instance,
                     Maintenance);
             }

@@ -10,7 +10,7 @@ namespace HambotV2.Commands.SystemCommands
             INotificationChannelStore? notificationChannelStore = null,
             IHealthSnapshotProvider? healthSnapshotProvider = null,
             IPresenceService? presenceService = null,
-            IImageContentDownloader? imageContentDownloader = null,
+            IHttpContentDownloader? httpContentDownloader = null,
             IGuildChannelLookup? guildChannelLookup = null)
         {
             commandService.RegisterCommand("hello", new HelloWorld());
@@ -27,8 +27,8 @@ namespace HambotV2.Commands.SystemCommands
             commandService.RegisterCommand("health", new HealthCommand(healthSnapshotProvider));
             commandService.RegisterCommand("presence", new PresenceCommand(presenceService));
             commandService.RegisterCommand("bio", new BioCommand(presenceService));
-            commandService.RegisterCommand("avatar", new AvatarCommand(presenceService, imageContentDownloader));
-            commandService.RegisterCommand("banner", new BannerCommand(presenceService, imageContentDownloader));
+            commandService.RegisterCommand("avatar", new AvatarCommand(presenceService, httpContentDownloader));
+            commandService.RegisterCommand("banner", new BannerCommand(presenceService, httpContentDownloader));
         }
     }
 }

@@ -40,17 +40,20 @@ namespace BotTests
         }
 
         /// <summary>Downloader double for !importquotes: returns canned content or throws.</summary>
-        private sealed class FakeAttachmentDownloader : IAttachmentContentDownloader
+        private sealed class FakeAttachmentDownloader : IHttpContentDownloader
         {
             public string? Content { get; set; }
             public Exception? Failure { get; set; }
             public List<string> RequestedUrls { get; } = new();
 
-            public Task<string> DownloadTextAsync(string url)
+            public Task<string> DownloadTextAsync(string url, long maxBytes, CancellationToken cancellationToken = default)
             {
                 RequestedUrls.Add(url);
                 return Failure is not null ? Task.FromException<string>(Failure) : Task.FromResult(Content!);
             }
+
+            public Task<byte[]> DownloadBytesAsync(string url, long maxBytes, CancellationToken cancellationToken = default)
+                => throw new NotSupportedException("the import command never downloads bytes");
         }
 
         private static QuoteHarness Harness() => new();

@@ -330,5 +330,20 @@ namespace BotTests
 
             StringAssert.Contains(replies[1], "Cooldown overrides: none set");
         }
+
+        [TestMethod]
+        public async Task GuildSettingStore_GetOrAdd_Returns_The_Tracked_Row_When_Called_Twice_Before_Saving()
+        {
+            // The one upsert path looks the row up by key, so a second call in the same context
+            // sees the tracked-but-unsaved row instead of adding a duplicate.
+            var database = DiscordTestDoubles.CreateDatabase();
+
+            var first = await GuildSettingStore.GetOrAddAsync(database, GuildId);
+            var second = await GuildSettingStore.GetOrAddAsync(database, GuildId);
+
+            Assert.AreSame(first, second);
+            await database.SaveChangesAsync();
+            Assert.AreEqual(1, database.GuildSettings.Count());
+        }
     }
 }

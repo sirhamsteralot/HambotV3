@@ -1,6 +1,7 @@
 using HambotV2.Backups;
 using HambotV2.Llm;
 using HambotV2.Maintenance;
+using HambotV2.Scheduling;
 
 namespace HambotV2.Watchdog
 {
@@ -98,38 +99,15 @@ namespace HambotV2.Watchdog
 
         private DateTimeOffset? _gatewayDownSince;
 
-        protected override async Task ExecuteAsync(CancellationToken stoppingToken)
-        {
-            _logger.LogInformation("Watchdog service started (checking every {Interval} minutes).", CheckIntervalMinutes);
+        /// <summary>The watchdog's loop lives on the shared periodic-job host (§3.8); the interval is re-read every tick. Exposed so tests drive the loop over FakeTimeProvider.</summary>
+        internal PeriodicJobHost CreateJobHost() => new(
+            "watchdog",
+            () => TimeSpan.FromMinutes(CheckIntervalMinutes),
+            (_, stoppingToken) => CheckOnceAsync(stoppingToken),
+            _timeProvider,
+            _logger);
 
-            while (!stoppingToken.IsCancellationRequested)
-            {
-                try
-                {
-                    await CheckOnceAsync(stoppingToken);
-                }
-                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-                {
-                    break;
-                }
-                catch (Exception ex)
-                {
-                    // A failing watchdog check must never crash the bot.
-                    _logger.LogError(ex, "Watchdog check failed.");
-                }
-
-                try
-                {
-                    await Task.Delay(TimeSpan.FromMinutes(CheckIntervalMinutes), _timeProvider, stoppingToken);
-                }
-                catch (OperationCanceledException)
-                {
-                    break;
-                }
-            }
-
-            _logger.LogInformation("Watchdog service stopped.");
-        }
+        protected override Task ExecuteAsync(CancellationToken stoppingToken) => CreateJobHost().RunAsync(stoppingToken);
 
         /// <summary>One pass over all conditions; exposed so tests drive the cadence with a fake time provider.</summary>
         public async Task CheckOnceAsync(CancellationToken cancellationToken = default)

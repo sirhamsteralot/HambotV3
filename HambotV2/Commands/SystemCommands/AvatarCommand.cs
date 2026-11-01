@@ -10,8 +10,8 @@ namespace HambotV2.Commands.SystemCommands
     /// </summary>
     internal sealed class AvatarCommand : ProfileImageCommandBase
     {
-        public AvatarCommand(IPresenceService? presenceService = null, IImageContentDownloader? imageDownloader = null)
-            : base(presenceService, imageDownloader)
+        public AvatarCommand(IPresenceService? presenceService = null, IHttpContentDownloader? contentDownloader = null)
+            : base(presenceService, contentDownloader)
         {
         }
 

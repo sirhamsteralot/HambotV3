@@ -60,7 +60,7 @@ Registers `appsecrets.json` then environment variables (env wins), replaces logg
 
 | Lifetime | Registrations |
 |---|---|
-| Singleton | Shared `DiscordSocketClient` (intents below; container-disposed; also used by the reminder DM sender and the quote-of-the-day sender); `CommandService`; `GuildSettingsService` (per-guild identifier/tier cache); `IVirtualCommandRunner` + `SlashCommandService` (§3.15); `QuoteSearchBacklog` + `ButtonPaginationService` (§3.19); `ICooldownService` + `TimeProvider.System`; `IScheduledDeliverySignal` + reminder source/sender (§3.8); quote-of-the-day sender (§3.17); `IPresenceService` + gateway seam + `IImageContentDownloader` (§3.10); maintenance/backup/notification/health/gateway-status set (§3.13, §5.2); MCP client/tools/status set (§3.11); LLM foundation set (§3.12): `LlmSettings`, `ILlmClient` (only when `Llm:ApiKey` is set), `ILlmModelResolver`, `ILlmUsageTracker`, `ILlmGate`, `LlmPromptBuilder`, `IChatContextCollector`, `LlmRuntimeOptions` (runtime job intervals), `ILlmUpdateService` (the same singleton instance as the hosted `PresenceUpdateService`). `IPresenceService` is resolved eagerly in `Main` so its Ready subscription exists before the gateway starts. |
+| Singleton | Shared `DiscordSocketClient` (intents below; container-disposed; also used by the reminder DM sender and the quote-of-the-day sender); `CommandService`; `GuildSettingsService` (per-guild identifier/tier cache); `IVirtualCommandRunner` + `SlashCommandService` (§3.15); `QuoteSearchBacklog` + `ButtonPaginationService` (§3.19); `ICooldownService` + `TimeProvider.System`; `IScheduledDeliverySignal` + reminder source/sender (§3.8); quote-of-the-day sender (§3.17); `IPresenceService` + gateway seam + `IHttpContentDownloader` (§3.10, §3.6); maintenance/backup/notification/health/gateway-status set (§3.13, §5.2); MCP client/tools/status set (§3.11); LLM foundation set (§3.12): `LlmSettings`, `ILlmClient` (only when `Llm:ApiKey` is set), `ILlmModelResolver`, `ILlmUsageTracker`, `ILlmGate`, `LlmPromptBuilder`, `IChatContextCollector`, `LlmRuntimeOptions` (runtime job intervals), `ILlmUpdateService` (the same singleton instance as the hosted `PresenceUpdateService`). `IPresenceService` is resolved eagerly in `Main` so its Ready subscription exists before the gateway starts. |
 | Transient | `ICommandHandler` → `CommandHandler` (per message, disposed after use), `IPermissionsService`, `DatabaseContext` (also mapped onto `IDatabaseContext`). |
 | Hosted | The six active services listed above (plus the planned `ContextPipelineHost`, §3.20). |
 
@@ -145,6 +145,8 @@ GuildSetting columns: CommandIdentifier override, per-tier cooldown overrides, O
 
 Migrations (`HambotV2/Migrations/`) apply automatically on startup (`Database.Migrate()` before the gateway); an unreachable database is a critical log line + non-zero exit. Regenerate with `dotnet ef migrations add <Name>` from `HambotV2/` (`DesignTimeDatabaseContextFactory` avoids running startup). Pre-`PerGuildScoping` rows keep sentinel `GuildId = 0` (matches no real guild; re-grant per guild).
 
+`GuildSetting` rows have one upsert path: `Connections/GuildSettingStore.GetOrAddAsync` (`FindAsync` on the key, so an already-tracked unsaved row is seen; the caller saves). `BotSetting` rows likewise go through `Llm/BotSettingOverride` (§3.12).
+
 Tests: no dedicated suite — every feature suite runs against this model through `IDatabaseContext` over InMemory.
 
 ### 3.5 System commands — the general-purpose set
@@ -184,7 +186,7 @@ Commands (`Commands/QuoteCommands/`, all decline in DMs):
 | `importquotes` | 4 | Migration from the old bot's `quoteSettings.json` (file attached); see below. |
 | `quoteoftheday ...` | 2 | Quote-of-the-day config (§3.17). |
 
-**`!importquotes`** — all-or-nothing import of `{"quotes": [{"quote": "...", "date": "..."}]}` via `IAttachmentContentDownloader` (shared-`HttpClient` seam, faked in tests): every entry non-empty and ≤ 2000 chars or the first invalid entry aborts with nothing stored; entries append in file order continuing the numbering; `CreatedAt` takes the legacy `date` when present. Re-running appends again.
+**`!importquotes`** — all-or-nothing import of `{"quotes": [{"quote": "...", "date": "..."}]}` via `IHttpContentDownloader` (the single shared-`HttpClient` URL-content seam, capped at 16 MB for text, faked in tests — §3.10): every entry non-empty and ≤ 2000 chars or the first invalid entry aborts with nothing stored; entries append in file order continuing the numbering; `CreatedAt` takes the legacy `date` when present. Re-running appends again.
 
 Tests: `TestQuotes.cs` (numbering, add/recall, search + fuzzy + pagination, import, per-guild isolation, DM declines).
 
@@ -232,6 +234,8 @@ Commands (`Commands/ReminderCommands/`, all tier 0, DM-usable): `remindme <durat
 
 Tests: `TestReminders.cs` (parsing, persistence/caps, DM usage, the engine over fakes).
 
+**Fixed-interval jobs** — every other periodic hosted loop (the watchdog §3.13, the quote-of-the-day §3.17; the LLM presence/bio loops follow the roadmap phase-#2 item) runs on one shared `Scheduling/PeriodicJobHost`: a job supplies a name, an interval supplier (re-read every tick), and the run callback; the first tick runs immediately; sleeps go through the injected `TimeProvider` and are capped by a bounded fallback poll (10 s) so clock drift can never stall the loop; a failing tick is logged and re-armed for the next interval (never a hot spin, never a crash); with maintenance mode opted in, the run pauses and re-checks at the fallback poll, and a resume hook fires once when maintenance ends. `DiscordClient`'s 5-minute keep-alive log loop is gateway logging, not a scheduled job, and stays its own loop. Tests: `TestPeriodicJobHost.cs` (cadence, fallback poll, interval re-read, failure re-arm, pause/resume, cancellation) plus the watchdog/quote-of-the-day suites driving their services' hosts over `FakeTimeProvider`.
+
 ### 3.9 Version reporting — embedded build version and `!version`
 
 Semver of the latest `v`-prefixed tag reachable from the built commit + 7-char hash, as build metadata: `v1.2.3` @ `1639324…` → `1.2.3+1639324`; untagged → `0.0.0+<hash>`; no git → `0.0.0+unknown`. The MSBuild target `ComputeBotVersion` in `HambotV2.csproj` embeds the raw pieces as `AssemblyMetadata` (also settable via `-p:` for git-less builds); the pure `BotVersion.Format` composes the string (unit-tested). `Program.Main` logs `Bot version: <version>` right after the host is built — the line deploy verification matches (§5.1). `!version` (tier 0, DM-usable, slash-eligible as `/version` per §3.15) replies with it. Docker: `ARG BOT_VERSION_TAG`/`BOT_VERSION_COMMIT`, mapped by compose and passed by `scripts/deploy.sh`, which verifies the log line.
@@ -252,8 +256,9 @@ startup config · !presence/!bio/!avatar/!banner · MCP set_presence/set_bio (§
      per-guild route (ModifyCurrentUserAsync) for bio/avatar/banner; global route for avatar; no global banner route for bots
 ```
 
+- URL content fetches: one `Commands/HttpContentDownloader.cs` (`IHttpContentDownloader`) over a single shared static `HttpClient`, returning bytes/text capped at a caller-supplied limit (10 MB for images, 16 MB for the quote-import text); content validation is the caller's post-step (`ProfileImages` for images, none for quote import §3.6). Registered once in DI and injected through the command registration chain; faked in tests.
 - Startup config: optional `BotConfiguration:Presence` (`Type` playing/watching/listening/competing, `Text` ≤ 128) and `BotConfiguration:Bio` (≤ 190, line breaks ok), parsed purely in `PresenceStartupConfiguration.TryParse`; invalid values fail fast naming the key.
-- Commands (all tier 4, DM-usable, not persisted — a restart reapplies the startup config): `!presence` show/set/clear; `!bio` (raw text, applied in every member guild); `!avatar`/`!banner` (shared `ProfileImageCommandBase`) — image from exactly one attachment or one URL, downloaded via `IImageContentDownloader`, validated by `ProfileImages` (PNG/JPEG/GIF signature sniffing, ≤ 10 MB) before anything is applied; `reset`/`clear` remove; no-arg replies with the current URL.
+- Commands (all tier 4, DM-usable, not persisted — a restart reapplies the startup config): `!presence` show/set/clear; `!bio` (raw text, applied in every member guild); `!avatar`/`!banner` (shared `ProfileImageCommandBase`) — image from exactly one attachment or one URL, downloaded via `IHttpContentDownloader` — the one downloader over one shared `HttpClient`, capped at the 10 MB image limit — then validated by `ProfileImages` (PNG/JPEG/GIF signature sniffing, ≤ 10 MB) before anything is applied; `reset`/`clear` remove; no-arg replies with the current URL.
 
 Tests: `TestPresence.cs`, `TestProfileImages.cs`.
 
@@ -335,7 +340,7 @@ Phase 1 is not a one-off presence generator: it ships a small **LLM foundation**
 
 The per-guild layer is `settings persona <text...>|clear` (§3.5, tier 2, guild-only, persisted in `GuildSetting.Persona`, FR-156) and `settings llmchat on|off` (tier 2, guild-only, persisted in `GuildSetting.LlmIncludeChat`, default false, FR-154): the opt-in that lets a guild-scoped `!llm update` read that guild's recent chat. `settings llmchannels [add|remove <#channel|id> | clear]` manages that guild's channel allowlist (`GuildLlmChannel` rows, FR-164) — `ChatContextCollector` reads only the listed channels (FR-166).
 
-**Persona resolution** — every LLM run resolves its persona in order: guild-scoped run with a `GuildSetting.Persona` override → that override; else the global runtime override (`BotSetting`); else `Llm:Persona` config; else the shipped default seed (FR-99/155/156). Phase 1's presence/bio job is a global run, so it uses the global chain; per-guild overrides are consumed by guild-scoped runs from phase B on (§3.20). Persona text: non-empty, ≤ 2000 chars. Note: tier 2 is per-guild, so any guild's admin can change the *global* persona via `!persona` — accepted per FR-155; `!settings persona` is the per-guild knob.
+**Persona resolution** — every LLM run resolves its persona in order: guild-scoped run with a `GuildSetting.Persona` override → that override; else the global runtime override (`BotSetting`); else `Llm:Persona` config; else the shipped default seed (FR-99/155/156). The `BotSetting`-backed layers (persona and model alike) all resolve through one generic `Llm/LayeredBotSettingResolver` (runtime override key → config value → shipped default, returning the layer label); a configured model equal to the default counts as the default layer. Phase 1's presence/bio job is a global run, so it uses the global chain; per-guild overrides are consumed by guild-scoped runs from phase B on (§3.20). Persona text: non-empty, ≤ 2000 chars. Note: tier 2 is per-guild, so any guild's admin can change the *global* persona via `!persona` — accepted per FR-155; `!settings persona` is the per-guild knob.
 
 Apart from the persona and the chat-context opt-in, phase 1 has no per-setting commands: settings are config-only; the kill switch and the job intervals (`!llm interval`, FR-167) are the runtime controls.
 
@@ -363,7 +368,7 @@ Tests: `TestLlm.cs` — fake `ILlmClient`, no network: prompt assembly (trust-ru
 ### 3.13 Watchdog, health reporting & operator notifications — degradation made loud
 
 ```
- WatchdogService (hosted loop, Watchdog:CheckIntervalMinutes default 5)
+ WatchdogService (its loop runs on the shared `Scheduling/PeriodicJobHost`, Watchdog:CheckIntervalMinutes default 5)
    evaluates: gateway down > GatewayDownAlertMinutes (10) · backup failed validation / overdue
    (interval + 60 min grace) / failed-or-overdue restore test · LLM budget exhausted or 3
    consecutive LLM failures (§3.12) · maintenance mode · notification channel unreachable
@@ -428,7 +433,7 @@ UTC timeline:   anchor ──┬─────────┬──────
 ```
 
 - **Configuration** (new `GuildSetting` columns, migration `AddQuoteOfTheDay`): target channel id (null = off — the only activation switch), template (default `quote of the day: {quote}`), interval minutes (default 24 h), anchor UTC instant (default 00:00 UTC). Entirely UTC — no per-guild time zones. Deployment floor: `QuoteOfTheDay:MinIntervalMinutes` (default 1). The next due time is always derived from configuration, so restarts need no persisted due time.
-- **Loop** — `QuoteOfTheDayPublicationService`, a dedicated hosted `BackgroundService` (not the `Scheduling/` engine: a failed post must skip its boundary, not retry). Every 10 s it loads configured guilds and keeps the last consumed boundary per guild in memory (record value-equality detects schedule changes → re-baseline). Maintenance mode pauses passes; the first pass after it re-baselines. Transport: `IQuoteOfTheDayChannelSender` resolves the channel by id on the shared client at publication time (no extra intents). Quote = the shared `QuoteCommand.GetRandomQuoteAsync`, through the template, trimmed at Discord's limit with an ellipsis.
+- **Loop** — `QuoteOfTheDayPublicationService`, a dedicated hosted service (not the due-time `Scheduling/` delivery engine: a failed post must skip its boundary, not retry) whose 10 s poll loop runs on the shared `Scheduling/PeriodicJobHost`. It loads configured guilds and keeps the last consumed boundary per guild in memory (record value-equality detects schedule changes → re-baseline). Maintenance mode pauses the loop on the host; the resume hook drops the boundary memory so the first pass after it re-baselines. Transport: `IQuoteOfTheDayChannelSender` resolves the channel by id on the shared client at publication time (no extra intents). Quote = the shared `QuoteCommand.GetRandomQuoteAsync`, through the template, trimmed at Discord's limit with an ellipsis.
 - **Command** — `!quoteoftheday` (tier 2, guild-only, slash-eligible): no args report config or "off"; `channel <#channel|id>` / `channel clear`; `template <text...>` (non-empty, ≤ 500, must contain `{quote}`); `<due time> <interval>` sets the schedule (single duration via the reminder parser's `TryParseFirst`; its end becomes the anchor; interval whole minutes ≥ floor) — e.g. `quoteoftheday 5h 1d`. A schedule change re-baselines; channel/template changes leave the schedule untouched.
 
 Tests: `TestQuoteOfTheDay.cs`.

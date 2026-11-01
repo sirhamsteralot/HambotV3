@@ -4,12 +4,12 @@ namespace HambotV2.Commands.QuoteCommands
 {
     internal static class RegisterQuoteCommands
     {
-        public static void RegisterCommands(ICommandService commandService, QuoteSearchBacklog quoteSearchBacklog, QuoteOfTheDaySettings? quoteOfTheDaySettings = null)
+        public static void RegisterCommands(ICommandService commandService, QuoteSearchBacklog quoteSearchBacklog, QuoteOfTheDaySettings? quoteOfTheDaySettings = null, IHttpContentDownloader? httpContentDownloader = null)
         {
             commandService.RegisterCommand("quote", new QuoteCommand());
             commandService.RegisterCommand("searchquotes", new SearchQuotesCommand(quoteSearchBacklog));
             commandService.RegisterCommand("removequote", new RemoveQuoteCommand());
-            commandService.RegisterCommand("importquotes", new ImportQuotesCommand());
+            commandService.RegisterCommand("importquotes", new ImportQuotesCommand(httpContentDownloader));
             commandService.RegisterCommand("quoteoftheday", new QuoteOfTheDayCommand(quoteOfTheDaySettings));
         }
     }

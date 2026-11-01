@@ -343,6 +343,25 @@ namespace BotTests
             Assert.AreEqual(0, harness.OwnerAlerts.Count, "A broken detector must not escalate into a false alert or a crash");
         }
 
+        [TestMethod]
+        public async Task Host_Runs_The_Checks_On_The_Configured_Cadence()
+        {
+            var harness = new WatchdogHarness();
+            harness.Gateway.Connected = false;
+
+            using var stop = new CancellationTokenSource();
+            Task loop = harness.Service.CreateJobHost().RunAsync(stop.Token);
+
+            // Checks run at t0, t0+5min, t0+10min (default interval 5, gateway threshold 10):
+            // only the third check is past the threshold, so exactly one alert appears there.
+            await DiscordTestDoubles.AdvanceUntilAsync(harness.Time, () => harness.OwnerAlerts.Count == 1, TimeSpan.FromMinutes(1), maxSteps: 15);
+            StringAssert.Contains(harness.OwnerAlerts[0], "the Discord gateway has been disconnected");
+
+            stop.Cancel();
+            Task completed = await Task.WhenAny(loop, Task.Delay(TimeSpan.FromSeconds(10)));
+            Assert.AreSame(loop, completed, "the loop must stop when the token is cancelled");
+        }
+
         private sealed class FakeChannelStore : INotificationChannelStore
         {
             public ulong? ChannelId { get; set; }

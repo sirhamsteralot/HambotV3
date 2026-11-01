@@ -104,7 +104,7 @@ namespace HambotV2.Commands.QuoteCommands
                 return;
             }
 
-            var setting = await LoadOrCreateSettingAsync(context, guildId);
+            var setting = await GuildSettingStore.GetOrAddAsync(context.DbContext, guildId);
             setting.QuoteOfTheDayChannelId = channelId;
             await context.DbContext.SaveChangesAsync();
 
@@ -128,7 +128,7 @@ namespace HambotV2.Commands.QuoteCommands
                 return;
             }
 
-            var setting = await LoadOrCreateSettingAsync(context, guildId);
+            var setting = await GuildSettingStore.GetOrAddAsync(context.DbContext, guildId);
             setting.QuoteOfTheDayTemplate = template;
             await context.DbContext.SaveChangesAsync();
 
@@ -168,24 +168,13 @@ namespace HambotV2.Commands.QuoteCommands
                 return;
             }
 
-            var setting = await LoadOrCreateSettingAsync(context, guildId);
+            var setting = await GuildSettingStore.GetOrAddAsync(context.DbContext, guildId);
             setting.QuoteOfTheDayAnchorUtc = message.Timestamp + dueIn;
             setting.QuoteOfTheDayIntervalMinutes = (int)interval.TotalMinutes;
             await context.DbContext.SaveChangesAsync();
 
             await message.Channel.SendMessageAsync(
                 $"The quote of the day will first publish at {setting.QuoteOfTheDayAnchorUtc:yyyy-MM-dd HH:mm} UTC (in {ReminderIntervalFormat.Format(dueIn)}) and then every {ReminderIntervalFormat.Format(interval)} at that time");
-        }
-
-        private static async Task<DatabaseContext.GuildSetting> LoadOrCreateSettingAsync(ICommandContext context, ulong guildId)
-        {
-            var setting = await context.DbContext.GuildSettings.FindAsync(guildId);
-            if (setting is not null)
-                return setting;
-
-            setting = new DatabaseContext.GuildSetting { GuildId = guildId };
-            context.DbContext.GuildSettings.Add(setting);
-            return setting;
         }
 
     }

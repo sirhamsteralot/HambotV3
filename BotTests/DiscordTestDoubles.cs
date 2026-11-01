@@ -2,6 +2,7 @@ using Discord;
 using HambotV2.Commands;
 using HambotV2.Connections;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Time.Testing;
 using Moq;
 using System;
 using System.Collections.Generic;
@@ -88,6 +89,22 @@ namespace BotTests
         public static IAttachment CreateAttachment(string url = "https://cdn.example.test/quoteSettings.json", string filename = "quoteSettings.json")
         {
             return Mock.Of<IAttachment>(attachment => attachment.Url == url && attachment.Filename == filename);
+        }
+
+        /// <summary>
+        /// Advances the fake clock in steps — firing the pending timers once per step — until the
+        /// condition holds: the standard way to drive a hosted loop over FakeTimeProvider and wait
+        /// for its end state instead of an intermediate signal.
+        /// </summary>
+        public static async Task AdvanceUntilAsync(FakeTimeProvider time, Func<bool> condition, TimeSpan step, int maxSteps = 2000)
+        {
+            for (int i = 0; i < maxSteps && !condition(); i++)
+            {
+                await Task.Delay(25);
+                time.Advance(step);
+            }
+
+            Assert.IsTrue(condition(), "The expected condition was not met within the timeout");
         }
 
         private static Mock<IMessage> CreateMessage<TChannel>(Mock<TChannel> channel, string content, ulong authorId, DateTimeOffset? timestamp = null, IAttachment[]? attachments = null) where TChannel : class, IMessageChannel

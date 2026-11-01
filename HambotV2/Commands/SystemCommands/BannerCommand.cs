@@ -9,8 +9,8 @@ namespace HambotV2.Commands.SystemCommands
     /// </summary>
     internal sealed class BannerCommand : ProfileImageCommandBase
     {
-        public BannerCommand(IPresenceService? presenceService = null, IImageContentDownloader? imageDownloader = null)
-            : base(presenceService, imageDownloader)
+        public BannerCommand(IPresenceService? presenceService = null, IHttpContentDownloader? contentDownloader = null)
+            : base(presenceService, contentDownloader)
         {
         }
 

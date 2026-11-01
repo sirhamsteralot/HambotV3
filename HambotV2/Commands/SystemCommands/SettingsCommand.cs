@@ -144,7 +144,7 @@ namespace HambotV2.Commands.SystemCommands
                 return;
             }
 
-            GetOrAddGuildSetting(context, guildId).SetCooldownOverride(tier, cooldownSeconds);
+            (await GuildSettingStore.GetOrAddAsync(context.DbContext, guildId)).SetCooldownOverride(tier, cooldownSeconds);
             await context.DbContext.SaveChangesAsync();
 
             await message.Channel.SendMessageAsync(cooldownSeconds is null
@@ -191,7 +191,7 @@ namespace HambotV2.Commands.SystemCommands
                 return;
             }
 
-            setting ??= GetOrAddGuildSetting(context, guildId);
+            setting ??= await GuildSettingStore.GetOrAddAsync(context.DbContext, guildId);
             setting.Persona = text;
             await context.DbContext.SaveChangesAsync();
             await message.Channel.SendMessageAsync($"Persona override for this server set ({text.Length} characters)");
@@ -220,7 +220,7 @@ namespace HambotV2.Commands.SystemCommands
                 return;
             }
 
-            GetOrAddGuildSetting(context, guildId).LlmIncludeChat = action == "on";
+            (await GuildSettingStore.GetOrAddAsync(context.DbContext, guildId)).LlmIncludeChat = action == "on";
             await context.DbContext.SaveChangesAsync();
             await message.Channel.SendMessageAsync(action == "on"
                 ? "LLM chat context enabled for this server: !llm update run here includes recent messages from this server's readable channels."
@@ -296,17 +296,6 @@ namespace HambotV2.Commands.SystemCommands
             }
 
             await message.Channel.SendMessageAsync("Usage: !settings llmchannels [add|remove <#channel|id> | clear]");
-        }
-
-        private static DatabaseContext.GuildSetting GetOrAddGuildSetting(ICommandContext context, ulong guildId)
-        {
-            var setting = context.DbContext.GuildSettings.FirstOrDefault(item => item.GuildId == guildId);
-            if (setting != null)
-                return setting;
-
-            setting = new DatabaseContext.GuildSetting { GuildId = guildId };
-            context.DbContext.GuildSettings.Add(setting);
-            return setting;
         }
 
         private static async Task SendOverview(IMessage message, ICommandContext context, ulong guildId)

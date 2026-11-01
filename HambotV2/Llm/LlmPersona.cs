@@ -42,16 +42,8 @@ namespace HambotV2.Llm
         }
 
         /// <summary>Resolves the global persona (runtime override → config → shipped seed) and its layer.</summary>
-        public static (string Persona, string Layer) ResolveGlobalWithLayer(IDatabaseContext? database, LlmSettings settings)
-        {
-            string? runtimeOverride = BotSettingOverride.Get(database, GlobalOverrideKey);
-            if (!string.IsNullOrWhiteSpace(runtimeOverride))
-                return (runtimeOverride, "runtime override (!persona)");
-
-            if (!string.IsNullOrWhiteSpace(settings.Persona))
-                return (settings.Persona, "Llm:Persona configuration");
-
-            return (DefaultSeed, "shipped default");
-        }
+        public static (string Persona, string Layer) ResolveGlobalWithLayer(IDatabaseContext? database, LlmSettings settings) =>
+            LayeredBotSettingResolver.Resolve(database, GlobalOverrideKey, "runtime override (!persona)",
+                settings.Persona, "Llm:Persona configuration", DefaultSeed);
     }
 }

@@ -18,17 +18,11 @@ namespace HambotV2.Llm
         }
 
         /// <summary>Resolves the effective model and reports which layer supplied it.</summary>
-        public static (string Model, string Layer) ResolveModelWithLayer(IDatabaseContext? database, LlmSettings settings)
-        {
-            string? runtimeOverride = BotSettingOverride.Get(database, ModelKey);
-            if (!string.IsNullOrWhiteSpace(runtimeOverride))
-                return (runtimeOverride, "runtime override (!model)");
-
-            if (!string.IsNullOrWhiteSpace(settings.Model) && settings.Model != LlmSettings.DefaultModel)
-                return (settings.Model, "Llm:Model configuration");
-
-            return (LlmSettings.DefaultModel, "shipped default");
-        }
+        public static (string Model, string Layer) ResolveModelWithLayer(IDatabaseContext? database, LlmSettings settings) =>
+            LayeredBotSettingResolver.Resolve(database, ModelKey, "runtime override (!model)",
+                // A configured model equal to the shipped default counts as the default layer.
+                settings.Model != LlmSettings.DefaultModel ? settings.Model : null,
+                "Llm:Model configuration", LlmSettings.DefaultModel);
     }
 
     /// <summary>Resolves the effective LLM model for each model call (runtime override wins).</summary>

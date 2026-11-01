@@ -51,7 +51,10 @@ namespace HambotV2
                     ? startup
                     : null,
                 serviceProvider.GetRequiredService<ILogger<PresenceService>>()));
-            builder.Services.AddSingleton<IImageContentDownloader, ImageContentDownloader>();
+            // One downloader over one shared HttpClient for all URL content fetches (avatar/banner
+            // images, the quote-import attachment); registered once and injected through the
+            // command registration chain.
+            builder.Services.AddSingleton<IHttpContentDownloader, HttpContentDownloader>();
 
             // The gateway client is shared by the Discord hosted service and the reminder DM
             // sender; the container owns it and disposes it after the hosted services stop.
