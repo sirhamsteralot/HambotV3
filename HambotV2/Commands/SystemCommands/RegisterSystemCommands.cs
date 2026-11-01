@@ -10,8 +10,7 @@ namespace HambotV2.Commands.SystemCommands
             INotificationChannelStore? notificationChannelStore = null,
             IHealthSnapshotProvider? healthSnapshotProvider = null,
             IPresenceService? presenceService = null,
-            IHttpContentDownloader? httpContentDownloader = null,
-            IGuildChannelLookup? guildChannelLookup = null)
+            IHttpContentDownloader? httpContentDownloader = null)
         {
             commandService.RegisterCommand("hello", new HelloWorld());
             commandService.RegisterCommand("help", new HelpCommand(commandService, new PermissionsService()));
@@ -20,7 +19,7 @@ namespace HambotV2.Commands.SystemCommands
             commandService.RegisterCommand("banuser", new BanUserCommand());
             commandService.RegisterCommand("unbanuser", new UnbanUserCommand());
             commandService.RegisterCommand("banlist", new BanListCommand());
-            commandService.RegisterCommand("settings", new SettingsCommand(guildChannelLookup));
+            commandService.RegisterCommand("settings", new SettingsCommand());
             commandService.RegisterCommand("agenttier", new AgentTierCommand());
             commandService.RegisterCommand("version", new VersionCommand());
             commandService.RegisterCommand("notifychannel", new NotifyChannelCommand(notificationChannelStore));

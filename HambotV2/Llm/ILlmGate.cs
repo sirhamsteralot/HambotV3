@@ -1,6 +1,6 @@
 namespace HambotV2.Llm
 {
-    /// <summary>Read-only gate state for <c>!llm status</c>, <c>!health</c>, and the watchdog.</summary>
+    /// <summary>Read-only gate state for <c>!llmstatus</c>, <c>!health</c>, and the watchdog.</summary>
     internal sealed record LlmStateSnapshot(
         bool Configured,
         bool KillSwitchActive,

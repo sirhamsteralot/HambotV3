@@ -1,6 +1,5 @@
 using Discord;
 using HambotV2.Connections;
-using HambotV2.Llm;
 using HambotV2.SlashCommands;
 
 namespace HambotV2.Commands.SystemCommands
@@ -9,22 +8,16 @@ namespace HambotV2.Commands.SystemCommands
     /// Manages the invoking guild's bot settings. Guild overrides fall back to
     /// the global defaults from appsettings.json when unset. Admin-only by default, mirroring the
     /// permission-management commands; the bot owner can manage any guild by running the
-    /// command there.
+    /// command there. All LLM settings (model, persona, chat context, channels) live under
+    /// the <c>llm</c> command instead.
     /// </summary>
     internal class SettingsCommand : ICommand
     {
         private const int MaxIdentifierLength = 5;
 
-        private readonly IGuildChannelLookup? _guildChannels;
-
-        public SettingsCommand(IGuildChannelLookup? guildChannels = null)
-        {
-            _guildChannels = guildChannels;
-        }
-
         public string Name => "settings";
-        public string Description => "Show or set this server's bot settings (identifier, cooldowns, persona, LLM chat/channels)";
-        public string Usage => "settings [commandidentifier <value>|commandidentifier reset|cooldown <tier> <seconds>|cooldown <tier> reset|persona <text...>|persona clear|llmchat on|off|llmchannels [add|remove <#channel|id>|clear]]";
+        public string Description => "Show or set this server's bot settings (identifier, cooldowns)";
+        public string Usage => "settings [commandidentifier <value>|commandidentifier reset|cooldown <tier> <seconds>|cooldown <tier> reset]";
         public int DefaultPermissionTier => PermissionTier.Admin;
         public CommandCategory Category => CommandCategory.PermissionsAndSettings;
 
@@ -33,7 +26,7 @@ namespace HambotV2.Commands.SystemCommands
         /// (<c>commandidentifier</c>, <c>cooldown</c>) parse exactly as on the text surface.
         /// </summary>
         public ApplicationCommandDeclaration? ApplicationCommand =>
-            ApplicationCommandDeclaration.FreeForm("Omit to show, or set: commandidentifier, cooldown, persona, llmchat, llmchannels");
+            ApplicationCommandDeclaration.FreeForm("Omit to show, or set: commandidentifier, cooldown");
 
         public async Task ExecuteCommand(IMessage message, ICommandContext context)
         {
@@ -59,15 +52,6 @@ namespace HambotV2.Commands.SystemCommands
                     break;
                 case "cooldown":
                     await HandleCooldown(message, context, guildId, arguments);
-                    break;
-                case "persona":
-                    await HandlePersona(message, context, guildId, arguments);
-                    break;
-                case "llmchat":
-                    await HandleLlmChat(message, context, guildId, arguments);
-                    break;
-                case "llmchannels":
-                    await HandleLlmChannels(message, context, guildId, arguments);
                     break;
                 default:
                     await message.Channel.SendMessageAsync($"Unknown setting '{arguments.Get(0)}'. Usage: !{Usage}");
@@ -152,152 +136,6 @@ namespace HambotV2.Commands.SystemCommands
                 : $"Cooldown for tier {tier} in this server set to {cooldownSeconds} seconds");
         }
 
-        /// <summary>
-        /// Manages the guild's LLM persona override: guild-scoped LLM runs use it ahead of the
-        /// global chain; null means the guild inherits the global persona.
-        /// </summary>
-        private async Task HandlePersona(IMessage message, ICommandContext context, ulong guildId, CommandArguments arguments)
-        {
-            // Read path stays read-only: the row is only created when a value is actually set.
-            var setting = context.DbContext.GuildSettings.FirstOrDefault(item => item.GuildId == guildId);
-
-            if (arguments.Count == 1)
-            {
-                await message.Channel.SendMessageAsync(setting?.Persona is { } persona
-                    ? $"Persona override for this server ({persona.Length} characters):\n{persona}"
-                    : "Persona override: none set (this server inherits the global persona)");
-                return;
-            }
-
-            if (arguments.Get(1) == "clear" && arguments.Count == 2)
-            {
-                if (setting is not null)
-                    setting.Persona = null;
-                await context.DbContext.SaveChangesAsync();
-                await message.Channel.SendMessageAsync("Persona override cleared — this server inherits the global persona again");
-                return;
-            }
-
-            string? text = arguments.GetJoined(1);
-            if (string.IsNullOrWhiteSpace(text))
-            {
-                await message.Channel.SendMessageAsync($"The persona must not be empty. Usage: !{Usage}");
-                return;
-            }
-
-            if (text.Length > LlmPersona.MaxPersonaLength)
-            {
-                await message.Channel.SendMessageAsync($"The persona must be at most {LlmPersona.MaxPersonaLength} characters (got {text.Length}).");
-                return;
-            }
-
-            setting ??= await GuildSettingStore.GetOrAddAsync(context.DbContext, guildId);
-            setting.Persona = text;
-            await context.DbContext.SaveChangesAsync();
-            await message.Channel.SendMessageAsync($"Persona override for this server set ({text.Length} characters)");
-        }
-
-        /// <summary>
-        /// Opts this guild's chat into LLM prompts: when on, an LLM update triggered from this
-        /// server includes recent messages from this server's readable channels only; off (the
-        /// default) means no chat is read. Scheduled jobs and DM triggers never read chat.
-        /// </summary>
-        private async Task HandleLlmChat(IMessage message, ICommandContext context, ulong guildId, CommandArguments arguments)
-        {
-            var setting = context.DbContext.GuildSettings.FirstOrDefault(item => item.GuildId == guildId);
-
-            if (arguments.Count == 1)
-            {
-                await message.Channel.SendMessageAsync(setting?.LlmIncludeChat == true
-                    ? "LLM chat context: ON for this server — !llm update run here includes recent messages from this server's readable channels."
-                    : "LLM chat context: OFF for this server (default) — no chat is read.");
-                return;
-            }
-
-            if (!arguments.TryGetString(1, out string action) || (action != "on" && action != "off"))
-            {
-                await message.Channel.SendMessageAsync("Usage: !settings llmchat on|off");
-                return;
-            }
-
-            (await GuildSettingStore.GetOrAddAsync(context.DbContext, guildId)).LlmIncludeChat = action == "on";
-            await context.DbContext.SaveChangesAsync();
-            await message.Channel.SendMessageAsync(action == "on"
-                ? "LLM chat context enabled for this server: !llm update run here includes recent messages from this server's readable channels."
-                : "LLM chat context disabled for this server — no chat is read for updates run here.");
-        }
-
-        /// <summary>
-        /// Manages the guild's LLM chat-context channel allowlist: while rows exist, the LLM chat
-        /// reader reads only the listed channels of this guild; an empty list (the default, or
-        /// after clear) means all readable channels.
-        /// </summary>
-        private async Task HandleLlmChannels(IMessage message, ICommandContext context, ulong guildId, CommandArguments arguments)
-        {
-            var rows = context.DbContext.GuildLlmChannels.Where(row => row.GuildId == guildId).ToList();
-
-            if (arguments.Count == 1)
-            {
-                string listed = string.Join(", ", rows.Select(row => "<#" + row.ChannelId + ">"));
-                await message.Channel.SendMessageAsync(rows.Count > 0
-                    ? $"LLM chat channels for this server ({rows.Count}): {listed} — only these channels are read"
-                    : "LLM chat channels: all readable channels (no allowlist set)");
-                return;
-            }
-
-            string? action = arguments.Get(1);
-            if (action == "clear" && arguments.Count == 2)
-            {
-                context.DbContext.GuildLlmChannels.RemoveRange(rows);
-                await context.DbContext.SaveChangesAsync();
-                await message.Channel.SendMessageAsync("LLM channel allowlist cleared — all readable channels are read again (when LLM chat context is on)");
-                return;
-            }
-
-            if ((action == "add" || action == "remove") && arguments.Count == 3)
-            {
-                if (!arguments.TryGetDiscordChannelId(2, out ulong channelId))
-                {
-                    await message.Channel.SendMessageAsync("That does not look like a channel — pass a channel mention (e.g. #general) or a raw channel id. Usage: !" + Usage);
-                    return;
-                }
-
-                if (_guildChannels is not null && !_guildChannels.IsTextChannelOf(guildId, channelId))
-                {
-                    await message.Channel.SendMessageAsync("That is not a text channel of this server.");
-                    return;
-                }
-
-                var existing = rows.FirstOrDefault(row => row.ChannelId == channelId);
-                if (action == "add")
-                {
-                    if (existing is not null)
-                    {
-                        await message.Channel.SendMessageAsync($"<#{channelId}> is already on the LLM channel allowlist.");
-                        return;
-                    }
-
-                    context.DbContext.GuildLlmChannels.Add(new DatabaseContext.GuildLlmChannel { GuildId = guildId, ChannelId = channelId });
-                    await context.DbContext.SaveChangesAsync();
-                    await message.Channel.SendMessageAsync($"Added <#{channelId}> to the LLM channel allowlist — only listed channels are read (when LLM chat context is on).");
-                    return;
-                }
-
-                if (existing is null)
-                {
-                    await message.Channel.SendMessageAsync($"<#{channelId}> is not on the LLM channel allowlist.");
-                    return;
-                }
-
-                context.DbContext.GuildLlmChannels.Remove(existing);
-                await context.DbContext.SaveChangesAsync();
-                await message.Channel.SendMessageAsync($"Removed <#{channelId}> from the LLM channel allowlist.");
-                return;
-            }
-
-            await message.Channel.SendMessageAsync("Usage: !settings llmchannels [add|remove <#channel|id> | clear]");
-        }
-
         private static async Task SendOverview(IMessage message, ICommandContext context, ulong guildId)
         {
             var setting = context.DbContext.GuildSettings.FirstOrDefault(item => item.GuildId == guildId);
@@ -316,24 +154,7 @@ namespace HambotV2.Commands.SystemCommands
                 ? $"Cooldown overrides: {string.Join(", ", overrides)} (unset tiers use the global defaults)"
                 : "Cooldown overrides: none set (all tiers use the global defaults)");
 
-            await message.Channel.SendMessageAsync(setting?.Persona is { } persona
-                ? $"Persona override: set ({persona.Length} characters)"
-                : "Persona override: none set (inherits the global persona)");
-
-            await message.Channel.SendMessageAsync(setting?.LlmIncludeChat == true
-                ? "LLM chat context: ON (updates run in this server read this server's recent chat)"
-                : "LLM chat context: OFF (no chat is read)");
-
-            var channels = context.DbContext.GuildLlmChannels.Where(row => row.GuildId == guildId).Select(row => row.ChannelId).ToList();
-            if (channels.Count > 0)
-            {
-                string listed = string.Join(", ", channels.Select(id => "<#" + id + ">"));
-                await message.Channel.SendMessageAsync($"LLM chat channels: {channels.Count} allowed ({listed}) — only these channels are read");
-            }
-            else
-            {
-                await message.Channel.SendMessageAsync("LLM chat channels: all readable channels (no allowlist)");
-            }
+            await message.Channel.SendMessageAsync("LLM settings (model, persona, chat context, channels): managed via the llm command");
         }
     }
 }

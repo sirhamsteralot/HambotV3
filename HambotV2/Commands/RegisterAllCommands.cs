@@ -42,12 +42,12 @@ namespace HambotV2.Commands
             ILlmUpdateService? llmUpdateService = null,
             LlmRuntimeOptions? runtimeOptions = null)
         {
-            RegisterSystemCommands.RegisterCommands(commandService, notificationChannelStore, healthSnapshotProvider, presenceService, httpContentDownloader, guildChannelLookup);
+            RegisterSystemCommands.RegisterCommands(commandService, notificationChannelStore, healthSnapshotProvider, presenceService, httpContentDownloader);
             RegisterQuoteCommands.RegisterCommands(commandService, quoteSearchBacklog ?? new QuoteSearchBacklog(), quoteOfTheDaySettings, httpContentDownloader);
             RegisterResponseCommands.RegisterCommands(commandService);
             RegisterReminderCommands.RegisterCommands(commandService, deliverySignal, reminderSettings);
             RegisterBackupCommands.RegisterCommands(commandService, backupManager, maintenanceMode, notificationPublisher);
-            RegisterLlmCommands.RegisterCommands(commandService, llmGate, llmSettings, llmUpdateService, runtimeOptions);
+            RegisterLlmCommands.RegisterCommands(commandService, llmGate, llmSettings, llmUpdateService, runtimeOptions, guildChannelLookup);
         }
     }
 }

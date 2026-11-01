@@ -4,7 +4,7 @@ namespace HambotV2.Llm
 {
     /// <summary>
     /// Persistence of the global runtime LLM overrides (the <c>BotSetting</c> key-value rows):
-    /// set/clear helpers shared by the <c>!persona</c> and <c>!model</c> commands and their resolvers.
+    /// set/clear helpers shared by the <c>!persona global</c> and <c>!model</c> commands and their resolvers.
     /// </summary>
     internal static class BotSettingOverride
     {

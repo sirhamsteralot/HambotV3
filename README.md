@@ -75,7 +75,7 @@ The Compose `backup` sidecar (from `scripts/backup/`) dumps the database on sche
 
 ## LLM features (opt-in)
 
-Set `LLM_API_KEY` (Mistral API key, a secret) in `.env` to activate; without it every LLM feature is inactive and `!llm status` / `!health` report so. Settings live under `Llm:*` in `appsettings.json` (see the table in `docs/software-design.md` §3.12): model, persona seed, chat-context bounds (20 messages / 4000 chars / 24 h max age), daily request budget (default 500/UTC day), and the opt-in presence/bio update jobs (`LLM_PRESENCE_UPDATES_ENABLED`, `LLM_BIO_UPDATES_ENABLED`, each with its own `LLM_*_INTERVAL_MINUTES`). Phase 1 automatically refreshes the bot's presence and bio on their own intervals, in the persona's voice. Runtime controls: `!llm status`, `!llm off|on` (in-memory kill switch), `!llm update [presence|bio]` (run an update now, even with the jobs off — still gated by the kill switch/budget), `!model [list|<name>|clear]` (model override, validated against the provider's list), `!persona [<text...>|clear]` (global persona override) and `!settings persona <text...>|clear` (per-guild override). `!settings llmchat on|off` opts this server's recent chat into LLM update prompts (persisted per guild, off by default; DM-triggered updates never read chat). The watchdog alerts on budget exhaustion and on 3 consecutive LLM failures.
+Set `LLM_API_KEY` (Mistral API key, a secret) in `.env` to activate; without it every LLM feature is inactive and `!llmstatus` / `!health` report so. Settings live under `Llm:*` in `appsettings.json` (see the table in `docs/software-design.md` §3.12): model, persona seed, chat-context bounds (20 messages / 4000 chars / 24 h max age), daily request budget (default 500/UTC day), and the opt-in presence/bio update jobs (`LLM_PRESENCE_UPDATES_ENABLED`, `LLM_BIO_UPDATES_ENABLED`, each with its own `LLM_*_INTERVAL_MINUTES`). The bot automatically refreshes its presence and bio on their own intervals, in the persona's voice. Runtime controls are eight separate commands: `!llmstatus` (state report), `!llmswitch off|on` (in-memory kill switch), `!llmupdate [presence|bio]` (run an update now, even with the jobs off — still gated by the kill switch/budget), `!llminterval <presence|bio> [minutes|reset]` (per-job runtime interval, in-memory, floor 1 min), `!model [list|<name>|clear]` (model override, validated against the provider's list), `!persona global [<text...>|clear]` (global persona override) and `!persona server [<text...>|clear]` (per-guild override), `!llmchat on|off` (per-guild chat-context opt-in, persisted, off by default; DM-triggered updates never read chat), `!llmchannels [add|remove <#channel|id>|clear]` (per-guild channel allowlist). The watchdog alerts on budget exhaustion and on 3 consecutive LLM failures.
 
 ## MCP endpoint (agent API)
 
@@ -87,7 +87,7 @@ The agent acts at the lowest tier (0) per server; a guild owner or the bot owner
 
 ## Slash commands
 
-Opt-in via `SLASH_COMMANDS_ENABLED=true` (requires the `applications.commands` invite scope): the administrative/configuration commands (including `/llm`, `/model`, `/persona`), the reminder commands, `/searchquotes`, `/version`, and `/help` run through the same command pipeline with identical permissions and cooldowns, but every reply is ephemeral (visible only to the invoker); multi-page `/help` and `/searchquotes` replies carry previous/next buttons. Community-facing commands (`!quote` & co., custom responses) stay text-only. Global commands can take up to an hour to appear.
+Opt-in via `SLASH_COMMANDS_ENABLED=true` (requires the `applications.commands` invite scope): the administrative/configuration commands (including the LLM commands `/llmstatus`, `/llmswitch`, `/llmupdate`, `/llminterval`, `/model`, `/persona`, `/llmchat`, `/llmchannels`), the reminder commands, `/searchquotes`, `/version`, and `/help` run through the same command pipeline with identical permissions and cooldowns, but every reply is ephemeral (visible only to the invoker); multi-page `/help` and `/searchquotes` replies carry previous/next buttons. Community-facing commands (`!quote` & co., custom responses) stay text-only. Global commands can take up to an hour to appear.
 
 ## Building & running locally
 
@@ -133,10 +133,15 @@ Expected startup logs: `Bot version: <version>` → `Database migrations applied
 | `!addresponse <name> <text...>` / `!listresponses` / `!removeresponse <name>` | Manage custom responses (moderator tier; `!listresponses` everyone). |
 | `!commandpermission <name> [tier]` / `!userpermission <user> [tier]` | Show/set command or user tier. Admin tier. |
 | `!banuser <user> [duration]` / `!unbanuser <user>` / `!banlist` | Per-guild bot bans; banned users are ignored silently. Moderator tier. |
-| `!settings [commandidentifier <v>\|reset \| cooldown <tier> <s>\|reset \| persona <text...>\|clear \| llmchat on\|off \| llmchannels [add|remove <#channel|id>|clear]]` | Guild identifier, per-tier cooldown overrides, this server's LLM persona override, the per-guild opt-in for LLM chat context, and its channel allowlist. Admin tier. |
-| `!llm [status\|off\|on\|update [presence\|bio]\|interval <presence\|bio> [minutes\|reset]]` | LLM usage status (incl. the presence/bio job states and intervals); off/on toggles the in-memory kill switch (not persisted); update triggers an LLM presence/bio update now; interval sets one job's interval at runtime (in-memory, floor 1 min). Bot-owner tier; DM-usable. |
-| `!persona [<text...>\|clear]` | Show/set/clear the global LLM persona override (persisted). Admin tier; DM-usable. |
-| `!model [list\|<name>\|clear]` | Show the effective LLM model, list the provider's models, or set/clear the runtime model override (validated against the API). Admin tier; DM-usable. |
+| `!settings [commandidentifier <v>\|reset \| cooldown <tier> <s>\|reset]` | Guild identifier and per-tier cooldown overrides. Admin tier. |
+| `!llmstatus` | 4 | LLM state report: active/inactive, effective model + layer, kill switch, job states with intervals, usage, budget, failures. DM-usable, slash-eligible. |
+| `!llmswitch [on\|off]` | 4 | In-memory LLM kill switch; no args shows the state. DM-usable, slash-eligible. |
+| `!llmupdate [presence\|bio]` | 4 | Run a presence/bio update now, even with the jobs off (still gated by kill switch/budget). DM-usable, slash-eligible. |
+| `!llminterval <presence\|bio> [minutes\|reset]` | 4 | Per-job runtime interval override, in-memory, floor 1 min. DM-usable, slash-eligible. |
+| `!model [list\|<name>\|clear]` | 2 | Effective model / provider list / persisted override, validated against the API. DM-usable, slash-eligible. |
+| `!persona [global\|server [<text...>\|clear]]` | 2 | Effective persona for the current scope; global (DM-usable) and per-server (guild-only) overrides, persisted. Slash-eligible. |
+| `!llmchat [on\|off]` | 2 | Per-guild chat-context opt-in (persisted, default off). Guild-only, slash-eligible. |
+| `!llmchannels [add\|remove <#channel\|id>\|clear]` | 2 | Per-guild LLM chat-context channel allowlist. Guild-only, slash-eligible. |
 | `!agenttier [<tier 0-4>\|clear]` | Tier the MCP operator agent acts at here. Owner tier. |
 | `!health` / `!notifychannel [<#ch>\|clear]` / `!backup` / `!backups` / `!restorebackup <name> [confirm]` | Bot-owner tier; all DM-usable. |
 | `!presence [<type> <text...>\|clear]` / `!bio [<text...>\|clear]` | Activity ("About Me"). Bot-owner tier; not persisted across restarts. |

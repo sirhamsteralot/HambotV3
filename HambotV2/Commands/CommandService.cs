@@ -45,13 +45,13 @@ namespace HambotV2.Commands
         /// <summary>Channel lookup over the shared gateway client, resolved by production DI; null keeps the registry usable in tests (channel validation is then skipped).</summary>
         private readonly IGuildChannelLookup? _guildChannelLookup;
 
-        /// <summary>The LLM gate, resolved by production DI; null keeps the registry usable in tests (the llm command then reports "not configured").</summary>
+        /// <summary>The LLM gate, resolved by production DI; null keeps the registry usable in tests (the LLM commands then report "not configured").</summary>
         private readonly ILlmGate? _llmGate;
 
         /// <summary>The parsed <c>Llm</c> configuration section; defaults apply when no configuration is supplied (tests).</summary>
         private readonly LlmSettings _llmSettings;
 
-        /// <summary>The LLM update loop (manual <c>!llm update</c> trigger), resolved by production DI; null keeps the registry usable in tests.</summary>
+        /// <summary>The LLM update loop (manual <c>!llmupdate</c> trigger), resolved by production DI; null keeps the registry usable in tests.</summary>
         private readonly ILlmUpdateService? _llmUpdateService;
 
         /// <summary>The runtime LLM job intervals, resolved by production DI; null keeps the registry usable in tests (the command then derives them from the settings).</summary>

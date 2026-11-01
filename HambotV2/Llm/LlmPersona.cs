@@ -5,7 +5,7 @@ namespace HambotV2.Llm
     /// <summary>
     /// Persona resolution and the shipped default seed. The effective persona of an LLM run is
     /// resolved in order: the guild's override (guild-scoped runs only) → the global runtime
-    /// override (<c>BotSetting</c>, set via <c>!persona</c>) → the <c>Llm:Persona</c>
+    /// override (<c>BotSetting</c>, set via <c>!persona global</c>) → the <c>Llm:Persona</c>
     /// configuration value → the shipped default seed.
     /// </summary>
     internal static class LlmPersona
@@ -43,7 +43,7 @@ namespace HambotV2.Llm
 
         /// <summary>Resolves the global persona (runtime override → config → shipped seed) and its layer.</summary>
         public static (string Persona, string Layer) ResolveGlobalWithLayer(IDatabaseContext? database, LlmSettings settings) =>
-            LayeredBotSettingResolver.Resolve(database, GlobalOverrideKey, "runtime override (!persona)",
+            LayeredBotSettingResolver.Resolve(database, GlobalOverrideKey, "runtime override (!persona global)",
                 settings.Persona, "Llm:Persona configuration", DefaultSeed);
     }
 }

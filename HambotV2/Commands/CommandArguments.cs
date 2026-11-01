@@ -54,16 +54,28 @@ namespace HambotV2.Commands
         /// internal whitespace runs and line breaks are preserved verbatim; the text is trimmed
         /// at both ends. Null when the message has no arguments.
         /// </summary>
-        public string? GetRaw()
+        public string? GetRaw() => GetRawFrom(0);
+
+        /// <summary>
+        /// The raw text from the argument at <paramref name="index"/> onward, with the same
+        /// verbatim-whitespace rules as <see cref="GetRaw"/> — for free-form text that starts
+        /// after fixed keyword arguments (e.g. <c>persona global &lt;text...&gt;</c>).
+        /// Null when no argument exists at <paramref name="index"/>.
+        /// </summary>
+        public string? GetRawFrom(int index)
         {
             int position = 0;
-            while (position < _content.Length && char.IsWhiteSpace(_content[position]))
-                position++;
 
-            // Skip the identifier+command token and the separator run after it, whatever
-            // whitespace it consists of — Split(' ') alone would eat newline separators.
-            while (position < _content.Length && !char.IsWhiteSpace(_content[position]))
-                position++;
+            // Skip the identifier+command token plus `index` argument tokens, and the
+            // separator runs between them, whatever whitespace they consist of — Split(' ')
+            // alone would eat newline separators.
+            for (int token = 0; token <= index; token++)
+            {
+                while (position < _content.Length && char.IsWhiteSpace(_content[position]))
+                    position++;
+                while (position < _content.Length && !char.IsWhiteSpace(_content[position]))
+                    position++;
+            }
             while (position < _content.Length && char.IsWhiteSpace(_content[position]))
                 position++;
 

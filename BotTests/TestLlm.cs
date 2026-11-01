@@ -2,7 +2,6 @@ using Discord;
 
 using HambotV2.Commands;
 using HambotV2.Commands.LlmCommands;
-using HambotV2.Commands.SystemCommands;
 using HambotV2.Connections;
 using HambotV2.Llm;
 using Microsoft.EntityFrameworkCore;
@@ -712,113 +711,159 @@ namespace BotTests
 
         // --- commands ---
 
-        private static async Task<List<string>> ExecuteAsync(ICommand command, DatabaseContext database, string content, ulong authorId, bool directMessage = false)
+        private static async Task<List<string>> ExecuteAsync(ICommand command, DatabaseContext database, string content, ulong authorId, bool directMessage = false, ulong? botOwnerId = null)
         {
             var sentMessages = new List<string>();
             var message = directMessage
                 ? DiscordTestDoubles.CreateDirectMessage(content, authorId, sentMessages)
                 : DiscordTestDoubles.CreateGuildMessage(content, authorId, guildOwnerId: 100, sentMessages);
-            var context = DiscordTestDoubles.CreateContext(database, guildOwnerId: 100, guildId: directMessage ? null : GuildId);
+            var context = DiscordTestDoubles.CreateContext(database, guildOwnerId: 100, botOwnerId: botOwnerId, guildId: directMessage ? null : GuildId);
             await command.ExecuteCommand(message.Object, context);
             return sentMessages;
         }
 
         [TestMethod]
-        public async Task LlmCommand_Status_Reports_State_And_Off_On_Toggle_The_Kill_Switch()
+        public void Llm_Commands_Declare_Their_Own_Tiers()
+        {
+            Assert.AreEqual(PermissionTier.BotOwner, new LlmStatusCommand().DefaultPermissionTier);
+            Assert.AreEqual(PermissionTier.BotOwner, new LlmSwitchCommand().DefaultPermissionTier);
+            Assert.AreEqual(PermissionTier.BotOwner, new LlmUpdateCommand().DefaultPermissionTier);
+            Assert.AreEqual(PermissionTier.BotOwner, new LlmIntervalCommand().DefaultPermissionTier);
+            Assert.AreEqual(PermissionTier.Admin, new ModelCommand().DefaultPermissionTier);
+            Assert.AreEqual(PermissionTier.Admin, new PersonaCommand().DefaultPermissionTier);
+            Assert.AreEqual(PermissionTier.Admin, new LlmChatCommand().DefaultPermissionTier);
+            Assert.AreEqual(PermissionTier.Admin, new LlmChannelsCommand().DefaultPermissionTier);
+        }
+
+        [TestMethod]
+        public async Task LlmStatusCommand_Reports_The_State()
         {
             var database = DiscordTestDoubles.CreateDatabase();
             var (gate, _, client) = CreateGate(ActiveSettings());
             client.Responses.Enqueue(new LlmResponse("ok", 3, 2));
             await gate.ChatAsync("presence", [new LlmMessage("user", "hi")]);
-            var command = new LlmCommand(gate, ActiveSettings(presence: true, bio: true));
+            var command = new LlmStatusCommand(gate, ActiveSettings(presence: true, bio: true));
 
-            var status = await ExecuteAsync(command, database, "!llm status", authorId: 250);
+            var status = await ExecuteAsync(command, database, "!llmstatus", authorId: 250, botOwnerId: 250);
             StringAssert.Contains(status[0], "LLM: active");
             StringAssert.Contains(status[0], "Requests today: 1 / budget 500");
             StringAssert.Contains(status[0], "presence: 1 requests, 3 tokens in / 2 out");
             StringAssert.Contains(status[0], "Presence job: on (every 60 min)");
             StringAssert.Contains(status[0], "Bio job: on (every 60 min)");
+        }
 
-            var off = await ExecuteAsync(command, database, "!llm off", authorId: 250);
+        [TestMethod]
+        public async Task LlmSwitchCommand_Shows_And_Toggles_The_Kill_Switch()
+        {
+            var database = DiscordTestDoubles.CreateDatabase();
+            var (gate, _, _) = CreateGate(ActiveSettings());
+            var command = new LlmSwitchCommand(gate);
+
+            var show = await ExecuteAsync(command, database, "!llmswitch", authorId: 250, botOwnerId: 250);
+            StringAssert.Contains(show[0], "Kill switch: off");
+
+            var off = await ExecuteAsync(command, database, "!llmswitch off", authorId: 250, botOwnerId: 250);
             StringAssert.Contains(off[0], "OFF");
             Assert.IsTrue(gate.KillSwitchActive);
             Assert.IsNull(await gate.ChatAsync("presence", [new LlmMessage("user", "hi")]), "kill switch blocks calls");
 
-            var on = await ExecuteAsync(command, database, "!llm on", authorId: 250);
+            var on = await ExecuteAsync(command, database, "!llmswitch on", authorId: 250, botOwnerId: 250);
             StringAssert.Contains(on[0], "ON");
             Assert.IsFalse(gate.KillSwitchActive);
         }
 
         [TestMethod]
-        public async Task LlmCommand_Without_Gate_Reports_Not_Configured()
+        public async Task LlmStatusCommand_Without_Gate_Reports_Not_Configured()
         {
-            var replies = await ExecuteAsync(new LlmCommand(null), DiscordTestDoubles.CreateDatabase(), "!llm", authorId: 250);
+            var replies = await ExecuteAsync(new LlmStatusCommand(null), DiscordTestDoubles.CreateDatabase(), "!llmstatus", authorId: 250, botOwnerId: 250);
             StringAssert.Contains(replies[0], "not configured");
         }
 
         [TestMethod]
-        public async Task PersonaCommand_Set_Show_Clear_Persists_The_Global_Override()
+        public async Task PersonaCommand_Global_Set_Show_Clear_Persists_The_Override()
         {
             var database = DiscordTestDoubles.CreateDatabase();
             var command = new PersonaCommand(ActiveSettings(persona: null));
 
-            var show = await ExecuteAsync(command, database, "!persona", authorId: 200);
+            var show = await ExecuteAsync(command, database, "!persona global", authorId: 200);
             StringAssert.Contains(show[0], "shipped default");
 
-            var set = await ExecuteAsync(command, database, "!persona A very dramatic hamster", authorId: 200);
+            var set = await ExecuteAsync(command, database, "!persona global A very dramatic hamster", authorId: 200);
             StringAssert.Contains(set[0], "override set");
             Assert.AreEqual("A very dramatic hamster",
                 database.BotSettings.Single(s => s.Key == LlmPersona.GlobalOverrideKey).Value);
 
-            var showAgain = await ExecuteAsync(command, database, "!persona", authorId: 200);
+            var showAgain = await ExecuteAsync(command, database, "!persona global", authorId: 200);
             StringAssert.Contains(showAgain[0], "runtime override");
             StringAssert.Contains(showAgain[0], "A very dramatic hamster");
 
-            var clear = await ExecuteAsync(command, database, "!persona clear", authorId: 200);
+            var clear = await ExecuteAsync(command, database, "!persona global clear", authorId: 200);
             StringAssert.Contains(clear[0], "cleared");
             Assert.AreEqual(0, database.BotSettings.Count(s => s.Key == LlmPersona.GlobalOverrideKey));
         }
 
         [TestMethod]
-        public async Task PersonaCommand_Rejects_Overlong_Persona()
+        public async Task PersonaCommand_Global_Rejects_Overlong_Persona()
         {
             var database = DiscordTestDoubles.CreateDatabase();
             var command = new PersonaCommand();
 
-            var replies = await ExecuteAsync(command, database, "!persona " + new string('x', LlmPersona.MaxPersonaLength + 1), authorId: 200);
+            var replies = await ExecuteAsync(command, database, "!persona global " + new string('x', LlmPersona.MaxPersonaLength + 1), authorId: 200);
 
             StringAssert.Contains(replies[0], "at most 2000 characters");
             Assert.AreEqual(0, database.BotSettings.Count());
         }
 
         [TestMethod]
-        public async Task SettingsCommand_Persona_Manages_The_Guild_Override()
+        public async Task PersonaCommand_Server_Manages_The_Guild_Override()
         {
             var database = DiscordTestDoubles.CreateDatabase();
-            var command = new SettingsCommand();
+            var command = new PersonaCommand();
 
-            var show = await ExecuteAsync(command, database, "!settings persona", authorId: 200);
+            var show = await ExecuteAsync(command, database, "!persona server", authorId: 200);
             StringAssert.Contains(show[0], "none set");
 
-            await ExecuteAsync(command, database, "!settings persona Guild specific voice", authorId: 200);
+            await ExecuteAsync(command, database, "!persona server Guild specific voice", authorId: 200);
             Assert.AreEqual("Guild specific voice",
                 database.GuildSettings.Single(s => s.GuildId == GuildId).Persona);
 
-            var showAgain = await ExecuteAsync(command, database, "!settings persona", authorId: 200);
+            var showAgain = await ExecuteAsync(command, database, "!persona server", authorId: 200);
             StringAssert.Contains(showAgain[0], "Guild specific voice");
 
-            await ExecuteAsync(command, database, "!settings persona clear", authorId: 200);
+            await ExecuteAsync(command, database, "!persona server clear", authorId: 200);
             Assert.IsNull(database.GuildSettings.Single(s => s.GuildId == GuildId).Persona);
         }
 
         [TestMethod]
-        public async Task SettingsCommand_Persona_Declines_In_Direct_Messages()
+        public async Task PersonaCommand_Server_Declines_In_Direct_Messages()
         {
             var database = DiscordTestDoubles.CreateDatabase();
 
-            var replies = await ExecuteAsync(new SettingsCommand(), database, "!settings persona hi", authorId: 200, directMessage: true);
+            var replies = await ExecuteAsync(new PersonaCommand(), database, "!persona server hi", authorId: 200, directMessage: true);
 
             StringAssert.Contains(replies[0], "only available in servers");
+        }
+
+        [TestMethod]
+        public async Task PersonaCommand_Without_Scope_Shows_The_Current_Scope()
+        {
+            var database = DiscordTestDoubles.CreateDatabase();
+            var command = new PersonaCommand(ActiveSettings(persona: null));
+
+            var guildShow = await ExecuteAsync(command, database, "!persona", authorId: 200);
+            StringAssert.Contains(guildShow[0], "no server override");
+            StringAssert.Contains(guildShow[1], "Global persona");
+            StringAssert.Contains(guildShow[1], "shipped default");
+
+            await ExecuteAsync(command, database, "!persona server Guild voice", authorId: 200);
+            var guildShowAgain = await ExecuteAsync(command, database, "!persona", authorId: 200);
+            StringAssert.Contains(guildShowAgain[0], "server override");
+            StringAssert.Contains(guildShowAgain[0], "Guild voice");
+            StringAssert.Contains(guildShowAgain[1], "Global persona");
+
+            var dmShow = await ExecuteAsync(command, database, "!persona", authorId: 200, directMessage: true);
+            Assert.AreEqual(1, dmShow.Count, "in DMs only the global chain is shown");
+            StringAssert.Contains(dmShow[0], "Global persona");
         }
 
         // --- model override & listing ---
@@ -918,20 +963,20 @@ namespace BotTests
         }
 
         [TestMethod]
-        public async Task LlmCommand_Status_Includes_The_Effective_Model()
+        public async Task LlmStatusCommand_Includes_The_Effective_Model()
         {
             var database = DiscordTestDoubles.CreateDatabase();
             database.BotSettings.Add(new DatabaseContext.BotSetting { Key = LlmRuntimeSettings.ModelKey, Value = "status-model" });
             database.SaveChanges();
             var (gate, _, _) = CreateGate(ActiveSettings());
 
-            var status = await ExecuteAsync(new LlmCommand(gate, ActiveSettings()), database, "!llm", authorId: 250);
+            var status = await ExecuteAsync(new LlmStatusCommand(gate, ActiveSettings()), database, "!llmstatus", authorId: 250, botOwnerId: 250);
 
             StringAssert.Contains(status[0], "Model: status-model (runtime override");
         }
 
         [TestMethod]
-        public async Task LlmCommand_Update_Runs_Both_Surfaces_Even_When_The_Jobs_Are_Disabled()
+        public async Task LlmUpdateCommand_Runs_Both_Surfaces_Even_When_The_Jobs_Are_Disabled()
         {
             var database = DiscordTestDoubles.CreateDatabase();
             var settings = ActiveSettings(presence: false, bio: false);
@@ -940,9 +985,9 @@ namespace BotTests
             client.Responses.Enqueue(new LlmResponse("new bio", 1, 1));
             var presence = CreatePresence();
             var service = CreateService(settings, gate, presence, database);
-            var command = new LlmCommand(gate, settings, service);
+            var command = new LlmUpdateCommand(service);
 
-            var replies = await ExecuteAsync(command, database, "!llm update", authorId: 250);
+            var replies = await ExecuteAsync(command, database, "!llmupdate", authorId: 250, botOwnerId: 250);
 
             StringAssert.Contains(replies[0], "Presence update applied.");
             StringAssert.Contains(replies[0], "Bio update applied.");
@@ -952,16 +997,16 @@ namespace BotTests
         }
 
         [TestMethod]
-        public async Task LlmCommand_Update_With_A_Surface_Argument_Runs_Only_That_Surface()
+        public async Task LlmUpdateCommand_With_A_Surface_Argument_Runs_Only_That_Surface()
         {
             var database = DiscordTestDoubles.CreateDatabase();
             var (gate, _, client) = CreateGate(ActiveSettings());
             client.Responses.Enqueue(new LlmResponse("bio only", 1, 1));
             var presence = CreatePresence();
             var service = CreateService(ActiveSettings(), gate, presence, database);
-            var command = new LlmCommand(gate, ActiveSettings(), service);
+            var command = new LlmUpdateCommand(service);
 
-            var replies = await ExecuteAsync(command, database, "!llm update bio", authorId: 250);
+            var replies = await ExecuteAsync(command, database, "!llmupdate bio", authorId: 250, botOwnerId: 250);
 
             StringAssert.Contains(replies[0], "Bio update applied.");
             Assert.AreEqual(1, client.Calls.Count);
@@ -970,31 +1015,31 @@ namespace BotTests
         }
 
         [TestMethod]
-        public async Task LlmCommand_Update_With_An_Unknown_Surface_Shows_Usage()
+        public async Task LlmUpdateCommand_With_An_Unknown_Surface_Shows_Usage()
         {
             var database = DiscordTestDoubles.CreateDatabase();
             var (gate, _, client) = CreateGate(ActiveSettings());
             var service = CreateService(ActiveSettings(), gate, CreatePresence(), database);
-            var command = new LlmCommand(gate, ActiveSettings(), service);
+            var command = new LlmUpdateCommand(service);
 
-            var replies = await ExecuteAsync(command, database, "!llm update banana", authorId: 250);
+            var replies = await ExecuteAsync(command, database, "!llmupdate banana", authorId: 250, botOwnerId: 250);
 
             StringAssert.Contains(replies[0], "Unknown surface 'banana'");
-            StringAssert.Contains(replies[0], "update [presence|bio]");
+            StringAssert.Contains(replies[0], "llmupdate [presence|bio]");
             Assert.AreEqual(0, client.Calls.Count);
         }
 
         [TestMethod]
-        public async Task LlmCommand_Update_Reports_Blocked_When_The_Kill_Switch_Is_On()
+        public async Task LlmUpdateCommand_Reports_Blocked_When_The_Kill_Switch_Is_On()
         {
             var database = DiscordTestDoubles.CreateDatabase();
             var (gate, _, client) = CreateGate(ActiveSettings());
             gate.SetKillSwitch(true);
             var presence = CreatePresence();
             var service = CreateService(ActiveSettings(), gate, presence, database);
-            var command = new LlmCommand(gate, ActiveSettings(), service);
+            var command = new LlmUpdateCommand(service);
 
-            var replies = await ExecuteAsync(command, database, "!llm update presence", authorId: 250);
+            var replies = await ExecuteAsync(command, database, "!llmupdate presence", authorId: 250, botOwnerId: 250);
 
             StringAssert.Contains(replies[0], "blocked");
             Assert.AreEqual(0, client.Calls.Count);
@@ -1002,18 +1047,18 @@ namespace BotTests
         }
 
         [TestMethod]
-        public async Task LlmCommand_Update_Without_The_Update_Service_Reports_Not_Configured()
+        public async Task LlmUpdateCommand_Without_The_Update_Service_Reports_Not_Configured()
         {
             var database = DiscordTestDoubles.CreateDatabase();
-            var (gate, _, _) = CreateGate(ActiveSettings());
+            CreateGate(ActiveSettings());
 
-            var replies = await ExecuteAsync(new LlmCommand(gate), database, "!llm update", authorId: 250);
+            var replies = await ExecuteAsync(new LlmUpdateCommand(null), database, "!llmupdate", authorId: 250, botOwnerId: 250);
 
             StringAssert.Contains(replies[0], "not configured");
         }
 
         [TestMethod]
-        public async Task LlmCommand_Update_Reports_Failure_Instead_Of_Throwing_When_The_Update_Fails()
+        public async Task LlmUpdateCommand_Reports_Failure_Instead_Of_Throwing_When_The_Update_Fails()
         {
             var database = DiscordTestDoubles.CreateDatabase();
             database.GuildSettings.Add(new DatabaseContext.GuildSetting { GuildId = GuildId, LlmIncludeChat = true });
@@ -1024,38 +1069,38 @@ namespace BotTests
             chat.Setup(c => c.CollectAsync(It.IsAny<IReadOnlyDictionary<ulong, IReadOnlyCollection<ulong>>>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
                 .ThrowsAsync(new InvalidOperationException("channel unreadable"));
             var service = CreateService(settings, gate, CreatePresence(), database, chat.Object);
-            var command = new LlmCommand(gate, settings, service);
+            var command = new LlmUpdateCommand(service);
 
-            var replies = await ExecuteAsync(command, database, "!llm update", authorId: 250);
+            var replies = await ExecuteAsync(command, database, "!llmupdate", authorId: 250, botOwnerId: 250);
 
             StringAssert.Contains(replies[0], "failed");
         }
 
         [TestMethod]
-        public async Task SettingsCommand_LlmChat_Toggles_The_Guild_Opt_In()
+        public async Task LlmChatCommand_Toggles_The_Guild_Opt_In()
         {
             var database = DiscordTestDoubles.CreateDatabase();
-            var command = new SettingsCommand();
+            var command = new LlmChatCommand();
 
-            var show = await ExecuteAsync(command, database, "!settings llmchat", authorId: 200);
+            var show = await ExecuteAsync(command, database, "!llmchat", authorId: 200);
             StringAssert.Contains(show[0], "OFF");
 
-            await ExecuteAsync(command, database, "!settings llmchat on", authorId: 200);
+            await ExecuteAsync(command, database, "!llmchat on", authorId: 200);
             Assert.IsTrue(database.GuildSettings.Single(s => s.GuildId == GuildId).LlmIncludeChat);
 
-            var showAgain = await ExecuteAsync(command, database, "!settings llmchat", authorId: 200);
+            var showAgain = await ExecuteAsync(command, database, "!llmchat", authorId: 200);
             StringAssert.Contains(showAgain[0], "ON");
 
-            await ExecuteAsync(command, database, "!settings llmchat off", authorId: 200);
+            await ExecuteAsync(command, database, "!llmchat off", authorId: 200);
             Assert.IsFalse(database.GuildSettings.Single(s => s.GuildId == GuildId).LlmIncludeChat);
         }
 
         [TestMethod]
-        public async Task SettingsCommand_LlmChat_Declines_In_Direct_Messages()
+        public async Task LlmChatCommand_Declines_In_Direct_Messages()
         {
             var database = DiscordTestDoubles.CreateDatabase();
 
-            var replies = await ExecuteAsync(new SettingsCommand(), database, "!settings llmchat on", authorId: 200, directMessage: true);
+            var replies = await ExecuteAsync(new LlmChatCommand(), database, "!llmchat on", authorId: 200, directMessage: true);
 
             StringAssert.Contains(replies[0], "only available in servers");
         }
@@ -1114,75 +1159,86 @@ namespace BotTests
         }
 
         [TestMethod]
-        public async Task SettingsCommand_LlmChannels_Manages_The_Allowlist()
+        public async Task LlmChannelsCommand_Manages_The_Allowlist()
         {
             var database = DiscordTestDoubles.CreateDatabase();
             var lookup = new Mock<IGuildChannelLookup>();
             lookup.Setup(l => l.IsTextChannelOf(GuildId, It.IsAny<ulong>())).Returns((ulong _, ulong id) => id == 111 || id == 222);
-            var command = new SettingsCommand(lookup.Object);
+            var command = new LlmChannelsCommand(lookup.Object);
 
-            var show = await ExecuteAsync(command, database, "!settings llmchannels", authorId: 200);
+            var show = await ExecuteAsync(command, database, "!llmchannels", authorId: 200);
             StringAssert.Contains(show[0], "all readable channels");
 
-            await ExecuteAsync(command, database, "!settings llmchannels add 111", authorId: 200);
-            await ExecuteAsync(command, database, "!settings llmchannels add <#222>", authorId: 200);
+            await ExecuteAsync(command, database, "!llmchannels add 111", authorId: 200);
+            await ExecuteAsync(command, database, "!llmchannels add <#222>", authorId: 200);
             var rows = database.GuildLlmChannels.Where(r => r.GuildId == GuildId).Select(r => r.ChannelId).OrderBy(id => id).ToList();
             CollectionAssert.AreEqual(new List<ulong> { 111, 222 }, rows, "raw ids and <#id> mentions both parse");
 
-            var dup = await ExecuteAsync(command, database, "!settings llmchannels add 111", authorId: 200);
+            var dup = await ExecuteAsync(command, database, "!llmchannels add 111", authorId: 200);
             StringAssert.Contains(dup[0], "already");
 
-            var foreign = await ExecuteAsync(command, database, "!settings llmchannels add 999", authorId: 200);
+            var foreign = await ExecuteAsync(command, database, "!llmchannels add 999", authorId: 200);
             StringAssert.Contains(foreign[0], "not a text channel");
             Assert.AreEqual(2, database.GuildLlmChannels.Count(r => r.GuildId == GuildId));
 
-            var bad = await ExecuteAsync(command, database, "!settings llmchannels add banana", authorId: 200);
+            var bad = await ExecuteAsync(command, database, "!llmchannels add banana", authorId: 200);
             StringAssert.Contains(bad[0], "does not look like a channel");
 
-            await ExecuteAsync(command, database, "!settings llmchannels remove 111", authorId: 200);
+            await ExecuteAsync(command, database, "!llmchannels remove 111", authorId: 200);
             Assert.IsFalse(database.GuildLlmChannels.Any(r => r.GuildId == GuildId && r.ChannelId == 111));
 
-            var unlisted = await ExecuteAsync(command, database, "!settings llmchannels remove 111", authorId: 200);
+            var unlisted = await ExecuteAsync(command, database, "!llmchannels remove 111", authorId: 200);
             StringAssert.Contains(unlisted[0], "not on the LLM channel allowlist");
 
-            var showListed = await ExecuteAsync(command, database, "!settings llmchannels", authorId: 200);
+            var showListed = await ExecuteAsync(command, database, "!llmchannels", authorId: 200);
             StringAssert.Contains(showListed[0], "<#222>");
 
-            await ExecuteAsync(command, database, "!settings llmchannels clear", authorId: 200);
+            await ExecuteAsync(command, database, "!llmchannels clear", authorId: 200);
             Assert.AreEqual(0, database.GuildLlmChannels.Count(r => r.GuildId == GuildId));
         }
 
         [TestMethod]
-        public async Task LlmCommand_Interval_Sets_And_Resets_The_Runtime_Interval()
+        public async Task LlmChannelsCommand_Declines_In_Direct_Messages()
+        {
+            var database = DiscordTestDoubles.CreateDatabase();
+
+            var replies = await ExecuteAsync(new LlmChannelsCommand(), database, "!llmchannels add 111", authorId: 200, directMessage: true);
+
+            StringAssert.Contains(replies[0], "only available in servers");
+        }
+
+        [TestMethod]
+        public async Task LlmIntervalCommand_Sets_And_Resets_The_Runtime_Interval()
         {
             var database = DiscordTestDoubles.CreateDatabase();
             var settings = ActiveSettings(presence: true, bio: false);
             var options = new LlmRuntimeOptions(settings);
             var (gate, _, _) = CreateGate(settings);
-            var command = new LlmCommand(gate, settings, null, options);
+            var command = new LlmIntervalCommand(options);
+            var status = new LlmStatusCommand(gate, settings, options);
 
-            var set = await ExecuteAsync(command, database, "!llm interval presence 5", authorId: 250);
+            var set = await ExecuteAsync(command, database, "!llminterval presence 5", authorId: 250, botOwnerId: 250);
             StringAssert.Contains(set[0], "5 min");
             Assert.AreEqual(5, options.GetInterval(LlmSurface.Presence));
             Assert.IsTrue(options.IsRuntimeOverride(LlmSurface.Presence));
 
-            var status = await ExecuteAsync(command, database, "!llm status", authorId: 250);
-            StringAssert.Contains(status[0], "every 5 min");
-            StringAssert.Contains(status[0], "runtime");
+            var statusReply = await ExecuteAsync(status, database, "!llmstatus", authorId: 250, botOwnerId: 250);
+            StringAssert.Contains(statusReply[0], "every 5 min");
+            StringAssert.Contains(statusReply[0], "runtime");
 
-            var reset = await ExecuteAsync(command, database, "!llm interval presence reset", authorId: 250);
+            var reset = await ExecuteAsync(command, database, "!llminterval presence reset", authorId: 250, botOwnerId: 250);
             StringAssert.Contains(reset[0], "60 min");
             Assert.AreEqual(60, options.GetInterval(LlmSurface.Presence));
             Assert.IsFalse(options.IsRuntimeOverride(LlmSurface.Presence));
 
-            var zero = await ExecuteAsync(command, database, "!llm interval presence 0", authorId: 250);
+            var zero = await ExecuteAsync(command, database, "!llminterval presence 0", authorId: 250, botOwnerId: 250);
             StringAssert.Contains(zero[0], "at least 1");
             Assert.AreEqual(60, options.GetInterval(LlmSurface.Presence), "invalid input changes nothing");
 
-            var badSurface = await ExecuteAsync(command, database, "!llm interval banana 5", authorId: 250);
+            var badSurface = await ExecuteAsync(command, database, "!llminterval banana 5", authorId: 250, botOwnerId: 250);
             StringAssert.Contains(badSurface[0], "Usage");
 
-            var show = await ExecuteAsync(command, database, "!llm interval bio", authorId: 250);
+            var show = await ExecuteAsync(command, database, "!llminterval bio", authorId: 250, botOwnerId: 250);
             StringAssert.Contains(show[0], "60 min");
             StringAssert.Contains(show[0], "configured");
         }

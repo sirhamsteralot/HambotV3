@@ -6,11 +6,10 @@ using HambotV2.SlashCommands;
 namespace HambotV2.Commands.LlmCommands
 {
     /// <summary>
-    /// Manages the global LLM model: no args show the effective model and which layer supplied it,
-    /// <c>list</c> lists the provider's available models, <c>&lt;name&gt;</c> sets the runtime
-    /// override (persisted in global storage, validated against the provider's model list),
-    /// <c>clear</c> removes it so <c>Llm:Model</c> or the shipped default applies. Admin tier,
-    /// DM-usable. The override applies to every model call from the next one — no restart.
+    /// The LLM model: no args shows the effective model and which layer supplied it,
+    /// <c>list</c> shows the provider's available model ids, <c>&lt;name&gt;</c> sets the global
+    /// runtime override (persisted, validated against the provider's list),
+    /// <c>clear</c> removes it. Admin tier, DM-usable.
     /// </summary>
     internal sealed class ModelCommand : ICommand
     {
@@ -26,20 +25,20 @@ namespace HambotV2.Commands.LlmCommands
         }
 
         public string Name => "model";
-        public string Description => "Shows, lists, sets, or clears the LLM model (runtime override over Llm:Model)";
-        public string Usage => "model [list | <name> | clear]";
+        public string Description => "Shows, lists, sets, or clears the LLM model override";
+        public string Usage => "model [list|<name>|clear]";
         public int DefaultPermissionTier => PermissionTier.Admin;
         public CommandCategory Category => CommandCategory.Llm;
 
-        /// <summary>Slash surface: the argument stays free-form, parsing as on the text surface.</summary>
+        /// <summary>Slash surface: the operation stays free-form, parsing as on the text surface.</summary>
         public ApplicationCommandDeclaration? ApplicationCommand =>
-            ApplicationCommandDeclaration.FreeForm("Omit to show, 'list' for available models, <name> to set, clear to reset");
+            ApplicationCommandDeclaration.FreeForm("Omit to show the effective model, or: list, <name>, clear");
 
         public async Task ExecuteCommand(IMessage message, ICommandContext context)
         {
             if (_gate is null)
             {
-                await message.Channel.SendMessageAsync("LLM features are not configured on this installation.");
+                await message.Channel.SendMessageAsync(LlmCommandSupport.NotConfigured);
                 return;
             }
 

@@ -6,7 +6,7 @@ namespace HambotV2.Scheduling
     /// The one hosted loop behind every fixed-interval periodic job (the watchdog §3.13 and the
     /// quote-of-the-day §3.17; the due-time delivery engine
     /// <see cref="ScheduledMessageDeliveryService{TMessage}"/> is a different shape and stays,
-    /// and the LLM presence/bio loops follow the roadmap phase-#2 item). A job supplies a name,
+    /// and the LLM presence/bio loops run inside their own service (§3.12), not on this host). A job supplies a name,
     /// an interval supplier (re-read every tick, so a runtime change applies from the next tick)
     /// and the run callback; the first tick runs immediately. The host sleeps on the injected
     /// <see cref="TimeProvider"/>, capped by a bounded fallback poll so clock drift can never

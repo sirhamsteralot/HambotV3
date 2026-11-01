@@ -7,7 +7,7 @@ namespace HambotV2.Llm
     /// <summary>
     /// The opt-in LLM loop: on each job's interval tick it builds the prompt (persona resolved per the
     /// chain in <see cref="LlmPersona"/>, chat context from every guild that opted in via
-    /// <c>!settings llmchat on</c>), calls the model through
+    /// <c>!llmchat on</c>), calls the model through
     /// the gate, validates the output per surface, and applies it via the presence service. Presence
     /// and bio run on their own cadences (<c>Llm:PresenceUpdates:IntervalMinutes</c> /
     /// <c>Llm:BioUpdates:IntervalMinutes</c>); <see cref="UpdateAsync"/> triggers a surface manually
@@ -66,7 +66,7 @@ namespace HambotV2.Llm
 
             if (!_settings.PresenceUpdatesEnabled && !_settings.BioUpdatesEnabled)
             {
-                _logger.LogInformation("LLM features are active but no update job is enabled (manual !llm update still works).");
+                _logger.LogInformation("LLM features are active but no update job is enabled (manual !llmupdate still works).");
             }
             else
             {
@@ -110,7 +110,7 @@ namespace HambotV2.Llm
 
                 try
                 {
-                    // The interval is read every tick, so a runtime !llm interval change applies from the next tick.
+                    // The interval is read every tick, so a runtime !llminterval change applies from the next tick.
                     await Task.Delay(TimeSpan.FromMinutes(_runtimeOptions.GetInterval(surface)), _timeProvider, stoppingToken);
                 }
                 catch (OperationCanceledException)

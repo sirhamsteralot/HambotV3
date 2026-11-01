@@ -2,7 +2,7 @@ namespace HambotV2.Llm
 {
     /// <summary>
     /// The runtime (in-memory) LLM update-job intervals, initialized from the configured
-    /// <see cref="LlmSettings"/> and changeable at runtime via <c>!llm interval</c>; a restart
+    /// <see cref="LlmSettings"/> and changeable at runtime via <c>!llminterval</c>; a restart
     /// restores the configured values. The scheduled loops read the current value every tick.
     /// </summary>
     internal sealed class LlmRuntimeOptions

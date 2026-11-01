@@ -137,7 +137,7 @@ namespace HambotV2
             // registered only when an API key is configured, so without one every LLM feature is
             // inactive. The gate (kill switch + daily budget + accounting), prompt builder, chat
             // context collector, and the presence/bio update loop are singletons/hosted; the
-            // update loop stays alive (idle) while no job is enabled so !llm update can trigger
+            // update loop stays alive (idle) while no job is enabled so !llmupdate can trigger
             // manually. One PresenceUpdateService instance serves both the hosted loops and the
             // command's manual trigger.
             var llmSettings = LlmSettings.FromConfiguration(builder.Configuration);
