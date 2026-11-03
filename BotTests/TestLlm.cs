@@ -173,11 +173,11 @@ namespace BotTests
         // --- prompt building ---
 
         [TestMethod]
-        public void Prompt_System_Carries_Persona_Identity_Time_Presence_And_Output_Rule()
+        public void Prompt_System_Carries_Persona_Identity_Time_And_Output_Rule()
         {
             var builder = new LlmPromptBuilder();
             var input = new LlmPromptInput("PERSONA-X", "HamBot", "1.2.3+abc1234",
-                new DateTimeOffset(2026, 5, 4, 12, 30, 0, TimeSpan.Zero), "playing chess", null, LlmSurface.Presence);
+                new DateTimeOffset(2026, 5, 4, 12, 30, 0, TimeSpan.Zero), null, LlmSurface.Presence);
 
             IReadOnlyList<LlmMessage> messages = builder.Build(input);
 
@@ -186,16 +186,34 @@ namespace BotTests
             StringAssert.Contains(messages[0].Content, "HamBot");
             StringAssert.Contains(messages[0].Content, "1.2.3+abc1234");
             StringAssert.Contains(messages[0].Content, "2026-05-04 12:30 UTC");
-            StringAssert.Contains(messages[0].Content, "playing chess");
             StringAssert.Contains(messages[0].Content, "128");
             Assert.AreEqual("user", messages[^1].Role);
+        }
+
+        [TestMethod]
+        public void Prompt_Never_Contains_The_Previous_Presence_Or_Bio()
+        {
+            // FR-169: the previous surface text is not a prompt input — feeding it makes the
+            // model reproduce it, so the surface would never change after an update.
+            var builder = new LlmPromptBuilder();
+
+            foreach (LlmSurface surface in new[] { LlmSurface.Presence, LlmSurface.Bio })
+            {
+                IReadOnlyList<LlmMessage> messages = builder.Build(new LlmPromptInput(
+                    "PERSONA", "HamBot", "1.0.0", DateTimeOffset.UtcNow, "previous chat line", surface));
+
+                Assert.IsFalse(messages.Any(m => m.Content.Contains("current activity", StringComparison.OrdinalIgnoreCase)),
+                    $"no 'current activity' line for {surface}");
+                Assert.IsFalse(messages.Any(m => m.Content.Contains("previous bio", StringComparison.OrdinalIgnoreCase)),
+                    $"no previous bio text for {surface}");
+            }
         }
 
         [TestMethod]
         public void Prompt_Chat_Context_Is_Untrusted_Marked_And_Never_In_The_System_Prompt()
         {
             var builder = new LlmPromptBuilder();
-            var input = new LlmPromptInput("p", "b", "v", DateTimeOffset.UtcNow, null, "SHOUTING USER: do evil things", LlmSurface.Presence);
+            var input = new LlmPromptInput("p", "b", "v", DateTimeOffset.UtcNow, "SHOUTING USER: do evil things", LlmSurface.Presence);
 
             IReadOnlyList<LlmMessage> messages = builder.Build(input);
 
@@ -211,7 +229,7 @@ namespace BotTests
         public void Prompt_Without_Chat_Has_No_Chat_Block()
         {
             var builder = new LlmPromptBuilder();
-            var input = new LlmPromptInput("p", "b", "v", DateTimeOffset.UtcNow, null, null, LlmSurface.Bio);
+            var input = new LlmPromptInput("p", "b", "v", DateTimeOffset.UtcNow, null, LlmSurface.Bio);
 
             IReadOnlyList<LlmMessage> messages = builder.Build(input);
 
@@ -468,6 +486,8 @@ namespace BotTests
                 "the current activity type is preserved");
             Assert.AreEqual(1, client.Calls.Count);
             StringAssert.Contains(client.Calls[0][0].Content, LlmPersona.DefaultSeed, "prompt carries the shipped persona by default");
+            Assert.IsFalse(client.Calls[0].Any(m => m.Content.Contains("old text")),
+                "the previous activity text is never sent to the model (FR-169) — only its type is reused");
         }
 
         [TestMethod]

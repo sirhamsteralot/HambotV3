@@ -172,11 +172,7 @@ namespace HambotV2.Llm
                 ? await _chatContext.CollectAsync(chatGuilds, _settings.ChatContextMaxMessages, _settings.ChatContextMaxCharacters, cancellationToken)
                 : null;
 
-            string currentActivity = _presence.CurrentActivity is { } activity
-                ? $"{PresenceActivityTypes.GetLabel(activity.Type)} {activity.Text}"
-                : "none";
-
-            var input = new LlmPromptInput(persona, _botName, BotVersion.Current, _timeProvider.GetUtcNow(), currentActivity, chat, surface);
+            var input = new LlmPromptInput(persona, _botName, BotVersion.Current, _timeProvider.GetUtcNow(), chat, surface);
             string feature = surface == LlmSurface.Presence ? "presence" : "bio";
             LlmResponse? response = await _gate.ChatAsync(feature, _promptBuilder.Build(input), cancellationToken);
             if (response is null)
