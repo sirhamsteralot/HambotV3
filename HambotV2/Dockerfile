@@ -39,7 +39,12 @@ USER root
 # too old to dump a PostgreSQL 17 server (pg_dump cannot dump from a server newer than
 # itself), so the client comes from the official PostgreSQL apt repository (PGDG) and is
 # pinned to major 17 to match the database server.
+# The upgrade first is deliberate (security scan, design §5.3): the noble base image ships
+# vulnerable apt/libpcre2/glibc/gnutls until patched — upgrading swaps in the fixed apt
+# (CVE-2026-109518) before anything else is downloaded in this stage, and pulls the
+# security pocket for the rest (e.g. libpcre2-8-0 10.42-4ubuntu2.2).
 RUN apt-get update \
+    && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends ca-certificates curl \
     && install -d /usr/share/postgresql-common/pgdg \
     && curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc \
