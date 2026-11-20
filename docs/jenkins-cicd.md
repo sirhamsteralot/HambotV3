@@ -101,6 +101,10 @@ Creating the job: New Item → **Pipeline** (plain, not multibranch) → "Pipeli
 
 Tool versions are pinned in `Jenkinsfile.security`; bump them deliberately. The Image stage needs Docker *on the Jenkins agent* — with a containerized Jenkins, mount the host socket and a Docker CLI as volumes in the Jenkins compose file.
 
+## 11. Weekly CVE fix PR (Mistral workflow, Mondays 06:00 UTC)
+
+A scheduled Mistral workflow (`hambot-cve-fix-pr`, code in [`workflows/`](../workflows)) runs every Monday 06:00 UTC — after the §10 scan — and **reads the scan results through the Jenkins MCP connector** (`jenkins_a59a`): it finds the §10 job via `findJobsWithScmUrl`/`getJobScm` (script path `Jenkinsfile.security`), parses the CRITICAL lines of the last completed build's Report stage, and opens a draft PR on this repo bumping the affected direct `PackageReference` versions to the scanner's fixed versions (plus a `docs/security/cve-fix-report-<date>.md` table; no-fix/transitive findings become manual notes). It needs a workspace-scope Jenkins API-token credential on `jenkins_a59a` (Overall/Read, View/Read, Job/Read) and a GitHub PAT secret bound on its deployment — see [`workflows/README.md`](../workflows/README.md).
+
 ## Troubleshooting
 
 | Symptom | Fix |

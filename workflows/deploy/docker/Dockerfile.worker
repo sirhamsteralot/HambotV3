@@ -1,0 +1,16 @@
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-dev
+
+COPY apps ./apps
+
+ENV PATH="/app/.venv/bin:$PATH" \
+    PYTHONPATH="/app/apps/worker/src" \
+    PYTHONUNBUFFERED=1
+
+CMD ["python", "-m", "worker.entrypoints.worker"]
