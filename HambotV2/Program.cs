@@ -115,14 +115,19 @@ namespace HambotV2
             // ride on text-surface messages too.
             builder.Services.AddSingleton<ButtonPaginationService>();
 
-            // Link reposts: purely textual host swaps for X/Twitter and Reddit links — no fetch, no
-            // LLM, no gate budget. The mapping store is the runtime layer over the shipped table
-            // (one immutable snapshot, replaced after every !linkfixmap write); the repost service
-            // subscribes the gateway beside the pagination handler rather than being hosted, since
-            // it has no loop of its own.
+            // Link reposts: host swaps for X/Twitter and Reddit links — no LLM, no gate budget. The
+            // mapping store is the runtime layer over the shipped table (one immutable snapshot,
+            // replaced after every !linkfixmap write); the repost service subscribes the gateway
+            // beside the pagination handler rather than being hosted, since it has no loop.
             var linkFixSettings = LinkFixSettings.FromConfiguration(builder.Configuration);
             builder.Services.AddSingleton(linkFixSettings);
             builder.Services.AddSingleton<ILinkMappingStore, LinkMappingStore>();
+            // The Reddit video gate: one bounded preview check per unseen Reddit link, verdicts
+            // cached in memory; X/Twitter links are never checked. Constructed explicitly so the
+            // production probe keeps its shared HttpClient.
+            builder.Services.AddSingleton<ILinkPreviewProbe>(provider =>
+                new HttpLinkPreviewProbe(provider.GetRequiredService<LinkFixSettings>()));
+            builder.Services.AddSingleton<LinkVideoProbe>();
             builder.Services.AddSingleton<EmbedLinkRepostService>();
 
             // Singleton so the cooldown timestamps are shared across messages; time comes from

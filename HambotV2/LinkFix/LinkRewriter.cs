@@ -1,7 +1,8 @@
-using System.Text;
-
 namespace HambotV2.LinkFix
 {
+    /// <summary>One rewritten URL with the path shape it came from — the Reddit video gate needs to know which site a link belongs to.</summary>
+    internal sealed record RewrittenLink(string Url, LinkPathShape Shape);
+
     /// <summary>
     /// The purely textual rewrite: message text plus the effective mapping in, the distinct
     /// rewritten URLs out. Nothing is fetched, resolved, or validated — a rewrite is a host swap,
@@ -41,11 +42,11 @@ namespace HambotV2.LinkFix
         /// the rewritten URL, first appearance wins the order, and the tail is dropped past
         /// <paramref name="maxLinks"/> or Discord's message limit.
         /// </summary>
-        public static IReadOnlyList<string> Rewrite(string content, LinkMapping mapping, int maxLinks)
+        public static IReadOnlyList<RewrittenLink> Rewrite(string content, LinkMapping mapping, int maxLinks)
         {
-            var rewritten = new List<string>();
+            var rewritten = new List<RewrittenLink>();
             var seen = new HashSet<string>(StringComparer.Ordinal);
-            var text = new StringBuilder();
+            int length = 0;
 
             foreach (LinkUrl link in EnumerateLinks(content))
             {
@@ -59,15 +60,12 @@ namespace HambotV2.LinkFix
                 if (!seen.Add(url))
                     continue;
 
-                int separatorLength = rewritten.Count == 0 ? 0 : 1;
-                if (text.Length + separatorLength + url.Length > MaxRepostLength)
+                int addition = rewritten.Count == 0 ? url.Length : url.Length + 1;
+                if (length + addition > MaxRepostLength)
                     break;
 
-                if (separatorLength > 0)
-                    text.Append('\n');
-
-                text.Append(url);
-                rewritten.Add(url);
+                length += addition;
+                rewritten.Add(new RewrittenLink(url, entry.Shape));
             }
 
             return rewritten;

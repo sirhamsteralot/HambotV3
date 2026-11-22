@@ -8,16 +8,13 @@ using HambotV2.Maintenance;
 namespace HambotV2.LinkFix
 {
     /// <summary>
-    /// The link-repost listener: in a guild that opted in, a member message carrying an
-    /// X/Twitter or Reddit link gets one follow-up with the same posts on a fixed-embed mirror.
-    /// Purely textual — nothing is fetched, no LLM or gate budget is touched, and nothing about a
-    /// link or a message is stored or logged. The original message is never edited or deleted (a
-    /// bot cannot edit a member's message). A singleton with its own <see cref="Attach"/>, not a
-    /// hosted service: it only subscribes, so there is no loop to host.
+    /// The link-repost listener: an opted-in guild's member message carrying an X/Twitter or Reddit link gets one
+    /// follow-up with the same posts on a fixed-embed mirror. A host swap — only the Reddit video gate fetches.
     /// </summary>
     internal sealed class EmbedLinkRepostService
     {
         private readonly ILinkMappingStore _mappings;
+        private readonly LinkVideoProbe _videoProbe;
         private readonly LinkFixSettings _settings;
         private readonly IGuildSettingsService _guildSettings;
         private readonly IServiceScopeFactory _scopeFactory;
@@ -30,6 +27,7 @@ namespace HambotV2.LinkFix
 
         public EmbedLinkRepostService(
             ILinkMappingStore mappings,
+            LinkVideoProbe videoProbe,
             LinkFixSettings settings,
             IGuildSettingsService guildSettings,
             IServiceScopeFactory scopeFactory,
@@ -38,6 +36,7 @@ namespace HambotV2.LinkFix
             IMaintenanceMode? maintenanceMode = null)
         {
             _mappings = mappings;
+            _videoProbe = videoProbe;
             _settings = settings;
             _guildSettings = guildSettings;
             _scopeFactory = scopeFactory;
@@ -49,10 +48,16 @@ namespace HambotV2.LinkFix
         /// <summary>Subscribes the repost handler to the shared gateway client, beside the pagination attach.</summary>
         public void Attach(DiscordSocketClient client)
         {
-            client.MessageReceived += OnMessageReceivedAsync;
+            // Started, not awaited: the handler waits on the preview check and on Discord, while the
+            // gateway dispatches events one at a time — awaiting here would stall every later message.
+            client.MessageReceived += message =>
+            {
+                _ = HandleSafelyAsync(message);
+                return Task.CompletedTask;
+            };
         }
 
-        private async Task OnMessageReceivedAsync(SocketMessage message)
+        private async Task HandleSafelyAsync(SocketMessage message)
         {
             try
             {
@@ -92,14 +97,15 @@ namespace HambotV2.LinkFix
             if (!await IsOptedInAsync(guildChannel.GuildId))
                 return;
 
-            IReadOnlyList<string> links = LinkRewriter.Rewrite(message.Content, mapping, _settings.MaxLinksPerMessage);
+            IReadOnlyList<RewrittenLink> links = await SelectRepostableAsync(
+                LinkRewriter.Rewrite(message.Content, mapping, _settings.MaxLinksPerMessage));
             if (links.Count == 0)
                 return;
 
             if (!TryClaimChannelRepost(message.Channel.Id, _timeProvider.GetUtcNow(), out DateTimeOffset claim))
                 return;
 
-            string content = string.Join('\n', links);
+            string content = string.Join('\n', links.Select(link => link.Url));
             try
             {
                 await message.Channel.SendMessageAsync(
@@ -120,6 +126,33 @@ namespace HambotV2.LinkFix
                     "Link repost {Outcome} in guild {GuildId}, channel {ChannelId}: {LinkCount} link(s).",
                     "failed", guildChannel.GuildId, message.Channel.Id, links.Count);
             }
+        }
+
+        /// <summary>
+        /// The Reddit video gate: a Reddit link is kept only when its mirror's preview declares a video, so a text
+        /// or image post is dropped. X/Twitter links and operator-added origins are never checked; a failure drops.
+        /// </summary>
+        private async Task<IReadOnlyList<RewrittenLink>> SelectRepostableAsync(IReadOnlyList<RewrittenLink> links)
+        {
+            if (!_settings.RedditVideoProbe)
+                return links;
+
+            List<RewrittenLink> redditLinks = links.Where(link => link.Shape == LinkPathShape.RedditThread).ToList();
+            if (redditLinks.Count == 0)
+                return links;
+
+            // Checked concurrently: a slow or dead mirror costs one timeout for the message, not one
+            // per link.
+            bool[] verdicts = await Task.WhenAll(redditLinks.Select(link => _videoProbe.HasVideoAsync(link.Url)));
+
+            var videoUrls = new HashSet<string>(StringComparer.Ordinal);
+            for (int index = 0; index < redditLinks.Count; index++)
+            {
+                if (verdicts[index])
+                    videoUrls.Add(redditLinks[index].Url);
+            }
+
+            return links.Where(link => link.Shape != LinkPathShape.RedditThread || videoUrls.Contains(link.Url)).ToList();
         }
 
         /// <summary>The guild's opt-in: the one database read, made only for a message that matched.</summary>

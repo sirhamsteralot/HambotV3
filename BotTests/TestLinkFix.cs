@@ -14,6 +14,8 @@ using Moq;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net;
+using System.Text;
 using System.Threading.Tasks;
 
 namespace BotTests
@@ -31,6 +33,53 @@ namespace BotTests
 
         /// <summary>One captured send: the text plus the two options the repost contract fixes.</summary>
         private sealed record CapturedSend(string Text, AllowedMentions? AllowedMentions, MessageReference? Reference);
+
+        /// <summary>The preview seam: what each rewritten URL's mirror answers, and how often it was asked.</summary>
+        private sealed class FakePreviewProbe : ILinkPreviewProbe
+        {
+            public List<string> Checks { get; } = new();
+            public HashSet<string> VideoUrls { get; } = new(StringComparer.Ordinal);
+            public HashSet<string> NoMetadataUrls { get; } = new(StringComparer.Ordinal);
+            public Exception? Failure { get; set; }
+
+            public Task<PreviewVerdict> ReadVerdictAsync(string url)
+            {
+                Checks.Add(url);
+
+                if (Failure is not null)
+                    return Task.FromException<PreviewVerdict>(Failure);
+
+                if (NoMetadataUrls.Contains(url))
+                    return Task.FromResult(PreviewVerdict.NoMetadata);
+
+                return Task.FromResult(VideoUrls.Contains(url) ? PreviewVerdict.Video : PreviewVerdict.NoVideo);
+            }
+        }
+
+        /// <summary>A stand-in transport: one canned response per request, and the request it was given.</summary>
+        private sealed class FakeHttpHandler : HttpMessageHandler
+        {
+            public List<(HttpMethod Method, string Uri, string? UserAgent)> Requests { get; } = new();
+            public HttpStatusCode StatusCode { get; set; } = HttpStatusCode.OK;
+            public string Body { get; set; } = string.Empty;
+            public bool Hang { get; set; }
+
+            protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+            {
+                Requests.Add((
+                    request.Method,
+                    request.RequestUri?.ToString() ?? string.Empty,
+                    request.Headers.TryGetValues("User-Agent", out IEnumerable<string>? values) ? string.Join(' ', values) : null));
+
+                if (Hang)
+                    await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+
+                return new HttpResponseMessage(StatusCode)
+                {
+                    Content = new StringContent(Body, Encoding.UTF8, "text/html")
+                };
+            }
+        }
 
         /// <summary>Captures log lines so a test can prove no link or message text ever reaches the log.</summary>
         private sealed class RecordingLogger<T> : ILogger<T>
@@ -59,6 +108,7 @@ namespace BotTests
                 _scopeFactory = ScopeFactoryFor(Database);
 
                 Store = new LinkMappingStore(_scopeFactory, Settings, NullLogger<LinkMappingStore>.Instance);
+                VideoProbe = new LinkVideoProbe(Preview, Settings, Time, NullLogger<LinkVideoProbe>.Instance);
                 Service = NewService();
             }
 
@@ -67,7 +117,7 @@ namespace BotTests
 
             /// <summary>A fresh service instance: a restart has no in-memory cooldown state.</summary>
             public EmbedLinkRepostService NewService() =>
-                new(Store, Settings, _guildSettings.Object, _scopeFactory, Time, Logger, Maintenance);
+                new(Store, VideoProbe, Settings, _guildSettings.Object, _scopeFactory, Time, Logger, Maintenance);
 
             public DatabaseContext Database { get; } = DiscordTestDoubles.CreateDatabase();
             public FakeTimeProvider Time { get; } = new(StartTime);
@@ -75,7 +125,9 @@ namespace BotTests
             public RecordingLogger<EmbedLinkRepostService> Logger { get; } = new();
             public LinkFixSettings Settings { get; }
             public List<CapturedSend> Sends { get; } = new();
+            public FakePreviewProbe Preview { get; } = new();
             public LinkMappingStore Store { get; }
+            public LinkVideoProbe VideoProbe { get; }
             public EmbedLinkRepostService Service { get; }
         }
 
@@ -141,10 +193,24 @@ namespace BotTests
             return message.Object;
         }
 
+        private static List<string> RewriteUrls(string content, LinkMapping mapping, int maxLinks) =>
+            LinkRewriter.Rewrite(content, mapping, maxLinks).Select(link => link.Url).ToList();
+
         /// <summary>The payload is exactly AllowedMentions.None: nobody is pinged, not even the replied-to author.</summary>
         private static void AssertNoMentions(AllowedMentions? allowedMentions)
         {
             Assert.AreSame(AllowedMentions.None, allowedMentions, "The repost must send AllowedMentions.None.");
+        }
+
+        /// <summary>No URL, host, or message text reaches the log: only ids, counts, and the outcome do.</summary>
+        private static void AssertNoLinkInLog(List<string> messages)
+        {
+            foreach (string message in messages)
+            {
+                Assert.IsFalse(message.Contains("://", StringComparison.Ordinal), "A URL reaches the log.");
+                Assert.IsFalse(message.Contains("reddit", StringComparison.OrdinalIgnoreCase), "A host reaches the log.");
+                Assert.IsFalse(message.Contains("hamster", StringComparison.OrdinalIgnoreCase), "No message text reaches the log.");
+            }
         }
 
         private static IConfiguration Config(Dictionary<string, string?> values) =>
@@ -160,6 +226,9 @@ namespace BotTests
             Assert.AreEqual(LinkFixSettings.DefaultMaxLinksPerMessage, settings.MaxLinksPerMessage);
             Assert.AreEqual(TimeSpan.Zero, settings.ChannelCooldown, "The cooldown ships disabled.");
             Assert.AreEqual(LinkFixSettings.DefaultMaxMappings, settings.MaxMappings);
+            Assert.IsTrue(settings.RedditVideoProbe, "The Reddit video gate ships on.");
+            Assert.AreEqual(TimeSpan.FromSeconds(5), settings.VideoProbeTimeout);
+            Assert.AreEqual(TimeSpan.FromMinutes(360), settings.VideoProbeCacheLifetime);
         }
 
         [TestMethod]
@@ -169,23 +238,35 @@ namespace BotTests
             {
                 ["LinkFix:MaxLinksPerMessage"] = "2",
                 ["LinkFix:ChannelCooldownSeconds"] = "30",
-                ["LinkFix:MaxMappings"] = "10"
+                ["LinkFix:MaxMappings"] = "10",
+                ["LinkFix:RedditVideoProbe"] = "false",
+                ["LinkFix:VideoProbeTimeoutSeconds"] = "9",
+                ["LinkFix:VideoProbeCacheMinutes"] = "15"
             }));
 
             Assert.AreEqual(2, configured.MaxLinksPerMessage);
             Assert.AreEqual(TimeSpan.FromSeconds(30), configured.ChannelCooldown);
             Assert.AreEqual(10, configured.MaxMappings);
+            Assert.IsFalse(configured.RedditVideoProbe);
+            Assert.AreEqual(TimeSpan.FromSeconds(9), configured.VideoProbeTimeout);
+            Assert.AreEqual(TimeSpan.FromMinutes(15), configured.VideoProbeCacheLifetime);
 
             LinkFixSettings invalid = LinkFixSettings.FromConfiguration(Config(new Dictionary<string, string?>
             {
                 ["LinkFix:MaxLinksPerMessage"] = "0",
                 ["LinkFix:ChannelCooldownSeconds"] = "-5",
-                ["LinkFix:MaxMappings"] = "not-a-number"
+                ["LinkFix:MaxMappings"] = "not-a-number",
+                ["LinkFix:RedditVideoProbe"] = "not-a-bool",
+                ["LinkFix:VideoProbeTimeoutSeconds"] = "0",
+                ["LinkFix:VideoProbeCacheMinutes"] = "-1"
             }));
 
             Assert.AreEqual(LinkFixSettings.DefaultMaxLinksPerMessage, invalid.MaxLinksPerMessage);
             Assert.AreEqual(TimeSpan.Zero, invalid.ChannelCooldown, "A negative cooldown leaves the bound disabled.");
             Assert.AreEqual(LinkFixSettings.DefaultMaxMappings, invalid.MaxMappings);
+            Assert.IsTrue(invalid.RedditVideoProbe, "An unparsable flag keeps the gate on.");
+            Assert.AreEqual(TimeSpan.FromSeconds(5), invalid.VideoProbeTimeout);
+            Assert.AreEqual(TimeSpan.FromMinutes(360), invalid.VideoProbeCacheLifetime);
         }
 
         // --- hostname validation ---
@@ -215,13 +296,13 @@ namespace BotTests
 
             CollectionAssert.AreEqual(
                 new[] { "https://fxtwitter.com/hamster/status/123" },
-                LinkRewriter.Rewrite("https://x.com/hamster/status/123", mapping, 5).ToList());
+                RewriteUrls("https://x.com/hamster/status/123", mapping, 5).ToList());
 
             foreach (string host in new[] { "www.x.com", "mobile.x.com", "m.x.com", "X.COM", "www.twitter.com", "mobile.twitter.com", "twitter.com" })
             {
                 CollectionAssert.AreEqual(
                     new[] { "https://fxtwitter.com/hamster/status/123" },
-                    LinkRewriter.Rewrite($"https://{host}/hamster/status/123", mapping, 5).ToList(),
+                    RewriteUrls($"https://{host}/hamster/status/123", mapping, 5).ToList(),
                     $"'{host}' must be rewritten to the X mirror.");
             }
 
@@ -229,7 +310,7 @@ namespace BotTests
             {
                 CollectionAssert.AreEqual(
                     new[] { "https://redditez.com/r/dotnet/comments/abc123/a_title/?context=3#top" },
-                    LinkRewriter.Rewrite($"https://{host}/r/dotnet/comments/abc123/a_title/?context=3#top", mapping, 5).ToList(),
+                    RewriteUrls($"https://{host}/r/dotnet/comments/abc123/a_title/?context=3#top", mapping, 5).ToList(),
                     $"'{host}' must be rewritten to the Reddit mirror.");
             }
         }
@@ -241,12 +322,12 @@ namespace BotTests
 
             CollectionAssert.AreEqual(
                 new[] { "https://fxtwitter.com/hamster/status/9" },
-                LinkRewriter.Rewrite("http://twitter.com/hamster/status/9", mapping, 5).ToList(),
+                RewriteUrls("http://twitter.com/hamster/status/9", mapping, 5).ToList(),
                 "A plain-http link is rewritten to https.");
 
-            Assert.AreEqual(0, LinkRewriter.Rewrite("https://example.com/hamster/status/9", mapping, 5).Count, "An unknown host is left alone.");
-            Assert.AreEqual(0, LinkRewriter.Rewrite("https://notx.com/hamster/status/9", mapping, 5).Count, "'notx.com' is not a subdomain of 'x.com'.");
-            Assert.AreEqual(0, LinkRewriter.Rewrite("no links here at all", mapping, 5).Count);
+            Assert.AreEqual(0, RewriteUrls("https://example.com/hamster/status/9", mapping, 5).Count, "An unknown host is left alone.");
+            Assert.AreEqual(0, RewriteUrls("https://notx.com/hamster/status/9", mapping, 5).Count, "'notx.com' is not a subdomain of 'x.com'.");
+            Assert.AreEqual(0, RewriteUrls("no links here at all", mapping, 5).Count);
             Assert.IsFalse(LinkRewriter.HasMappableLink("no links here at all", mapping));
             Assert.IsTrue(LinkRewriter.HasMappableLink("see https://x.com/hamster/status/1", mapping));
         }
@@ -257,7 +338,7 @@ namespace BotTests
             LinkMapping mapping = LinkMapping.Shipped;
             const string content = "look (https://x.com/hamster/status/1), also [https://x.com/hamster/status/2]. and https://x.com/hamster/status/3>";
 
-            IReadOnlyList<string> rewritten = LinkRewriter.Rewrite(content, mapping, 5);
+            IReadOnlyList<string> rewritten = RewriteUrls(content, mapping, 5);
 
             CollectionAssert.AreEqual(
                 new[]
@@ -276,7 +357,7 @@ namespace BotTests
 
             foreach (string path in new[] { "/hamster/status/123", "/hamster/status/123/" })
             {
-                Assert.AreEqual(1, LinkRewriter.Rewrite($"https://x.com{path}", mapping, 5).Count, $"'{path}' is an X post path.");
+                Assert.AreEqual(1, RewriteUrls($"https://x.com{path}", mapping, 5).Count, $"'{path}' is an X post path.");
             }
 
             foreach (string path in new[]
@@ -285,29 +366,29 @@ namespace BotTests
                 "/hashtag/status/123", "/hamster", "/hamster/status", "/hamster/status/abc", "/hamster/status/123/photo/1"
             })
             {
-                Assert.AreEqual(0, LinkRewriter.Rewrite($"https://x.com{path}", mapping, 5).Count, $"'{path}' is not a canonical post path.");
+                Assert.AreEqual(0, RewriteUrls($"https://x.com{path}", mapping, 5).Count, $"'{path}' is not a canonical post path.");
             }
 
             CollectionAssert.AreEqual(
                 new[] { "https://redditez.com/r/dotnet/comments/abc123/a_title/" },
-                LinkRewriter.Rewrite("https://reddit.com/r/dotnet/comments/abc123/a_title/", mapping, 5).ToList());
-            Assert.AreEqual(1, LinkRewriter.Rewrite("https://reddit.com/r/dotnet/comments/abc123", mapping, 5).Count, "The bare comments path qualifies too.");
+                RewriteUrls("https://reddit.com/r/dotnet/comments/abc123/a_title/", mapping, 5).ToList());
+            Assert.AreEqual(1, RewriteUrls("https://reddit.com/r/dotnet/comments/abc123", mapping, 5).Count, "The bare comments path qualifies too.");
 
             // The app's share form: the token is opaque to the bot but the mirror resolves it, so
             // the rewrite stays a host swap.
             CollectionAssert.AreEqual(
                 new[] { "https://redditez.com/r/CombatFootage/s/2k7EBLBrdV" },
-                LinkRewriter.Rewrite("https://www.reddit.com/r/CombatFootage/s/2k7EBLBrdV", mapping, 5).ToList());
-            Assert.AreEqual(1, LinkRewriter.Rewrite("https://reddit.com/r/dotnet/s/abc123/", mapping, 5).Count, "A trailing slash keeps the share form eligible.");
+                RewriteUrls("https://www.reddit.com/r/CombatFootage/s/2k7EBLBrdV", mapping, 5).ToList());
+            Assert.AreEqual(1, RewriteUrls("https://reddit.com/r/dotnet/s/abc123/", mapping, 5).Count, "A trailing slash keeps the share form eligible.");
 
             foreach (string path in new[] { "/r/dotnet", "/r/dotnet/comments", "/r/dotnet/s", "/r/dotnet/x/abc123", "/user/hamster", "/dotnet/comments/abc123" })
             {
-                Assert.AreEqual(0, LinkRewriter.Rewrite($"https://reddit.com{path}", mapping, 5).Count, $"'{path}' is not a thread path.");
+                Assert.AreEqual(0, RewriteUrls($"https://reddit.com{path}", mapping, 5).Count, $"'{path}' is not a thread path.");
             }
 
             // Short and opaque shapes are never resolved: resolving them would mean fetching.
-            Assert.AreEqual(0, LinkRewriter.Rewrite("https://redd.it/abc123", mapping, 5).Count);
-            Assert.AreEqual(0, LinkRewriter.Rewrite("https://t.co/abc123", mapping, 5).Count);
+            Assert.AreEqual(0, RewriteUrls("https://redd.it/abc123", mapping, 5).Count);
+            Assert.AreEqual(0, RewriteUrls("https://t.co/abc123", mapping, 5).Count);
         }
 
         [TestMethod]
@@ -324,7 +405,7 @@ namespace BotTests
                     "https://fxtwitter.com/hamster/status/1",
                     "https://redditez.com/r/dotnet/comments/abc"
                 },
-                LinkRewriter.Rewrite(content, mapping, 5).ToList());
+                RewriteUrls(content, mapping, 5).ToList());
         }
 
         [TestMethod]
@@ -333,7 +414,7 @@ namespace BotTests
             LinkMapping mapping = LinkMapping.Shipped;
             const string threeLinks = "https://x.com/a/status/1 https://x.com/a/status/2 https://x.com/a/status/3";
 
-            IReadOnlyList<string> capped = LinkRewriter.Rewrite(threeLinks, mapping, 2);
+            IReadOnlyList<string> capped = RewriteUrls(threeLinks, mapping, 2);
 
             CollectionAssert.AreEqual(
                 new[] { "https://fxtwitter.com/a/status/1", "https://fxtwitter.com/a/status/2" },
@@ -347,7 +428,7 @@ namespace BotTests
             LinkMapping mapping = LinkMapping.Shipped;
             string longPost = "https://x.com/a/status/" + new string('1', 900);
 
-            IReadOnlyList<string> links = LinkRewriter.Rewrite($"{longPost} {longPost} {longPost}", mapping, 5);
+            IReadOnlyList<string> links = RewriteUrls($"{longPost} {longPost} {longPost}", mapping, 5);
 
             Assert.AreEqual(1, links.Count, "Duplicates collapse to one line.");
         }
@@ -360,7 +441,7 @@ namespace BotTests
             string longB = "https://x.com/a/status/" + new string('2', 900);
             string longC = "https://x.com/a/status/" + new string('3', 900);
 
-            IReadOnlyList<string> trimmed = LinkRewriter.Rewrite($"{longA} {longB} {longC}", mapping, 5);
+            IReadOnlyList<string> trimmed = RewriteUrls($"{longA} {longB} {longC}", mapping, 5);
 
             Assert.AreEqual(2, trimmed.Count, "One message, never split: the tail that would exceed 2000 characters is dropped.");
             Assert.IsTrue(trimmed.Sum(url => url.Length) + trimmed.Count - 1 <= LinkRewriter.MaxRepostLength);
@@ -420,7 +501,7 @@ namespace BotTests
 
             CollectionAssert.AreEqual(
                 new[] { "https://mirror.social/anything/at/all?q=1" },
-                LinkRewriter.Rewrite("https://example.social/anything/at/all?q=1", mapping, 5).ToList());
+                RewriteUrls("https://example.social/anything/at/all?q=1", mapping, 5).ToList());
 
             Assert.AreEqual(LinkMappingUpdateStatus.Cleared, await harness.Store.ClearAsync("example.social"));
             Assert.AreEqual(3, (await harness.Store.GetAsync()).RowCount);
@@ -462,7 +543,7 @@ namespace BotTests
             Assert.AreEqual(0, harness.Database.LinkFixMappings.Count(), "Nothing is persisted for a refused mapping.");
             CollectionAssert.AreEqual(
                 new[] { "https://fxtwitter.com/hamster/status/1" },
-                LinkRewriter.Rewrite("https://x.com/hamster/status/1", await harness.Store.GetAsync(), 5).ToList(),
+                RewriteUrls("https://x.com/hamster/status/1", await harness.Store.GetAsync(), 5).ToList(),
                 "The origin still rewrites to its own mirror.");
         }
 
@@ -506,10 +587,12 @@ namespace BotTests
             var harness = new Harness();
             OptIn(harness.Database);
 
+            harness.Preview.VideoUrls.Add("https://redditez.com/r/dotnet/comments/abc");
             await harness.Service.HandleMessageAsync(CreateMessage(CreateChannel(harness.Sends).Object, "https://reddit.com/r/dotnet/comments/abc"));
             StringAssert.Contains(harness.Sends[0].Text, "https://redditez.com/r/dotnet/comments/abc");
 
             await harness.Store.SetAsync("reddit.com", "rxddit.com");
+            harness.Preview.VideoUrls.Add("https://rxddit.com/r/dotnet/comments/abc");
 
             harness.Sends.Clear();
             await harness.Service.HandleMessageAsync(CreateMessage(CreateChannel(harness.Sends, channelId: ChannelId + 1).Object, "https://reddit.com/r/dotnet/comments/abc"));
@@ -524,6 +607,7 @@ namespace BotTests
             var harness = new Harness();
             OptIn(harness.Database);
             var channel = CreateChannel(harness.Sends);
+            harness.Preview.VideoUrls.Add("https://redditez.com/r/dotnet/comments/abc");
 
             await harness.Service.HandleMessageAsync(CreateMessage(channel.Object,
                 "hey <@42> https://x.com/hamster/status/2 and https://www.x.com/hamster/status/2 and https://reddit.com/r/dotnet/comments/abc"));
@@ -702,12 +786,7 @@ namespace BotTests
 
             Assert.AreEqual(0, harness.Sends.Count);
             Assert.IsTrue(harness.Logger.Messages.Count > 0, "The failure is logged.");
-            foreach (string message in harness.Logger.Messages)
-            {
-                Assert.IsFalse(message.Contains("x.com", StringComparison.OrdinalIgnoreCase), "No host or URL reaches the log.");
-                Assert.IsFalse(message.Contains("http", StringComparison.OrdinalIgnoreCase), "No URL reaches the log.");
-                Assert.IsFalse(message.Contains("hamster", StringComparison.OrdinalIgnoreCase), "No message text reaches the log.");
-            }
+            AssertNoLinkInLog(harness.Logger.Messages);
         }
 
         [TestMethod]
@@ -716,6 +795,7 @@ namespace BotTests
             var harness = new Harness();
             OptIn(harness.Database);
 
+            harness.Preview.VideoUrls.Add("https://redditez.com/r/dotnet/comments/abc");
             await harness.Service.HandleMessageAsync(CreateMessage(CreateChannel(harness.Sends).Object,
                 "https://x.com/hamster/status/1 https://reddit.com/r/dotnet/comments/abc"));
 
@@ -724,11 +804,267 @@ namespace BotTests
             Assert.AreEqual(1, harness.Database.GuildSettings.Count(), "Only the opt-in row exists.");
             Assert.IsTrue(harness.Database.GuildSettings.Single().LinkFixEnabled);
 
-            foreach (string message in harness.Logger.Messages)
+            AssertNoLinkInLog(harness.Logger.Messages);
+        }
+
+        [TestMethod]
+        public void Rewrite_Reports_The_Path_Shape_Each_Link_Came_From()
+        {
+            LinkMapping mapping = LinkMapping.Shipped;
+
+            IReadOnlyList<RewrittenLink> links = LinkRewriter.Rewrite(
+                "https://x.com/hamster/status/1 https://reddit.com/r/dotnet/comments/abc", mapping, 5);
+
+            Assert.AreEqual(LinkPathShape.XStatus, links[0].Shape);
+            Assert.AreEqual(LinkPathShape.RedditThread, links[1].Shape);
+        }
+
+        // --- Reddit video gate ---
+
+        [TestMethod]
+        public async Task Repost_Keeps_A_Reddit_Link_Whose_Preview_Declares_A_Video()
+        {
+            var harness = new Harness();
+            OptIn(harness.Database);
+            harness.Preview.VideoUrls.Add("https://redditez.com/r/CombatFootage/s/2k7EBLBrdV");
+
+            await harness.Service.HandleMessageAsync(CreateMessage(CreateChannel(harness.Sends).Object,
+                "https://www.reddit.com/r/CombatFootage/s/2k7EBLBrdV"));
+
+            Assert.AreEqual(1, harness.Sends.Count);
+            Assert.AreEqual("https://redditez.com/r/CombatFootage/s/2k7EBLBrdV", harness.Sends[0].Text);
+            CollectionAssert.AreEqual(
+                new[] { "https://redditez.com/r/CombatFootage/s/2k7EBLBrdV" },
+                harness.Preview.Checks,
+                "The link's own mirror URL is the one checked.");
+        }
+
+        [TestMethod]
+        public async Task Repost_Skips_A_Reddit_Link_Whose_Preview_Has_No_Video()
+        {
+            var harness = new Harness();
+            OptIn(harness.Database);
+
+            await harness.Service.HandleMessageAsync(CreateMessage(CreateChannel(harness.Sends).Object,
+                "https://reddit.com/r/AskReddit/comments/348vlx"));
+
+            Assert.AreEqual(0, harness.Sends.Count, "A text or image post unfurls fine without a repost.");
+            Assert.AreEqual(1, harness.Preview.Checks.Count);
+        }
+
+        [TestMethod]
+        public async Task Repost_Fails_Closed_And_Logs_No_Link_When_The_Preview_Check_Fails()
+        {
+            var harness = new Harness();
+            OptIn(harness.Database);
+            harness.Preview.Failure = new HttpRequestException("simulated preview failure for https://redditez.com/r/hamster/comments/abc");
+
+            await harness.Service.HandleMessageAsync(CreateMessage(CreateChannel(harness.Sends).Object,
+                "https://reddit.com/r/hamster/comments/abc"));
+
+            Assert.AreEqual(0, harness.Sends.Count, "A failed check means no repost.");
+            Assert.AreEqual(1, harness.Preview.Checks.Count);
+            AssertNoLinkInLog(harness.Logger.Messages);
+        }
+
+        [TestMethod]
+        public async Task Repost_Fails_Closed_When_The_Preview_Check_Times_Out()
+        {
+            var harness = new Harness(new LinkFixSettings { VideoProbeTimeout = TimeSpan.FromMilliseconds(50) });
+            OptIn(harness.Database);
+            harness.Preview.Failure = new TaskCanceledException("simulated preview timeout");
+
+            await harness.Service.HandleMessageAsync(CreateMessage(CreateChannel(harness.Sends).Object,
+                "https://www.reddit.com/r/CombatFootage/s/2k7EBLBrdV"));
+
+            Assert.AreEqual(0, harness.Sends.Count, "A timed-out check means no repost.");
+            Assert.AreEqual(1, harness.Preview.Checks.Count);
+            AssertNoLinkInLog(harness.Logger.Messages);
+        }
+
+        [TestMethod]
+        public async Task Repost_Never_Checks_X_Links()
+        {
+            var harness = new Harness();
+            OptIn(harness.Database);
+
+            await harness.Service.HandleMessageAsync(CreateMessage(CreateChannel(harness.Sends).Object,
+                "https://x.com/hamster/status/1"));
+
+            Assert.AreEqual(0, harness.Preview.Checks.Count, "X serves no metadata at all, so a repost is always worth it.");
+            Assert.AreEqual(1, harness.Sends.Count);
+        }
+
+        [TestMethod]
+        public async Task Repost_Drops_Only_The_Non_Video_Reddit_Link_Of_A_Mixed_Message()
+        {
+            var harness = new Harness();
+            OptIn(harness.Database);
+            harness.Preview.VideoUrls.Add("https://redditez.com/r/dotnet/comments/video");
+
+            await harness.Service.HandleMessageAsync(CreateMessage(CreateChannel(harness.Sends).Object,
+                "https://x.com/hamster/status/1 https://reddit.com/r/dotnet/comments/video https://reddit.com/r/dotnet/comments/text"));
+
+            Assert.AreEqual(1, harness.Sends.Count);
+            Assert.AreEqual(
+                "https://fxtwitter.com/hamster/status/1\nhttps://redditez.com/r/dotnet/comments/video",
+                harness.Sends[0].Text,
+                "The order of the surviving links is kept.");
+        }
+
+        [TestMethod]
+        public async Task Repost_Checks_A_Link_Once_And_Rechecks_After_The_Cache_Expires()
+        {
+            var harness = new Harness(new LinkFixSettings { VideoProbeCacheLifetime = TimeSpan.FromMinutes(30) });
+            OptIn(harness.Database);
+            const string content = "https://reddit.com/r/dotnet/comments/abc";
+            harness.Preview.VideoUrls.Add("https://redditez.com/r/dotnet/comments/abc");
+
+            await harness.Service.HandleMessageAsync(CreateMessage(CreateChannel(harness.Sends).Object, content));
+            await harness.Service.HandleMessageAsync(CreateMessage(CreateChannel(harness.Sends, channelId: ChannelId + 1).Object, content));
+            Assert.AreEqual(1, harness.Preview.Checks.Count, "A cached verdict is reused.");
+
+            harness.Time.Advance(TimeSpan.FromMinutes(30));
+            await harness.Service.HandleMessageAsync(CreateMessage(CreateChannel(harness.Sends, channelId: ChannelId + 2).Object, content));
+            Assert.AreEqual(2, harness.Preview.Checks.Count, "The verdict expires and the link is checked again.");
+        }
+
+        [TestMethod]
+        public async Task Repost_Reposts_Reddit_Links_Unchecked_When_The_Gate_Is_Off()
+        {
+            var harness = new Harness(new LinkFixSettings { RedditVideoProbe = false });
+            OptIn(harness.Database);
+
+            await harness.Service.HandleMessageAsync(CreateMessage(CreateChannel(harness.Sends).Object,
+                "https://reddit.com/r/dotnet/comments/text"));
+
+            Assert.AreEqual(0, harness.Preview.Checks.Count, "The escape hatch skips the check entirely.");
+            Assert.AreEqual(1, harness.Sends.Count);
+        }
+
+        [TestMethod]
+        public async Task Repost_Does_Not_Consume_The_Cooldown_When_The_Gate_Filters_Every_Link()
+        {
+            var harness = new Harness(new LinkFixSettings { ChannelCooldown = TimeSpan.FromSeconds(60) });
+            OptIn(harness.Database);
+            var channel = CreateChannel(harness.Sends);
+
+            await harness.Service.HandleMessageAsync(CreateMessage(channel.Object, "https://reddit.com/r/dotnet/comments/text"));
+            harness.Preview.VideoUrls.Add("https://redditez.com/r/dotnet/comments/video");
+            await harness.Service.HandleMessageAsync(CreateMessage(channel.Object, "https://reddit.com/r/dotnet/comments/video"));
+
+            Assert.AreEqual(1, harness.Sends.Count, "A filtered message never claimed the window.");
+        }
+
+        [TestMethod]
+        public async Task Repost_Remembers_A_No_Video_Verdict_But_Retries_An_Unanswered_Check()
+        {
+            var harness = new Harness();
+            OptIn(harness.Database);
+            const string content = "https://reddit.com/r/dotnet/comments/abc";
+            const string mirrorUrl = "https://redditez.com/r/dotnet/comments/abc";
+
+            // A page with no metadata at all proves nothing, so nothing is remembered.
+            harness.Preview.NoMetadataUrls.Add(mirrorUrl);
+            await harness.Service.HandleMessageAsync(CreateMessage(CreateChannel(harness.Sends).Object, content));
+            await harness.Service.HandleMessageAsync(CreateMessage(CreateChannel(harness.Sends, channelId: ChannelId + 1).Object, content));
+            Assert.AreEqual(2, harness.Preview.Checks.Count, "An unanswered check is not cached: the next message retries.");
+
+            // Metadata that declares no video is an answer, and one worth keeping.
+            harness.Preview.NoMetadataUrls.Clear();
+            await harness.Service.HandleMessageAsync(CreateMessage(CreateChannel(harness.Sends, channelId: ChannelId + 2).Object, content));
+            await harness.Service.HandleMessageAsync(CreateMessage(CreateChannel(harness.Sends, channelId: ChannelId + 3).Object, content));
+            Assert.AreEqual(3, harness.Preview.Checks.Count, "A no-video verdict is reused.");
+            Assert.AreEqual(0, harness.Sends.Count, "Neither verdict ever reposts.");
+        }
+
+        [TestMethod]
+        public async Task Repost_Bounds_The_Verdict_Cache_Dropping_The_Oldest_Entry()
+        {
+            var harness = new Harness();
+            string MirrorUrl(int index) => $"https://redditez.com/r/dotnet/comments/{index}";
+
+            for (int index = 0; index < LinkVideoProbe.MaxCacheEntries; index++)
             {
-                Assert.IsFalse(message.Contains("http", StringComparison.OrdinalIgnoreCase), "No URL reaches the log.");
-                Assert.IsFalse(message.Contains("hamster", StringComparison.OrdinalIgnoreCase), "No message text reaches the log.");
+                harness.Time.Advance(TimeSpan.FromSeconds(1));
+                await harness.VideoProbe.HasVideoAsync(MirrorUrl(index));
             }
+
+            Assert.AreEqual(LinkVideoProbe.MaxCacheEntries, harness.Preview.Checks.Count, "Every URL is checked once.");
+
+            await harness.VideoProbe.HasVideoAsync(MirrorUrl(LinkVideoProbe.MaxCacheEntries - 1));
+            Assert.AreEqual(LinkVideoProbe.MaxCacheEntries, harness.Preview.Checks.Count, "A cached verdict is reused at the cap.");
+
+            await harness.VideoProbe.HasVideoAsync(MirrorUrl(LinkVideoProbe.MaxCacheEntries));
+            await harness.VideoProbe.HasVideoAsync(MirrorUrl(LinkVideoProbe.MaxCacheEntries));
+            Assert.AreEqual(LinkVideoProbe.MaxCacheEntries + 1, harness.Preview.Checks.Count,
+                "At the cap a new verdict replaces the oldest instead of being dropped.");
+
+            await harness.VideoProbe.HasVideoAsync(MirrorUrl(0));
+            Assert.AreEqual(LinkVideoProbe.MaxCacheEntries + 2, harness.Preview.Checks.Count, "The entry evicted was the oldest.");
+        }
+
+        [TestMethod]
+        public void Preview_Classifies_A_Page_By_Its_OpenGraph_Declarations()
+        {
+            Assert.AreEqual(PreviewVerdict.Video, HttpLinkPreviewProbe.Classify("<meta property=\"og:video\" content=\"https://mirror/v.mp4\">", truncated: false));
+            Assert.AreEqual(PreviewVerdict.Video, HttpLinkPreviewProbe.Classify("<meta property='og:video:secure_url' content='https://mirror/v.mp4'>", truncated: false));
+            Assert.AreEqual(PreviewVerdict.Video, HttpLinkPreviewProbe.Classify("<META PROPERTY=\"OG:VIDEO\" CONTENT=\"x\">", truncated: false));
+            Assert.AreEqual(PreviewVerdict.Video, HttpLinkPreviewProbe.Classify("<meta property=og:video content=x>", truncated: false), "An unquoted attribute is still a declaration.");
+
+            Assert.AreEqual(PreviewVerdict.NoVideo, HttpLinkPreviewProbe.Classify("<meta property=\"og:image\" content=\"https://mirror/i.png\">", truncated: false));
+            Assert.AreEqual(PreviewVerdict.NoVideo, HttpLinkPreviewProbe.Classify("<meta property=\"og:title\" content=\"a text post\">", truncated: false));
+            Assert.AreEqual(PreviewVerdict.NoVideo, HttpLinkPreviewProbe.Classify("<meta property=\"og:videox\" content=\"x\">", truncated: false), "'og:videox' is not 'og:video'.");
+
+            Assert.AreEqual(PreviewVerdict.NoMetadata, HttpLinkPreviewProbe.Classify(string.Empty, truncated: false));
+            Assert.AreEqual(PreviewVerdict.NoMetadata, HttpLinkPreviewProbe.Classify("<html>og:video in body text only</html>", truncated: false), "Only a meta declaration counts.");
+            Assert.AreEqual(PreviewVerdict.NoMetadata, HttpLinkPreviewProbe.Classify("<meta property=\"og:image\" content=\"i.png\">", truncated: true),
+                "A truncated read proves nothing, not even about the metadata it did find.");
+        }
+
+        [TestMethod]
+        public async Task Preview_Requests_The_Mirror_As_Discords_Crawler_And_Returns_Its_Verdict()
+        {
+            var handler = new FakeHttpHandler { Body = "<meta property=\"og:video\" content=\"https://mirror/v.mp4\">" };
+            using var client = new HttpClient(handler);
+
+            PreviewVerdict verdict = await new HttpLinkPreviewProbe(new LinkFixSettings(), client)
+                .ReadVerdictAsync("https://redditez.com/r/dotnet/comments/abc");
+
+            Assert.AreEqual(PreviewVerdict.Video, verdict);
+            Assert.AreEqual(1, handler.Requests.Count);
+            Assert.AreEqual(HttpMethod.Get, handler.Requests[0].Method);
+            Assert.AreEqual("https://redditez.com/r/dotnet/comments/abc", handler.Requests[0].Uri);
+            Assert.AreEqual(HttpLinkPreviewProbe.UserAgent, handler.Requests[0].UserAgent, "The mirrors answer only Discord's crawler.");
+        }
+
+        [TestMethod]
+        public async Task Preview_Treats_A_Non_Success_Status_As_A_Failure_And_An_Oversized_Page_As_No_Proof()
+        {
+            using var notFoundClient = new HttpClient(new FakeHttpHandler { StatusCode = HttpStatusCode.NotFound });
+            await Assert.ThrowsAsync<HttpRequestException>(() => new HttpLinkPreviewProbe(new LinkFixSettings(), notFoundClient)
+                .ReadVerdictAsync("https://redditez.com/r/dotnet/comments/abc"));
+
+            string padding = new(' ', HttpLinkPreviewProbe.MaxProbeBytes);
+            using var oversizedClient = new HttpClient(new FakeHttpHandler { Body = "<meta property=\"og:image\" content=\"i.png\">" + padding });
+            Assert.AreEqual(PreviewVerdict.NoMetadata,
+                await new HttpLinkPreviewProbe(new LinkFixSettings(), oversizedClient).ReadVerdictAsync("https://redditez.com/r/dotnet/comments/abc"),
+                "A page past the cap proves nothing it did not declare inside the cap.");
+
+            using var videoClient = new HttpClient(new FakeHttpHandler { Body = "<meta property=\"og:video\" content=\"v.mp4\">" + padding });
+            Assert.AreEqual(PreviewVerdict.Video,
+                await new HttpLinkPreviewProbe(new LinkFixSettings(), videoClient).ReadVerdictAsync("https://redditez.com/r/dotnet/comments/abc"),
+                "A video declared inside the cap counts however long the page is.");
+        }
+
+        [TestMethod]
+        public async Task Preview_Gives_Up_After_The_Configured_Timeout()
+        {
+            var settings = new LinkFixSettings { VideoProbeTimeout = TimeSpan.FromMilliseconds(50) };
+            using var client = new HttpClient(new FakeHttpHandler { Hang = true });
+
+            await Assert.ThrowsAsync<OperationCanceledException>(() => new HttpLinkPreviewProbe(settings, client)
+                .ReadVerdictAsync("https://redditez.com/r/dotnet/comments/abc"));
         }
 
         // --- commands ---
