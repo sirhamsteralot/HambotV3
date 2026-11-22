@@ -150,7 +150,7 @@ namespace HambotV2.LinkFix
         {
             LinkPathShape.Any => true,
             LinkPathShape.XStatus => IsXStatusPath(path),
-            LinkPathShape.RedditComments => IsRedditCommentsPath(path),
+            LinkPathShape.RedditThread => IsRedditThreadPath(path),
             _ => false
         };
 
@@ -169,12 +169,15 @@ namespace HambotV2.LinkFix
             return !XReservedFirstSegments.Contains(segments[0], StringComparer.OrdinalIgnoreCase);
         }
 
-        private static bool IsRedditCommentsPath(string path)
+        private static bool IsRedditThreadPath(string path)
         {
+            // The thread path, plus the app's share form (/r/<sub>/s/<id>): the share token is
+            // opaque only to us — the mirror resolves it, so the rewrite stays a host swap.
             string[] segments = SplitPath(path);
             return segments.Length >= 4
                 && segments[0].Equals("r", StringComparison.OrdinalIgnoreCase)
-                && segments[2].Equals("comments", StringComparison.OrdinalIgnoreCase);
+                && (segments[2].Equals("comments", StringComparison.OrdinalIgnoreCase)
+                    || segments[2].Equals("s", StringComparison.OrdinalIgnoreCase));
         }
 
         private static string[] SplitPath(string path) => path.Split('/', StringSplitOptions.RemoveEmptyEntries);

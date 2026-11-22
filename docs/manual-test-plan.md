@@ -273,7 +273,7 @@ Opt-in per server (design §3.23); defaults need no configuration. Use a test se
 | 17.1 | `!linkfix` (admin), then `!linkfix on` | "OFF for this server (default) — no message is scanned."; then the enabled confirmation. A second account at tier 0 gets permission denied. |
 | 17.2 | `!linkfix on` in a DM | "The 'linkfix' setting is per-server and only available in servers." |
 | 17.3 | Post `https://x.com/<user>/status/<id>` as a member | One follow-up reply referencing the post, containing only `https://fxtwitter.com/<user>/status/<id>` — the embed renders. The original message is untouched, and nobody is pinged. |
-| 17.4 | Post `https://www.reddit.com/r/<sub>/comments/<id>/<title>/?context=3` | The reply carries `https://redditez.com/…` with path, `?context=3` and the fragment preserved. |
+| 17.4 | Post `https://www.reddit.com/r/<sub>/comments/<id>/<title>/?context=3`, then the app's share link `https://www.reddit.com/r/<sub>/s/<id>` | The reply carries `https://redditez.com/…` with path, `?context=3` and the fragment preserved; the share link is reposted as `https://redditez.com/r/<sub>/s/<id>` and its embed resolves. |
 | 17.5 | Post a message with the same post twice (`x.com` + `www.twitter.com`) plus a second post | Two lines, first-appearance order, duplicates collapsed. |
 | 17.6 | Post `https://redd.it/<id>`, `https://x.com/i/status/<id>`, `https://example.com/…`, and a bot/webhook message with an X link | No repost for any of them. |
 | 17.7 | Post a member message that starts with the command identifier (e.g. `!quote https://x.com/…`) | No repost — command invocations belong to the pipeline. |

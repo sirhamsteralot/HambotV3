@@ -13,7 +13,7 @@ namespace HambotV2.LinkFix
         [
             new LinkMappingEntry("x.com", "fxtwitter.com", LinkPathShape.XStatus, LinkMappingLayer.ShippedDefault),
             new LinkMappingEntry("twitter.com", "fxtwitter.com", LinkPathShape.XStatus, LinkMappingLayer.ShippedDefault),
-            new LinkMappingEntry("reddit.com", "redditez.com", LinkPathShape.RedditComments, LinkMappingLayer.ShippedDefault)
+            new LinkMappingEntry("reddit.com", "redditez.com", LinkPathShape.RedditThread, LinkMappingLayer.ShippedDefault)
         ];
 
         /// <summary>The shipped row for an origin host, if the table has one.</summary>

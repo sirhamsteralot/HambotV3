@@ -609,7 +609,7 @@ MessageReceived (own Attach(), ButtonPaginationService pattern — DiscordClient
 |---|---|---|
 | `x.com` | `fxtwitter.com` | `XStatus` — `/<user>/status/<digits>` |
 | `twitter.com` | `fxtwitter.com` | `XStatus` |
-| `reddit.com` | `redditez.com` | `RedditComments` — `/r/<sub>/comments/<id>/…` |
+| `reddit.com` | `redditez.com` | `RedditThread` — `/r/<sub>/comments/<id>/…` and the app's share form `/r/<sub>/s/<id>` |
 
 Deliberately not shipped: the short or opaque shapes (`redd.it/<id>`, `t.co/…`, `x.com/i/…`) and the equivalent mirrors (`fixupx.com`, `vxtwitter.com`/`fixvx.com`, `rxddit.com`, `vxreddit.com`) — an operator maps those with `!linkfixmap`. No config key names a host: the shipped table plus the runtime rows are the only mapping state.
 
@@ -629,7 +629,7 @@ Deliberately not shipped: the short or opaque shapes (`redd.it/<id>`, `t.co/…`
 
 - URL extraction: every `http://`/`https://` run of non-whitespace characters; trailing `.`, `,`, `)`, `]`, `>` stripped (FR-194). Nothing else in the message is touched — only URLs are written into the repost.
 - Host match: the host equals the origin or ends with `.` + the origin (any subdomain — `www`, `mobile`, `m`, `old`, `new`, `np` and the rest), case-insensitively; `notx.com` never matches `x.com`.
-- Path shape: each mapping entry names its shape (`XStatus`, `RedditComments`, or `Any` for an operator-added origin) and the rewriter applies that shape's predicate — the per-site rule rides in the table, so the rewriter has no per-site branch and `!linkfixmap` needs no shape syntax. `XStatus` also rejects the site's own routes (`/i/…`, `/intent/…`, `/share/…`, `/search/…`, `/hashtag/…`), which is what keeps opaque share links out (FR-194). An ineligible URL is dropped on its own; the message's other URLs still post.
+- Path shape: each mapping entry names its shape (`XStatus`, `RedditThread`, or `Any` for an operator-added origin) and the rewriter applies that shape's predicate — the per-site rule rides in the table, so the rewriter has no per-site branch and `!linkfixmap` needs no shape syntax. `XStatus` also rejects the site's own routes (`/i/…`, `/intent/…`, `/share/…`, `/search/…`, `/hashtag/…`), which is what keeps opaque share links out (FR-194). An ineligible URL is dropped on its own; the message's other URLs still post.
 - Output: `https://` + the mirror host + the origin's path, query, and fragment verbatim; duplicates collapse on the rewritten string (so `www.x.com/u/status/1` and `twitter.com/u/status/1` post once); first-appearance order; `MaxLinksPerMessage` drops the surplus from the tail so the first N still post (FR-197); the joined lines must fit Discord's 2000-char limit, so the tail is dropped there too — one message, never split.
 
 **Detection and skip rules** — `LinkFix/EmbedLinkRepostService.cs`, singleton attached from `DiscordClient` beside the pagination attach (`_embedLinkRepostService.Attach(_client)`, §3.1); the client is an `Attach` argument, not a constructor dependency, so the service itself holds no gateway state and its per-message path is driven directly by tests; no new intents (the configured set already covers guild messages, FR-2), no pipeline run, no command cooldown, no audit event. Checks run in this order:

@@ -293,7 +293,14 @@ namespace BotTests
                 LinkRewriter.Rewrite("https://reddit.com/r/dotnet/comments/abc123/a_title/", mapping, 5).ToList());
             Assert.AreEqual(1, LinkRewriter.Rewrite("https://reddit.com/r/dotnet/comments/abc123", mapping, 5).Count, "The bare comments path qualifies too.");
 
-            foreach (string path in new[] { "/r/dotnet", "/r/dotnet/comments", "/user/hamster", "/dotnet/comments/abc123" })
+            // The app's share form: the token is opaque to the bot but the mirror resolves it, so
+            // the rewrite stays a host swap.
+            CollectionAssert.AreEqual(
+                new[] { "https://redditez.com/r/CombatFootage/s/2k7EBLBrdV" },
+                LinkRewriter.Rewrite("https://www.reddit.com/r/CombatFootage/s/2k7EBLBrdV", mapping, 5).ToList());
+            Assert.AreEqual(1, LinkRewriter.Rewrite("https://reddit.com/r/dotnet/s/abc123/", mapping, 5).Count, "A trailing slash keeps the share form eligible.");
+
+            foreach (string path in new[] { "/r/dotnet", "/r/dotnet/comments", "/r/dotnet/s", "/r/dotnet/x/abc123", "/user/hamster", "/dotnet/comments/abc123" })
             {
                 Assert.AreEqual(0, LinkRewriter.Rewrite($"https://reddit.com{path}", mapping, 5).Count, $"'{path}' is not a thread path.");
             }
@@ -373,7 +380,7 @@ namespace BotTests
                 "The listing is ordered by origin host.");
             Assert.IsTrue(mapping.Entries.All(entry => entry.Layer == LinkMappingLayer.ShippedDefault));
             Assert.AreEqual("fxtwitter.com", mapping.Entries.Single(entry => entry.OriginHost == "x.com").MirrorHost);
-            Assert.AreEqual(LinkPathShape.RedditComments, mapping.Entries.Single(entry => entry.OriginHost == "reddit.com").Shape);
+            Assert.AreEqual(LinkPathShape.RedditThread, mapping.Entries.Single(entry => entry.OriginHost == "reddit.com").Shape);
             Assert.IsTrue(mapping.IsKnownMirrorHost("fxtwitter.com"));
             Assert.IsTrue(mapping.IsKnownMirrorHost("redditez.com"));
         }

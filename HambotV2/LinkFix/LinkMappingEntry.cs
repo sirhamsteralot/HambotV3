@@ -13,8 +13,11 @@ namespace HambotV2.LinkFix
         /// <summary>X/Twitter post paths only: <c>/&lt;user&gt;/status/&lt;digits&gt;</c>, never the site's own routes.</summary>
         XStatus,
 
-        /// <summary>Reddit thread paths only: <c>/r/&lt;sub&gt;/comments/&lt;id&gt;/…</c>.</summary>
-        RedditComments
+        /// <summary>
+        /// Reddit thread paths only: <c>/r/&lt;sub&gt;/comments/&lt;id&gt;/…</c> and the app's share
+        /// form <c>/r/&lt;sub&gt;/s/&lt;id&gt;</c>, which the mirror resolves itself.
+        /// </summary>
+        RedditThread
     }
 
     /// <summary>The layer a mapping entry's mirror host comes from.</summary>
