@@ -52,6 +52,7 @@ Hosted services (all in the same process):
   DiscordClient · ScheduledMessageDeliveryService<ScheduledReminderMessage> (§3.8)
   · QuoteOfTheDayPublicationService (§3.17) · WatchdogService (§3.13) · McpServerService (§3.11, opt-in)
   · PresenceUpdateService (§3.12, LLM loop; inactive without `Llm:ApiKey`) · ContextPipelineHost (§3.20, **(planned)**)
+  · ChatParticipationService (§3.21, **(planned)**; LLM chat replies; inactive without `Llm:ApiKey`)
 ```
 
 ### 2.1 Composition root — `HambotV2/Program.cs`
@@ -60,9 +61,9 @@ Registers `appsecrets.json` then environment variables (env wins), replaces logg
 
 | Lifetime | Registrations |
 |---|---|
-| Singleton | Shared `DiscordSocketClient` (intents below; container-disposed; also used by the reminder DM sender and the quote-of-the-day sender); `CommandService`; `GuildSettingsService` (per-guild identifier/tier cache); `IVirtualCommandRunner` + `SlashCommandService` (§3.15); `QuoteSearchBacklog` + `ButtonPaginationService` (§3.19); `ICooldownService` + `TimeProvider.System`; `IScheduledDeliverySignal` + reminder source/sender (§3.8); quote-of-the-day sender (§3.17); `IPresenceService` + gateway seam + `IHttpContentDownloader` (§3.10, §3.6); maintenance/backup/notification/health/gateway-status set (§3.13, §5.2); MCP client/tools/status set (§3.11); LLM foundation set (§3.12): `LlmSettings`, `ILlmClient` (only when `Llm:ApiKey` is set), `ILlmModelResolver`, `ILlmUsageTracker`, `ILlmGate`, `LlmPromptBuilder`, `IChatContextCollector`, `LlmRuntimeOptions` (runtime job intervals), `ILlmUpdateService` (the same singleton instance as the hosted `PresenceUpdateService`). `IPresenceService` is resolved eagerly in `Main` so its Ready subscription exists before the gateway starts. |
+| Singleton | Shared `DiscordSocketClient` (intents below; container-disposed; also used by the reminder DM sender and the quote-of-the-day sender); `CommandService`; `GuildSettingsService` (per-guild identifier/tier cache); `IVirtualCommandRunner` + `SlashCommandService` (§3.15); `QuoteSearchBacklog` + `ButtonPaginationService` (§3.19); `ICooldownService` + `TimeProvider.System`; `IScheduledDeliverySignal` + reminder source/sender (§3.8); quote-of-the-day sender (§3.17); `IPresenceService` + gateway seam + `IHttpContentDownloader` (§3.10, §3.6); maintenance/backup/notification/health/gateway-status set (§3.13, §5.2); MCP client/tools/status set (§3.11); LLM foundation set (§3.12): `LlmSettings`, `ILlmClient` (only when `Llm:ApiKey` is set), `ILlmModelResolver`, `ILlmUsageTracker`, `ILlmGate`, `LlmPromptBuilder`, `IChatContextCollector`, `LlmRuntimeOptions` (runtime job intervals), `ILlmUpdateService` (the same singleton instance as the hosted `PresenceUpdateService`). `IPresenceService` is resolved eagerly in `Main` so its Ready subscription exists before the gateway starts. LLM participation state (§3.21, **(planned)**) — activity counters, per-guild bounds, run locks — lives inside the hosted `ChatParticipationService`. |
 | Transient | `ICommandHandler` → `CommandHandler` (per message, disposed after use), `IPermissionsService`, `DatabaseContext` (also mapped onto `IDatabaseContext`). |
-| Hosted | The six active services listed above (plus `ContextPipelineHost` (§3.20, **(planned)**)). |
+| Hosted | The six active services listed above (plus `ContextPipelineHost` (§3.20) and `ChatParticipationService` (§3.21), both **(planned)**). |
 
 ## 3. Component Design
 
@@ -138,9 +139,10 @@ GuildSetting 1 ──< User            key (GuildId, DiscordId)            Permi
              1 ──< CustomResponse  key (GuildId, Name)                Content 1–1000, modifier, timestamps (§3.7)
              1 ──< BotBan          key (GuildId, DiscordId)           BannedBy, CreatedAt, ExpiresAtUtc null = permanent (§3.16)
              1 ──< GuildLlmChannel key (GuildId, ChannelId)           per-guild LLM chat-context channel allowlist (§3.12, FR-164)
+             1 ──< GuildLlmKeyword key (GuildId, Keyword)             per-guild participation keywords (§3.21, FR-174, **(planned)**)
 Reminder     key (OwnerDiscordId, Number) — user-scoped, not guild-scoped: Message 1–500, DueAtUtc, nullable GuildId/RecurrenceInterval/FailedAtUtc (§3.8, §3.14)
 BotSetting   key Key — global key-value: notification channel id (§3.13), global persona override and model override (§3.12)
-GuildSetting columns: CommandIdentifier override, per-tier cooldown overrides, OperatorAgentTier (§3.11), quote-of-the-day config (§3.17), nullable Persona (§3.12, FR-156), LlmIncludeChat opt-in (§3.12, FR-154)
+GuildSetting columns: CommandIdentifier override, per-tier cooldown overrides, OperatorAgentTier (§3.11), quote-of-the-day config (§3.17), nullable Persona (§3.12, FR-156), LlmIncludeChat opt-in (§3.12, FR-154), LlmReplyEnabled + LlmReplyDailyCap participation opt-in/cap (§3.21, FR-170/179, **(planned)**)
 ```
 
 Migrations (`HambotV2/Migrations/`) apply automatically on startup (`Database.Migrate()` before the gateway); an unreachable database is a critical log line + non-zero exit. Regenerate with `dotnet ef migrations add <Name>` from `HambotV2/` (`DesignTimeDatabaseContextFactory` avoids running startup). Pre-`PerGuildScoping` rows keep sentinel `GuildId = 0` (matches no real guild; re-grant per guild).
@@ -160,7 +162,7 @@ All in `Commands/SystemCommands/`, registered by `RegisterSystemCommands`; `Perm
 | `commandpermission <name> [tier]` | 2 | Show/set a command's required tier; escalation-guarded; guild-only. |
 | `userpermission <user> [tier]` | 2 | Show/set a user's tier (id or mention); escalation-guarded; guild-only. |
 | `banuser <user> [duration]` / `unbanuser <user>` / `banlist` | 1 | Per-guild bot bans (§3.16); guild-only. |
-| `settings [commandidentifier <v>\|reset \| cooldown <tier> <s>\|reset]` | 2 | Identifier and per-tier cooldown overrides (cooldown guard: tiers strictly below your own, bot owner unrestricted); guild-only. LLM settings are the eight dedicated commands in §3.12 (FR-168). |
+| `settings [commandidentifier <v>\|reset \| cooldown <tier> <s>\|reset]` | 2 | Identifier and per-tier cooldown overrides (cooldown guard: tiers strictly below your own, bot owner unrestricted); guild-only. LLM settings are the dedicated top-level commands in §3.12 and §3.21 (FR-168). |
 | `agenttier [<tier 0-4>\|clear]` | 3 | Operator-agent tier for the guild (§3.11); guild-only. |
 | `version` | 0 | Version string (§3.9); DM-usable. |
 | `health` | 4 | Health report (§3.13); DM-usable. |
@@ -292,7 +294,7 @@ Tests: `TestMcp.cs`, `TestAgentTier.cs` — lookups run over EF InMemory through
 
 ### 3.12 LLM integration — foundation toolkit + presence & bio updates
 
-The presence/bio feature is not a one-off generator: it ships a small **LLM foundation** in `Llm/` (registered as singletons, §2.1) that planned future stages — conversation participation, memory & personality (roadmap; §3.20) — hook into instead of growing their own client, prompt assembly, or guardrails. What starts those stages and what feeds their prompts is not hardcoded: registered triggers and collectors (§3.20).
+The presence/bio feature is not a one-off generator: it ships a small **LLM foundation** in `Llm/` (registered as singletons, §2.1) that planned future stages — conversation participation (roadmap Phase #2, §3.21), memory & personality (§3.20) — hook into instead of growing their own client, prompt assembly, or guardrails. What starts the memory stage and what feeds its prompts is not hardcoded: registered triggers and collectors (§3.20).
 
 ```
 ┌─────────────────────────── LLM foundation (`Llm/`) ───────────────────────────┐
@@ -310,7 +312,7 @@ The presence/bio feature is not a one-off generator: it ships a small **LLM foun
 │  context input: ChatContextCollector — bounded recent chat of the invoking │
 │    guild when opted in, never DMs, never other guilds (§3.20)              │
 │  output check: LlmOutputValidator — per-surface limits (presence ≤ 128      │
-│    single line · bio ≤ 190 · planned: channel message ≤ 2000)                │
+│    single line · bio ≤ 190 · channel message ≤ 2000, §3.21 **(planned))    │
 └──────────────────────────────────────────────────────────────────────────────┘
    consumer: PresenceUpdateService → validated output → IPresenceService (§3.10)
    planned consumers are started by registered triggers (§3.20) and apply their own sinks
@@ -320,34 +322,36 @@ The presence/bio feature is not a one-off generator: it ships a small **LLM foun
 | Piece | What it is | How planned stages hook in |
 |---|---|---|
 | `Llm/ILlmClient.cs` + `Llm/MistralLmClient.cs` | The only seam to the model: `ChatAsync(IReadOnlyList<LlmMessage>, …)` → content + token usage, plus `ListModelsAsync()` → the provider's model ids (`!model list`, FR-162); Mistral chat completions via `Llm:ApiKey`; the model is resolved per call through `ILlmModelResolver` (override → `Llm:Model` → default, FR-161); no key → inactive, every feature no-ops (FR-92); interface keeps everything unit-testable without network (FR-95). | Send system + history as `LlmMessage`s through the same call; the presence/bio feature sends a single user prompt. |
-| `LlmGate` | Mandatory entry point — features never call `ILlmClient` directly; the gate checks kill switch + UTC-day budget first, then calls and accounts (FR-103/FR-104). | Register a feature name (`presence`, `bio`; planned: `chat`, `memory`) and inherit kill switch, budget, accounting, and the watchdog alerts (§3.13) by construction. |
+| `LlmGate` | Mandatory entry point — features never call `ILlmClient` directly; the gate checks kill switch + UTC-day budget first, then calls and accounts (FR-103/FR-104). | Register a feature name (`presence`, `bio`, `chat` (§3.21, **(planned)**); planned: `memory`) and inherit kill switch, budget, accounting, and the watchdog alerts (§3.13) by construction. |
 | `Llm/ILlmUsageTracker.cs` | In-memory per-feature per-UTC-day counters (requests, tokens in/out), UTC rollover via `TimeProvider` (FR-102); restart restores the configured state. | Read your feature's counters in `!llmstatus`/`!health`; nothing to build. |
 | `LlmPromptBuilder` | Composable prompt assembly: the effective persona (resolution chain below) + bot name/version + UTC now + optional context blocks — the previous presence/bio text is never prompt input (FR-169). Trust rules live here (FR-154): untrusted content is embedded as data-only — never stored, logged, or executed, never triggers commands, tools, database writes, or persona/config changes; output constrained to the requested shape (no quoting, no user or channel names); secrets (NFR-3) are never prompt input. The untrusted chat block is labeled newest-first with a recency instruction ("more recent messages are more relevant"). | Add context blocks (memories, history); the trust rules apply unchanged. |
-| `ChatContextCollector` | Shared bounded chat reader: newest messages from the given guilds' readable channels — the invoking guild for a guild-scoped `!llmupdate`, every opted-in guild for an automatic run — `Llm:ChatContext:MaxMessages` (default 20) / `Llm:ChatContext:MaxCharacters` (default 4000); never DMs, never unlisted guilds (FR-154). Unreadable channels are skipped, never fail the run. A per-guild allowlist (`GuildLlmChannels` rows, managed via `!llmchannels`, FR-165) narrows the read to the listed channels only; an empty list keeps all readable channels (FR-164/FR-166). Messages are merged newest-first; both caps (`MaxMessages`/`MaxCharacters`) consume newest-first, so the oldest messages are dropped first (whole lines, never mid-line — `ChatContextFormatter`). The prompt's chat block states the newest-first ordering and instructs the model to weight more recent messages as more relevant; messages older than `Llm:ChatContext:MaxAgeHours` (default 24 h, evaluated against UTC now) are dropped entirely before the caps — a channel whose newest message is that old contributes nothing. | Registered as an `IContextCollector` (§3.20); chat is read only from guilds that opted in via `!llmchat on` (persisted in `GuildSetting.LlmIncludeChat`, default false); DM-triggered runs read no chat. |
+| `ChatContextCollector` | Shared bounded chat reader: newest messages from the given guilds' readable channels — the invoking guild for a guild-scoped `!llmupdate`, every opted-in guild for an automatic run — `Llm:ChatContext:MaxMessages` (default 20) / `Llm:ChatContext:MaxCharacters` (default 4000); never DMs, never unlisted guilds (FR-154). Unreadable channels are skipped, never fail the run. A per-guild allowlist (`GuildLlmChannels` rows, managed via `!llmchannels`, FR-165) narrows the read to the listed channels only; an empty list keeps all readable channels (FR-164/FR-166). Messages are merged newest-first; both caps (`MaxMessages`/`MaxCharacters`) consume newest-first, so the oldest messages are dropped first (whole lines, never mid-line — `ChatContextFormatter`). The prompt's chat block states the newest-first ordering and instructs the model to weight more recent messages as more relevant; messages older than `Llm:ChatContext:MaxAgeHours` (default 24 h, evaluated against UTC now) are dropped entirely before the caps — a channel whose newest message is that old contributes nothing. | Registered as an `IContextCollector` (§3.20); chat is read only from guilds that opted in via `!llmcontext on` (persisted in `GuildSetting.LlmIncludeChat`, default false); DM-triggered runs read no chat. §3.21 **(planned)** reads a small per-channel window through the same `ChatContextFormatter`. |
 | `LlmOutputValidator` | Per-surface output rules: presence = non-empty, single line, ≤ 128 chars (FR-93); bio = non-empty, ≤ 190 chars, line breaks allowed (FR-114). | Register additional surfaces (channel message ≤ 2000). |
 
-- Hosted feature — `Llm/PresenceUpdateService.cs`: opt-in hosted service running one loop per enabled job — presence (`Llm:PresenceUpdates:Enabled`, `Llm:PresenceUpdates:IntervalMinutes` default 60) and bio (`Llm:BioUpdates:Enabled`, `Llm:BioUpdates:IntervalMinutes` default 60), each on its own cadence. Every run builds the prompt through the builder (inputs per FR-169: persona + identity + UTC time + optional chat, never the previous presence/bio), calls through the gate, validates, and applies via `IPresenceService` (§3.10) — a new presence keeps the current activity *type* (`CurrentActivity?.Type`, default `Playing`). The same instance also implements `ILlmUpdateService` for manual `!llmupdate` triggers (FR-163); a semaphore serializes scheduled and manual runs. Automatic runs include chat context from every guild that opted in (`!llmchat on`); a manual run from a guild reads only that guild, and a DM-triggered run reads no chat. Startup logs distinguish the states: "LLM features are inactive (no Llm:ApiKey, or the daily budget is 0)." (service exits) / "LLM features are active but no update job is enabled (manual !llmupdate still works)." (stays alive, idle) / "Presence update job started (interval N minutes)." and/or "Bio update job started (interval N minutes)."
+- Hosted feature — `Llm/PresenceUpdateService.cs`: opt-in hosted service running one loop per enabled job — presence (`Llm:PresenceUpdates:Enabled`, `Llm:PresenceUpdates:IntervalMinutes` default 60) and bio (`Llm:BioUpdates:Enabled`, `Llm:BioUpdates:IntervalMinutes` default 60), each on its own cadence. Every run builds the prompt through the builder (inputs per FR-169: persona + identity + UTC time + optional chat, never the previous presence/bio), calls through the gate, validates, and applies via `IPresenceService` (§3.10) — a new presence keeps the current activity *type* (`CurrentActivity?.Type`, default `Playing`). The same instance also implements `ILlmUpdateService` for manual `!llmupdate` triggers (FR-163); a semaphore serializes scheduled and manual runs. Automatic runs include chat context from every guild that opted in (`!llmcontext on`); a manual run from a guild reads only that guild, and a DM-triggered run reads no chat. The presence/bio loops deliberately keep this dedicated loop — the migration question is roadmap Phase #2 task 2. Startup logs distinguish the states: "LLM features are inactive (no Llm:ApiKey, or the daily budget is 0)." (service exits) / "LLM features are active but no update job is enabled (manual !llmupdate still works)." (stays alive, idle) / "Presence update job started (interval N minutes)." and/or "Bio update job started (interval N minutes)."
 
-**Commands** (`Commands/LlmCommands/`, registered via `RegisterLlmCommands` in the chain; always registered — without `Llm:ApiKey` the gate-dependent commands just report the features inactive (FR-92) while `persona`/`llmchat`/`llmchannels` still work; all slash-eligible as administrative commands per §3.15, so they run through the standard pipeline with cooldown and audit). LLM settings are eight separate top-level commands (FR-168), each declaring its own default tier — the pipeline enforces it (FR-17), so no in-command guard is needed and a `!commandpermission` override on one command never exposes another command's tier.
+**Commands** (`Commands/LlmCommands/`, registered via `RegisterLlmCommands` in the chain; always registered — without `Llm:ApiKey` the gate-dependent commands just report the features inactive (FR-92) while `persona`/`llmcontext`/`llmchannels` still work; all slash-eligible as administrative commands per §3.15, so they run through the standard pipeline with cooldown and audit). LLM settings are separate top-level commands — no unified `!llm` dispatcher — eight in this section (FR-168) plus three participation commands in §3.21 **(planned)**, each declaring its own default tier — the pipeline enforces it (FR-17), so no in-command guard is needed and a `!commandpermission` override on one command never exposes another command's tier.
 
 | Command | Tier | Behavior |
 |---|---|---|
 | `llmstatus` | 4 | Report: active/inactive (key present), effective model + layer (FR-161), kill-switch state, presence/bio job states with their intervals, per-feature usage for the current UTC day (requests, tokens in/out — FR-102), daily budget used/limit, consecutive failures. DM-usable. |
 | `llmswitch [on\|off]` | 4 | No args: show the kill-switch state. `on`/`off`: set/clear the in-memory kill switch — the gate refuses every call while on; replies with a confirmation. A restart restores the configured state (FR-104). DM-usable. |
-| `llmupdate [presence\|bio]` | 4 | Immediately runs an LLM update for one surface (both when omitted), regardless of the scheduled-job flags — but still through the gate (kill switch, budget, accounting). Run in an opted-in guild (`llmchat on`), the prompt includes that guild's recent chat; run in DMs, no chat is read. Replies with the per-surface outcome: applied / inactive / blocked / failed / invalid output (FR-163). DM-usable. |
+| `llmupdate [presence\|bio]` | 4 | Immediately runs an LLM update for one surface (both when omitted), regardless of the scheduled-job flags — but still through the gate (kill switch, budget, accounting). Run in an opted-in guild (`llmcontext on`), the prompt includes that guild's recent chat; run in DMs, no chat is read. Replies with the per-surface outcome: applied / inactive / blocked / failed / invalid output (FR-163). DM-usable. |
 | `llminterval <presence|bio> [minutes|reset]` | 4 | Runtime interval override for one update job (whole minutes, floor 1; `reset` = the configured value). In-memory — a restart restores the config; the loops read the current interval every tick, so it applies from the next tick; `!llmstatus` shows the effective interval, marked `, runtime` when overridden (FR-167). DM-usable. |
 | `model [list \| <name> \| clear]` | 2 | No args: show the effective model + layer. `list`: the provider's available model ids (through the gate's guardrails, FR-162). `<name>`: set the global runtime override (persisted in `BotSetting`, validated against the API list, FR-161). `clear`: remove it → `Llm:Model`/default. DM-usable. |
 | `persona` | 2 | No args: show the effective persona for the current scope — in a guild the server override (when set) plus the global chain, in DMs the global chain. |
 | `persona global [<text...>\|clear]` | 2 | Show / set / clear the global runtime persona override (persisted in `BotSetting`, FR-155) → fall back to config/shipped seed. DM-usable. |
 | `persona server [<text...>\|clear]` | 2 | Show / set / clear this guild's persona override (persisted in `GuildSetting.Persona`, FR-156); guild-only — declines in DMs. |
-| `llmchat [on\|off]` | 2 | The per-guild chat-context opt-in (persisted in `GuildSetting.LlmIncludeChat`, default false, FR-154): no args shows the state; `on`/`off` set it. The flag that lets a guild-scoped `!llmupdate` read that guild's recent chat. Guild-only. |
+| `llmcontext [on\|off]` | 2 | The per-guild chat-context opt-in (persisted in `GuildSetting.LlmIncludeChat`, default false, FR-154; renamed from `!llmchat`, FR-182): no args shows the state; `on`/`off` set it. The flag that lets a guild-scoped `!llmupdate` read that guild's recent chat. Guild-only. |
+
+§3.21 **(planned)** adds three more separate top-level commands — `llmreply [on|off]`, `llmreplycap <n|reset>`, `llmkeywords [add|remove <kw>|clear]` (FR-170/174/179) — same tier/registration pattern.
 | `llmchannels [add\|remove <#channel|id> \| clear]` | 2 | This guild's channel allowlist (`GuildLlmChannel` rows, FR-164/165): no args shows it (or "all readable channels" when empty); `add`/`remove`/`clear` manage it — `ChatContextCollector` then reads only the listed channels (FR-166). Guild-only. |
 
 `!settings` (§3.5) keeps only `commandidentifier` and `cooldown` — every LLM knob is one of the eight commands above.
 
 **Persona resolution** — every LLM run resolves its persona in order: guild-scoped run with a `GuildSetting.Persona` override → that override; else the global runtime override (`BotSetting`); else `Llm:Persona` config; else the shipped default seed (FR-99/155/156). The `BotSetting`-backed layers (persona and model alike) all resolve through one generic `Llm/LayeredBotSettingResolver` (runtime override key → config value → shipped default, returning the layer label); a configured model equal to the default counts as the default layer. The presence/bio job is a global run, so it uses the global chain; per-guild overrides are consumed by guild-scoped runs in the planned pipeline (§3.20). Persona text: non-empty, ≤ 2000 chars. Note: tier 2 is per-guild, so any guild's admin can change the *global* persona via `!persona global` — accepted per FR-155; `!persona server` is the per-guild knob.
 
-The remaining settings are config-only (the `Llm:*` keys below); every runtime knob — kill switch, job intervals, model, persona (global and per-guild), chat opt-in, channel allowlist — is one of the eight dedicated commands above (FR-168).
+The remaining settings are config-only (the `Llm:*` keys below); every runtime knob — kill switch, job intervals, model, persona (global and per-guild), chat opt-in, channel allowlist — is one of the dedicated commands above (FR-168) or in §3.21.
 
 **Settings** (all under `Llm:`; absent/invalid → defaults, except `ApiKey`, which only gates activity):
 
@@ -368,7 +372,7 @@ The remaining settings are config-only (the `Llm:*` keys below); every runtime k
 - Shared failure semantics (FR-94): any client error or invalid output → keep the current state, log, count toward the watchdog's consecutive-failure alert (§3.13), retry next tick; nothing ever crashes the bot.
 - Built-in LLM vs. MCP (§3.11): complementary paths. Built-in features use this toolkit with the raw Mistral key; the operator agent can already drive the bot via MCP (`send_message`, `run_command`). Planned stages pick per feature which path fits; LLM output never goes through `run_command`.
 
-Tests: `TestLlm.cs` — fake `ILlmClient`, no network: prompt assembly (trust-rule wrapping, guild-scoped chat context: opted-in guild included, non-opted-in guild/DM/scheduled tick excluded, never other guilds), validation boundaries (128/190), the update loop (apply, invalid output, kill switch, bio tick, persona in prompt), settings parsing incl. the bio interval; manual `UpdateAsync` outcomes (forced surface with jobs off, inactive, blocked, invalid) and the `!llmupdate` command; gate: budget suspension/rollover, kill switch, per-feature accounting, failure counting; persona resolution chain and the separate LLM commands (`persona global|server`, `llmchat`, `llmchannels`, `model`); the channel allowlist (FR-164–FR-166): the per-guild allowlist passed with the run scope (manual and scheduled), non-opted-in guilds excluded even with rows, empty-means-all, and the `!llmchannels` add/remove/clear behavior; the runtime interval override (FR-167) incl. the effective value in `!llmstatus`; chat-context recency (FR-154): newest-first order with the prompt recency instruction, the max-age cutoff at the exact boundary, and whole-line oldest-first trimming at the character cap.
+Tests: `TestLlm.cs` — fake `ILlmClient`, no network: prompt assembly (trust-rule wrapping, guild-scoped chat context: opted-in guild included, non-opted-in guild/DM/scheduled tick excluded, never other guilds), validation boundaries (128/190), the update loop (apply, invalid output, kill switch, bio tick, persona in prompt), settings parsing incl. the bio interval; manual `UpdateAsync` outcomes (forced surface with jobs off, inactive, blocked, invalid) and the `!llmupdate` command; gate: budget suspension/rollover, kill switch, per-feature accounting, failure counting; persona resolution chain and the separate LLM commands (`persona global|server`, `llmcontext`, `llmchannels`, `model`); the channel allowlist (FR-164–FR-166): the per-guild allowlist passed with the run scope (manual and scheduled), non-opted-in guilds excluded even with rows, empty-means-all, and the `!llmchannels` add/remove/clear behavior; the runtime interval override (FR-167) incl. the effective value in `!llmstatus`; chat-context recency (FR-154): newest-first order with the prompt recency instruction, the max-age cutoff at the exact boundary, and whole-line oldest-first trimming at the character cap. Participation **(planned)**: `TestChatParticipation.cs` per NFR-34 (§3.21).
 
 ### 3.13 Watchdog, health reporting & operator notifications — degradation made loud
 
@@ -413,7 +417,7 @@ s slash interaction ──► SlashCommandLineBuilder ──► virtual text lin
                                                      carries components, so buttons work on ephemeral replies (§3.19)
 ```
 
-- **Eligibility** is declared per command via `ICommand.ApplicationCommand` (typed options, a single free-form `arguments` fallback, or none): administrative/configuration commands (permissions, settings, bans, agent tier, presence/bio/images, health, notifications, backups, `quoteoftheday`, the LLM commands `llmstatus`, `llmswitch`, `llmupdate`, `llminterval`, `model`, `persona`, `llmchat`, `llmchannels`), invoker-scoped commands (reminders), `/searchquotes`, `/version`, `/help`. Community-facing commands (`quote`, `removequote`, `importquotes`, custom responses, `hello`) stay text-only.
+- **Eligibility** is declared per command via `ICommand.ApplicationCommand` (typed options, a single free-form `arguments` fallback, or none): administrative/configuration commands (permissions, settings, bans, agent tier, presence/bio/images, health, notifications, backups, `quoteoftheday`, the LLM commands `llmstatus`, `llmswitch`, `llmupdate`, `llminterval`, `model`, `persona`, `llmcontext`, `llmchannels` — plus, planned per §3.21, `llmreply`, `llmreplycap`, `llmkeywords`), invoker-scoped commands (reminders), `/searchquotes`, `/version`, `/help`. Community-facing commands (`quote`, `removequote`, `importquotes`, custom responses, `hello`) stay text-only.
 - On the first gateway Ready, `SlashCommandService` builds one definition per eligible command (validating Discord's limits) and pushes them as one bulk global overwrite (idempotent); failure logs critical and leaves the text surface intact.
 
 Tests: `TestSlashCommands.cs`.
@@ -514,6 +518,62 @@ Planned LLM stages (conversation participation, memory — roadmap) need many co
 
 Tests **(planned)**: fake `ILlmClient` + fake triggers/collectors — registry resolution, enable/opt-in filtering, trust placement in the assembled prompt, slice-failure isolation, gate/budget interaction, per-run logging without content.
 
+### 3.21 LLM conversation participation — chat replies **(planned)**
+
+Phase B of roadmap Phase #2 (FR-170–FR-182 in §2.26). Builds **directly on the §3.12 toolkit** — the §3.20 registry pipeline stays planned for the memory stage; the two triggers below are concrete pieces inside one hosted service, so the pipeline can adopt them later unchanged. Memory & personality (Phase C) remain a separate future roadmap task. Locked decisions: per-guild opt-in, probabilistic triggers scaled by channel activity, minimal context now, per-guild daily cap, no mentions in output, separate top-level `!llm*` commands. The adaptive decision layer (model-gated SKIP/GO, attention score, schedule multiplier, reaction feedback, LLM review, per-guild knob mirror) is roadmap **Phase B2** (§3.22 reserved) — Phase B's decider is the heuristic roll only.
+
+```
+┌─ MessageReceived (own Attach(), ButtonPaginationService pattern — DiscordClient untouched) ─┐
+│  ChatParticipationService: activity counters + message trigger (@mention/name/reply/keyword) │
+└───────────────┬────────────────────────────────────────┬────────────────────────────────────┘
+                │ candidate                              │ candidate — periodic trigger: an
+                ▼                                        ▼   IPeriodicJob on the shared
+        hard bounds, per guild (FR-177)                      Scheduling/PeriodicJobHost (§3.8),
+                │ pass                                        every Llm:Chat:CheckIntervalMinutes
+                ▼
+        probability roll: p = base(kind) × activity × boosts, capped (FR-176) → per-guild semaphore
+                │ pass
+                ▼
+   LlmGate (kill switch, UTC-day budget, feature name "chat" — FR-102–104, §3.12)
+     → LlmPromptBuilder: guild-scope persona chain (FR-156) + fixed participation instruction block;
+       context = triggering message + newest Llm:Chat:ContextMessages of the channel, newest-first
+       via ChatContextFormatter, untrusted data-marked region, bot lines marked (FR-178)
+     → ILlmClient → LlmOutputValidator (new surface: non-empty ≤ 2000, single message, line breaks
+       allowed, FR-180) → SendMessageAsync(plain message, AllowedMentions.None)
+   failure anywhere → no message, log without content, watchdog failure count, no retry (FR-181)
+```
+
+- **Opt-in & scope** — `!llmreply on|off` persists `GuildSetting.LlmReplyEnabled` (default false, FR-170); the shared `GuildLlmChannel` allowlist (`!llmchannels`, empty = all readable text channels incl. threads) governs both reading and posting (FR-171); DMs are never read or answered. Never triggers on bots/webhooks, the bot's own messages, command invocations (identifier prefix), non-opted-in guilds, or non-allowlisted channels.
+- **Triggers** (FR-172) — keyword trigger (message event: a real `@` mention of the bot, the bot's name written out (name mention below), a Discord reply referencing a bot message, or a `GuildLlmKeyword` whole-word case-insensitive hit, FR-174; `@` and name mentions share the mention kind) and periodic trigger (the job above, scans allowlisted channels with activity in the window).
+- **Name mention** (FR-172) — nothing configured: the names are the bot's own guild user in the message's guild — `Nickname` → `GlobalName`/`DisplayName` → `Username`, lowercased, read from the gateway cache per message (no REST, nothing cached to invalidate, so a rename or per-guild nickname applies from the next message). A whitespace-delimited word of the message qualifies when `FuzzyMatcher.Distance` (FR-149) to the closest name is ≤ 2 **and** ≤ ⌈name length / 3⌉ (two edits for a six-char name, one for a three-char one, so short names don't fire on unrelated words); a name containing spaces is compared against the message's contiguous window of the same word count. Same inline path and matcher as keywords — no new fuzzy implementation.
+- **Activity** (FR-175) — in-memory per-(guild, channel) human-message counters over a rolling `Llm:Chat:ActivityWindowMinutes` (60): quiet < 5 (×0.25) · normal 5–29 (×1) · hot ≥ 30 (×2.5); burst ≥ `BurstMessages` (5) within `BurstWindowMinutes` (2) forces hot. Restart resets; re-learns within one window.
+- **Probability** (FR-176) — one uniform roll per candidate; all knobs global config (`Llm:Chat:*`, §4), absent/invalid → defaults:
+
+| Key | Default | Meaning |
+|---|---|---|
+| `MentionProbability` / `KeywordProbability` / `PeriodicProbability` | 0.6 / 0.4 / 0.08 | Base p by trigger kind (mention — `@` or by name — /reply-to-bot, keyword, periodic). |
+| `MaxProbability` | 0.9 | Cap on p. |
+| `QuestionBoost` | 1.5 | × when the triggering message ends with `?`. |
+| `AuthorRotationMinutes` / `AuthorRotationFactor` | 60 / 0.5 | × when the bot replied to the same author within the window. |
+| `ActivityWindowMinutes` / `BurstMessages` / `BurstWindowMinutes` | 60 / 5 / 2 | Activity window and burst detection (FR-175). |
+
+- **Hard bounds** (FR-177, per guild, checked before the roll, in-memory per-UTC-day counters like FR-102):
+
+| Key | Default | Bound |
+|---|---|---|
+| `MinMessagesBetweenReplies` / `MinMinutesBetweenReplies` | 10 / 30 | ≤ 1 unsolicited reply per N messages / M minutes. |
+| `ChannelCooldownMinutes` | 10 | Min gap since the bot's last reply in that channel. |
+| `DefaultDailyReplyCap` | 20 | Default of the per-guild cap (FR-179); `0` = unlimited. |
+
+  Plus the global kill switch + `Llm:DailyRequestBudget` (FR-103/104) as the cross-feature hard stop.
+- **Context & output** — FR-178/180: triggering message (author username, content, UTC timestamp) + newest `Llm:Chat:ContextMessages` (default 5) of the same channel via REST, newest-first through `ChatContextFormatter`, untrusted data-marked; REST failure degrades to the triggering message only; `Llm:ChatContext:MaxAgeHours` (24) shared with FR-154. Output: plain message, no reply reference, ≤ 2000 chars, `AllowedMentions.None` — never a mention, incl. @everyone/@role; no quoting chat, no user/channel names (FR-154 extended).
+- **Commands** (all tier 2, guild-only, slash-eligible, separate top-level per FR-168) — `llmreply [on|off]` (FR-170), `llmreplycap <n|reset>` (FR-179), `llmkeywords [add <kw>|remove <kw>|clear]` (FR-174); plus the `!llmchat` → `!llmcontext` rename (FR-182). `!llmstatus` shows the `chat` feature's usage row alongside `presence`/`bio`.
+- **Data model** — migration `AddLlmParticipation`: `GuildLlmKeyword` key `(GuildId, Keyword)`, Keyword ≤ 100 chars; `GuildSetting` columns `LlmReplyEnabled` (bool, default false) and `LlmReplyDailyCap` (int, null = configured default).
+- **Plumbing** — hosted `ChatParticipationService` holds the in-memory state (activity counters, per-guild reply timestamps/counters, per-guild semaphores), subscribes `MessageReceived` via its own `Attach()` (like `ButtonPaginationService`), evaluates the message trigger (`@`/name mention — the name read from `message.Guild.CurrentUser` at evaluation time, reply-to-bot, keyword) inline; the periodic trigger is an `IPeriodicJob` on the shared `Scheduling/PeriodicJobHost` (§3.8). Intents unchanged (`Guilds|GuildMessages|MessageContent` — REST reads need no new intent). Runs: gate → builder → client → validator → send, serialized per guild.
+- **Trust & failure** — channel content stays untrusted (FR-154/159): never stored (participation persists no message content — only counters/timestamps), never logged, never executed; secrets never prompt input; validated output goes only to the channel sink, never `run_command` (§3.11). Failure = FR-181 (FR-94 shape): no message, logged without content, watchdog count, no retry, never a crash.
+
+Tests **(planned)**: `TestChatParticipation.cs` per NFR-34.
+
 ## 4. Configuration
 
 | Area | Keys (defaults) | Notes |
@@ -527,8 +587,9 @@ Tests **(planned)**: fake `ILlmClient` + fake triggers/collectors — registry r
 | Quote of the day (§3.17) | `QuoteOfTheDay:MinIntervalMinutes` (1) | Deployment-level interval floor. |
 | Slash surface (§3.15) | `SlashCommands:Enabled` (false) | Pagination buttons (§3.19) are always active. |
 | Backups (§5.2) | `Backups:Directory` | In-bot backup commands only; scheduling itself is compose-side env (`BACKUP_INTERVAL` 24 h, `BACKUP_RETENTION` 7, `BACKUP_TEST_INTERVAL` 30 d, `BACKUP_RCLONE_REMOTE` + S3 credentials). |
-| LLM (§3.12) | All `Llm:*` keys — full settings table in §3.12 | Compose `.env`: `LLM_API_KEY`, `LLM_PERSONA`, `LLM_PRESENCE_UPDATES_ENABLED`, `LLM_PRESENCE_INTERVAL_MINUTES`, `LLM_CHAT_CONTEXT_MAX_MESSAGES`, `LLM_CHAT_CONTEXT_MAX_CHARACTERS`, `LLM_CHAT_CONTEXT_MAX_AGE_HOURS`, `LLM_BIO_UPDATES_ENABLED`, `LLM_BIO_INTERVAL_MINUTES`, `LLM_DAILY_REQUEST_BUDGET` (mapped to `Llm__*`; absent/invalid → defaults, absent key → features inactive). Runtime persona overrides (`!persona global`, `!persona server`) beat the `Llm:Persona` config seed; the chat-context opt-in and channel allowlist are runtime-only (`!llmchat on`, `!llmchannels` per guild), not env. |
+| LLM (§3.12) | All `Llm:*` keys — full settings table in §3.12 | Compose `.env`: `LLM_API_KEY`, `LLM_PERSONA`, `LLM_PRESENCE_UPDATES_ENABLED`, `LLM_PRESENCE_INTERVAL_MINUTES`, `LLM_CHAT_CONTEXT_MAX_MESSAGES`, `LLM_CHAT_CONTEXT_MAX_CHARACTERS`, `LLM_CHAT_CONTEXT_MAX_AGE_HOURS`, `LLM_BIO_UPDATES_ENABLED`, `LLM_BIO_INTERVAL_MINUTES`, `LLM_DAILY_REQUEST_BUDGET` (mapped to `Llm__*`; absent/invalid → defaults, absent key → features inactive). Runtime persona overrides (`!persona global`, `!persona server`) beat the `Llm:Persona` config seed; the chat-context opt-in and channel allowlist are runtime-only (`!llmcontext on`, `!llmchannels` per guild), not env. |
 | Context pipeline **(planned)** (§3.20) | `Llm:Triggers:<Name>:Enabled` (true), `Llm:Collectors:<Name>:Enabled` (true); guild-scoped opt-ins and cadence bounds via `GuildSetting`/config | One key per registered trigger/collector name. |
+| LLM chat participation **(planned)** (§3.21) | `Llm:Chat:*` — full tables in §3.21: `CheckIntervalMinutes` (15), the probabilities/boosts, activity window/burst, hard bounds, `ContextMessages` (5), `DefaultDailyReplyCap` (20) | Compose `.env`: `LLM_CHAT_*` mapped to `Llm__Chat__*`; absent/invalid → defaults. Per-guild opt-in/cap/keywords are runtime-only (`!llmreply`, `!llmreplycap`, `!llmkeywords`), not env. |
 
 ## 5. Deployment
 

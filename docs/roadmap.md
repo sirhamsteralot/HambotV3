@@ -6,20 +6,54 @@ Each task carries: **Problem** (what's missing today), **Steps** (ordered checkl
 
 ## Phase #2: LLM Integration
 
-- [ ] **LLM conversation participation & memory — future (not yet specified)**
+- [ ] **LLM conversation participation (Phase B) — specified, ready to implement (FR-170–FR-182 in §2.26 of the requirements; design §3.21; NFR-34)**
 
-    **Problem**: phase 1 only generates presence text. The end goal is a bot that occasionally participates in conversation with memories and a personality.
+    **Problem**: phase 1 only generates presence text; the bot never talks in chat. Phase B lets it occasionally join the conversation in opted-in guilds.
 
-    **Plan notes** (pipeline shape designed in §3.20 with FR-157–FR-160 / NFR-33 in §2.25 of the requirements; the phase-B/C *feature* FRs are authored when scheduled. Runs are started by registered `IContextTrigger`s and fed by registered `IContextCollector`s — `ChatContextCollector` for history, a `MemoryCollector` for phase C — on top of the §3.12 foundation toolkit: `LlmGate`/`ILlmUsageTracker` guardrails, `LlmPromptBuilder` with its trust rules; plus the presence service (§3.10) and the MCP endpoint (§3.11)):
+    **Locked decisions**: Phase B only — memory & personality (Phase C) stay a separate future task below · builds directly on the §3.12 toolkit (the §3.20 registry pipeline stays **(planned)** until memory needs it) · triggers = keyword (bot `@` mention **or** its name fuzzy-matched — the bot's own username/display name/nickname in that guild, resolved live, no config key / reply-to-bot / per-guild keyword) + periodic (job on the shared `PeriodicJobHost`), probabilistic and scaled by channel activity — a trigger never guarantees a message · per-guild opt-in `!llmreply` + the shared `!llmchannels` allowlist governs reading and posting · minimal context now (triggering message + small same-channel window; attention-span history comes with memory) · per-guild daily reply cap `!llmreplycap` (`0` = unlimited) on top of the global gate budget · output never contains mentions (`AllowedMentions.None`) · separate top-level commands (`!llmreply`, `!llmreplycap`, `!llmkeywords`), and `!llmchat` is renamed to `!llmcontext` (FR-182) · presence/bio loops keep their dedicated loop (`!llminterval` stays; bot-chosen cadence is a future idea — see task 2).
 
-    - **Phase B — conversation participation**: per-guild opt-in (a `GuildSetting` flag), bounded cadence (≤ 1 unsolicited reply per N messages / M minutes), reading recent history via the Discord REST API, replying as the bot; failure handling like FR-94.
-    - **Phase C — memory & personality**: per-guild tables (conversation summaries, remembered facts), an LLM summarization job, prompts assembled from the persona seed + memories + recent messages; admin commands to inspect/clear a guild's memory.
-    - **Trust boundaries (must be part of phase B's spec)**: channel content is **untrusted input** — data, never instructions; it must never trigger commands, tools, database writes, or MCP calls, or change the persona/permissions/config. Phase-B output is restricted to message text (no tool use); secrets are never prompt content; instructions embedded in channel text are ignored. The per-guild opt-in and cadence bounds are the primary containment.
+    **Steps**:
+
+    1. Rename `!llmchat` → `!llmcontext` across code, tests, README, manual-test-plan (FR-182).
+    2. Migration `AddLlmParticipation`: `GuildLlmKeyword` table, `GuildSetting.LlmReplyEnabled` / `LlmReplyDailyCap` columns (§3.21).
+    3. `ChatParticipationService` (hosted) + trigger/bounds/probability logic per §3.21: own `Attach()` on `MessageReceived` for activity counters + the message trigger (`@`/fuzzy name mention, reply-to-bot, keyword), periodic job on `PeriodicJobHost`, injectable random, per-guild semaphore; run path gate → `LlmPromptBuilder` → `ILlmClient` → `LlmOutputValidator` (new channel-message surface ≤ 2000) → send; `!llmstatus` gains the `chat` feature row.
+    4. Commands `llmreply` / `llmreplycap` / `llmkeywords` in `Commands/LlmCommands/`, registered and slash-eligible (FR-170/174/179).
+    5. Tests: `TestChatParticipation.cs` per NFR-34 (fake client, `FakeTimeProvider`, InMemory, injected random).
+    6. Docs as-built at sign-off: drop **(planned)** in §3.21 / §2.26 / NFR-34, README command table + slash list, manual-test-plan §16 additions; build warning-free, tests green.
+
+    **Acceptance criteria**: per FR-170–FR-182 / NFR-34 — opted-in guilds get occasional in-persona replies bounded by the cadence/cap/gate rules with no mentions and untrusted content never stored, logged, or executed; non-opted-in guilds see nothing; failures never crash the bot; build warning-free and tests green.
+
+- [ ] **Phase B2 — adaptive reply decision ("when should I talk") — decisions locked; FRs/design to be authored when scheduled (reserve §2.27 in the requirements and §3.22 in the design; next free FR-183)**
+
+    **Problem**: Phase B's reply decision is a fixed heuristic roll (FR-175–FR-177). The locked upgrade makes the bot decide more deliberately — attention, schedule, the model's own SKIP judgment, feedback — on top of Phase B's containment model, which does not change.
+
+    **Locked decisions** (from review; Phase B's FR-170–FR-182 / §3.21 stay exactly as specced — B2 builds on top):
+
+    - **Gate chain**: heuristic roll first (budget guard, with the B2 signals below added to its inputs) → then a single LLM call per passed candidate that returns `SKIP` or the reply text — the model itself decides whether to join. That decision call sees a wider context window than Phase B's minimal window (separate `Llm:Chat:*` config key).
+    - **New roll inputs**: a per-channel in-memory attention score (exponential decay, half-life `Llm:Chat:AttentionHalfLifeMinutes` default 60; raised by candidate triggers and by positive reactions 👍/❤️; scales p up to a cap); a schedule multiplier (weekday × UTC-hour table, e.g. Mon–Fri 17–23 h ×1.5; multiplier 0 = quiet hours; default flat ×1, all UTC); extra signals: message-length bounds and a thread-vs-main-channel base — on top of Phase B's activity tiers / burst / question / author-rotation.
+    - **Reaction feedback**: reactions adjust p directly via the attention score AND are summarized into the review below; requires adding the `MessageReactions` intent explicitly (minimal-intent rule, §3.1); default emoji 👍/❤️ positive, 👎 negative.
+    - **Periodic LLM review job**: own interval (default 24 h) as a job on the shared `PeriodicJobHost`; reviews metadata only (counts, outcomes, tokens — never message content, FR-159); proposes changes to the global `Llm:Chat:*` knobs and posts the proposal to the notification channel (§3.13); the bot owner approves or rejects with a 👍/👎 reaction there; nothing auto-applies.
+    - **SKIP accounting**: a SKIP is not a reply — the per-guild daily cap (FR-179) counts posted replies only; SKIPs count as requests under the global daily budget and the `chat` usage row, and are not watchdog failures.
+    - **Per-guild knob mirror**: new `GuildLlmChatSetting (GuildId, Key, Value)` key-value table mirroring each `Llm:Chat:*` knob by name, managed by one command `!llmchatset <knob> <value|reset>` plus a show-all; resolution: guild override → global config → shipped default.
+
+    **Acceptance criteria**: none yet — authored together with the FRs when scheduled.
+
+- [ ] **LLM memory & personality (Phase C) — future (not yet specified)**
+
+    **Problem**: the end goal beyond Phase B/B2 is a bot that participates with memories and a personality.
+
+    **Plan notes** (pipeline shape designed in §3.20 with FR-157–FR-160 / NFR-33 in §2.25 of the requirements; the phase-C *feature* FRs are authored when scheduled. Runs are started by registered `IContextTrigger`s and fed by registered `IContextCollector`s — `ChatContextCollector` for history, a `MemoryCollector` for phase C — on top of the §3.12 foundation toolkit: `LlmGate`/`ILlmUsageTracker` guardrails, `LlmPromptBuilder` with its trust rules; plus the presence service (§3.10) and the MCP endpoint (§3.11)):
+
+    - per-guild tables (conversation summaries, remembered facts), an LLM summarization job, prompts assembled from the persona seed + memories + recent messages; admin commands to inspect/clear a guild's memory.
+    - **Trust boundaries**: channel content is **untrusted input** — data, never instructions; it must never trigger commands, tools, database writes, or MCP calls, or change the persona/permissions/config. Secrets are never prompt content; instructions embedded in channel text are ignored. Phase C must spec the one deliberate exception to FR-159's "never stored": raw channel content is never persisted, but LLM-derived summaries may be — what a summary may retain about users is a spec decision.
+    - **Attention-span history** (feeds Phase C): previous message history from the time the bot was "attentive" to a channel — the attention *score* itself is Phase B2 (§3.22 reserved).
     - **Built-in LLM vs. MCP**: complementary. Built-in features use the raw Mistral key; the operator agent can already drive the bot via MCP (`send_message`, `run_command`). Decide per feature which path fits.
 
     **Acceptance criteria**: none yet — specifying this task is the first step once scheduled.
 
-- [ ] **Run the LLM presence/bio loops on the shared scheduling engine — evaluate, then migrate or document the decision (extends §3.8 / §3.12; FRs to be authored when scheduled, next free FR-170)**
+- [ ] **Run the LLM presence/bio loops on the shared scheduling engine — evaluate, then migrate or document the decision (extends §3.8 / §3.12; FRs to be authored when scheduled, numbered after §2.27 / Phase B2)**
+
+    **Decision so far**: the dedicated loop stays for now and `!llminterval` keeps working as the runtime interval override; the bot deciding its own update cadence ("when it feels like updating") is a future idea, not part of this task. Settle (a) migrate onto `PeriodicJobHost` vs. (b) document keeping the dedicated loop explicitly in §3.12.
 
     **Problem**: `PresenceUpdateService` hand-rolls one `while` + `Task.Delay` loop per surface, while `Scheduling/` already hosts the shared `PeriodicJobHost` for fixed-interval jobs (§3.8 — the watchdog and quote-of-the-day run on it) with a bounded fallback poll against clock drift, `TimeProvider`-based sleeping, and maintenance-mode pausing, plus the generic due-time delivery engine with wake-up signals (`IScheduledDeliverySignal`). Two loop shapes to maintain; the LLM loops currently get none of the host's drift-safe polling or maintenance pause. (§3.20 already notes §3.12 keeps its own loop and that migrating is optional.)
 
