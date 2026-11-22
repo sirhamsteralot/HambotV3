@@ -36,6 +36,9 @@ namespace HambotV2.LinkFix
             return false;
         }
 
+        /// <summary>Every URL in the content — what Discord may unfurl on its own, reposted or not.</summary>
+        public static int CountLinks(string content) => EnumerateLinks(content).Count();
+
         /// <summary>
         /// Rewrites every eligible URL: scheme forced to <c>https</c>, host replaced by the
         /// origin's mirror host, path, query, and fragment kept verbatim; duplicates collapse on

@@ -72,6 +72,7 @@ services:
       LinkFix__RedditVideoProbe: ${LINKFIX_REDDIT_VIDEO_PROBE:-}
       LinkFix__VideoProbeTimeoutSeconds: ${LINKFIX_VIDEO_PROBE_TIMEOUT_SECONDS:-}
       LinkFix__VideoProbeCacheMinutes: ${LINKFIX_VIDEO_PROBE_CACHE_MINUTES:-}
+      LinkFix__SuppressOriginalEmbeds: ${LINKFIX_SUPPRESS_ORIGINAL_EMBEDS:-}
     volumes:
       - backups:/app/backups
     # The MCP endpoint's listen port, published loopback-only (FR-86): an agent on the

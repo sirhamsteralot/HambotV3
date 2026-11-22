@@ -178,18 +178,38 @@ namespace BotTests
             return channel;
         }
 
-        private static IMessage CreateMessage(ITextChannel channel, string content, ulong authorId = AuthorId, bool isBot = false, bool isWebhook = false, ulong messageId = MessageId)
+        private static IMessage CreateMessage(ITextChannel channel, string content, ulong authorId = AuthorId, bool isBot = false,
+            bool isWebhook = false, ulong messageId = MessageId, List<ulong>? suppressedEmbeds = null, bool failSuppression = false)
         {
             var author = new Mock<IUser>();
             author.SetupGet(user => user.Id).Returns(authorId);
             author.SetupGet(user => user.IsBot).Returns(isBot);
             author.SetupGet(user => user.IsWebhook).Returns(isWebhook);
 
-            var message = new Mock<IMessage>();
+            var message = new Mock<IUserMessage>();
             message.SetupGet(m => m.Id).Returns(messageId);
             message.SetupGet(m => m.Content).Returns(content);
             message.SetupGet(m => m.Author).Returns(author.Object);
             message.SetupGet(m => m.Channel).Returns(channel);
+
+            var suppression = message.Setup(m => m.ModifyAsync(It.IsAny<Action<MessageProperties>>(), It.IsAny<RequestOptions?>()));
+            if (failSuppression)
+            {
+                suppression.ThrowsAsync(new InvalidOperationException("simulated suppression failure"));
+            }
+            else
+            {
+                suppression
+                    .Callback<Action<MessageProperties>, RequestOptions?>((apply, _) =>
+                    {
+                        var properties = new MessageProperties();
+                        apply(properties);
+                        if (properties.Flags.IsSpecified && properties.Flags.Value == MessageFlags.SuppressEmbeds)
+                            suppressedEmbeds?.Add(messageId);
+                    })
+                    .Returns(Task.CompletedTask);
+            }
+
             return message.Object;
         }
 
@@ -229,6 +249,7 @@ namespace BotTests
             Assert.IsTrue(settings.RedditVideoProbe, "The Reddit video gate ships on.");
             Assert.AreEqual(TimeSpan.FromSeconds(5), settings.VideoProbeTimeout);
             Assert.AreEqual(TimeSpan.FromMinutes(360), settings.VideoProbeCacheLifetime);
+            Assert.IsTrue(settings.SuppressOriginalEmbeds, "Hiding the original's embeds ships on.");
         }
 
         [TestMethod]
@@ -241,7 +262,8 @@ namespace BotTests
                 ["LinkFix:MaxMappings"] = "10",
                 ["LinkFix:RedditVideoProbe"] = "false",
                 ["LinkFix:VideoProbeTimeoutSeconds"] = "9",
-                ["LinkFix:VideoProbeCacheMinutes"] = "15"
+                ["LinkFix:VideoProbeCacheMinutes"] = "15",
+                ["LinkFix:SuppressOriginalEmbeds"] = "false"
             }));
 
             Assert.AreEqual(2, configured.MaxLinksPerMessage);
@@ -250,6 +272,7 @@ namespace BotTests
             Assert.IsFalse(configured.RedditVideoProbe);
             Assert.AreEqual(TimeSpan.FromSeconds(9), configured.VideoProbeTimeout);
             Assert.AreEqual(TimeSpan.FromMinutes(15), configured.VideoProbeCacheLifetime);
+            Assert.IsFalse(configured.SuppressOriginalEmbeds);
 
             LinkFixSettings invalid = LinkFixSettings.FromConfiguration(Config(new Dictionary<string, string?>
             {
@@ -258,7 +281,8 @@ namespace BotTests
                 ["LinkFix:MaxMappings"] = "not-a-number",
                 ["LinkFix:RedditVideoProbe"] = "not-a-bool",
                 ["LinkFix:VideoProbeTimeoutSeconds"] = "0",
-                ["LinkFix:VideoProbeCacheMinutes"] = "-1"
+                ["LinkFix:VideoProbeCacheMinutes"] = "-1",
+                ["LinkFix:SuppressOriginalEmbeds"] = "not-a-bool"
             }));
 
             Assert.AreEqual(LinkFixSettings.DefaultMaxLinksPerMessage, invalid.MaxLinksPerMessage);
@@ -267,6 +291,7 @@ namespace BotTests
             Assert.IsTrue(invalid.RedditVideoProbe, "An unparsable flag keeps the gate on.");
             Assert.AreEqual(TimeSpan.FromSeconds(5), invalid.VideoProbeTimeout);
             Assert.AreEqual(TimeSpan.FromMinutes(360), invalid.VideoProbeCacheLifetime);
+            Assert.IsTrue(invalid.SuppressOriginalEmbeds, "An unparsable flag keeps suppression on.");
         }
 
         // --- hostname validation ---
@@ -757,6 +782,88 @@ namespace BotTests
 
             await harness.Service.HandleMessageAsync(CreateMessage(CreateChannel(harness.Sends).Object, "https://x.com/a/status/2"));
             Assert.AreEqual(1, harness.Sends.Count, "A repost that never posted does not consume the window.");
+        }
+
+        // --- suppressing the original's embeds ---
+
+        [TestMethod]
+        public async Task Repost_Suppresses_The_Original_Embeds_Once_Every_Link_Is_Replaced()
+        {
+            var harness = new Harness();
+            OptIn(harness.Database);
+            var suppressed = new List<ulong>();
+
+            await harness.Service.HandleMessageAsync(CreateMessage(CreateChannel(harness.Sends).Object,
+                "https://x.com/hamster/status/1", suppressedEmbeds: suppressed));
+
+            Assert.AreEqual(1, harness.Sends.Count);
+            CollectionAssert.AreEqual(new[] { MessageId }, suppressed, "The original's faulty preview is hidden, not its text.");
+        }
+
+        [TestMethod]
+        public async Task Repost_Leaves_The_Original_Embeds_When_A_Link_Was_Not_Replaced()
+        {
+            var harness = new Harness();
+            OptIn(harness.Database);
+            var suppressed = new List<ulong>();
+            harness.Preview.VideoUrls.Add("https://redditez.com/r/dotnet/comments/video");
+
+            // The text-post Reddit link is filtered, so its own (harmless) preview must survive.
+            await harness.Service.HandleMessageAsync(CreateMessage(CreateChannel(harness.Sends).Object,
+                "https://x.com/hamster/status/1 https://reddit.com/r/dotnet/comments/text", suppressedEmbeds: suppressed));
+            Assert.AreEqual(1, harness.Sends.Count);
+            Assert.AreEqual(0, suppressed.Count, "One unreplaced link keeps the whole message's previews.");
+
+            // A link the mapping does not know is unreplaced too: its embed is nobody's to hide.
+            await harness.Service.HandleMessageAsync(CreateMessage(CreateChannel(harness.Sends, channelId: ChannelId + 1).Object,
+                "https://x.com/hamster/status/2 https://example.com/a/status/9", suppressedEmbeds: suppressed));
+            Assert.AreEqual(2, harness.Sends.Count);
+            Assert.AreEqual(0, suppressed.Count);
+        }
+
+        [TestMethod]
+        public async Task Repost_Suppresses_Nothing_When_It_Did_Not_Post_Or_The_Setting_Is_Off()
+        {
+            var offHarness = new Harness(new LinkFixSettings { SuppressOriginalEmbeds = false });
+            OptIn(offHarness.Database);
+            var suppressed = new List<ulong>();
+
+            await offHarness.Service.HandleMessageAsync(CreateMessage(CreateChannel(offHarness.Sends).Object,
+                "https://x.com/hamster/status/1", suppressedEmbeds: suppressed));
+            Assert.AreEqual(1, offHarness.Sends.Count);
+            Assert.AreEqual(0, suppressed.Count, "The setting is the escape hatch for a server that wants the original previews kept.");
+
+            var failingHarness = new Harness();
+            OptIn(failingHarness.Database);
+            await failingHarness.Service.HandleMessageAsync(CreateMessage(CreateChannel(failingHarness.Sends, failSends: true).Object,
+                "https://x.com/hamster/status/1", suppressedEmbeds: suppressed));
+            Assert.AreEqual(0, failingHarness.Sends.Count);
+            Assert.AreEqual(0, suppressed.Count, "With no replacement posted there is nothing to hide behind it.");
+        }
+
+        [TestMethod]
+        public async Task Repost_Keeps_The_Repost_When_Suppressing_The_Original_Fails()
+        {
+            var harness = new Harness();
+            OptIn(harness.Database);
+
+            await harness.Service.HandleMessageAsync(CreateMessage(CreateChannel(harness.Sends).Object,
+                "https://x.com/hamster/status/1", failSuppression: true));
+
+            Assert.AreEqual(1, harness.Sends.Count, "The repost stands: suppression is a cosmetic follow-up.");
+            Assert.AreEqual(0, harness.Database.GuildSettings.Count() - 1, "No state is written for the failure.");
+            Assert.IsTrue(harness.Logger.Messages.Count > 0, "The failure is logged.");
+            AssertNoLinkInLog(harness.Logger.Messages);
+        }
+
+        [TestMethod]
+        public void Link_Counter_Sees_Every_Url_So_Suppression_Is_All_Or_Nothing()
+        {
+            Assert.AreEqual(1, LinkRewriter.CountLinks("https://x.com/hamster/status/1"));
+            Assert.AreEqual(2, LinkRewriter.CountLinks("https://x.com/a/status/1 and https://example.com/x"));
+            Assert.AreEqual(0, LinkRewriter.CountLinks("no links here at all"));
+            Assert.AreEqual(2, LinkRewriter.CountLinks("https://x.com/a/status/1 https://x.com/a/status/2"),
+                "Distinct links count separately even when the cap later drops one.");
         }
 
         [TestMethod]

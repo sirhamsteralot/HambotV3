@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using Discord;
+using Discord.Net;
 using Discord.WebSocket;
 using HambotV2.Commands;
 using HambotV2.Connections;
@@ -106,6 +107,12 @@ namespace HambotV2.LinkFix
                 return;
 
             string content = string.Join('\n', links.Select(link => link.Url));
+
+            // Suppression is per message and all-or-nothing, so it only makes sense when the repost carries
+            // every link: a message that also holds a link the bot left alone keeps its own previews.
+            bool replacedEveryLink = links.Count == LinkRewriter.CountLinks(message.Content);
+
+            bool posted = false;
             try
             {
                 await message.Channel.SendMessageAsync(
@@ -113,6 +120,7 @@ namespace HambotV2.LinkFix
                     allowedMentions: AllowedMentions.None,
                     messageReference: new MessageReference(message.Id, message.Channel.Id, failIfNotExists: false));
 
+                posted = true;
                 _logger.LogInformation(
                     "Link repost {Outcome} in guild {GuildId}, channel {ChannelId}: {LinkCount} link(s).",
                     "succeeded", guildChannel.GuildId, message.Channel.Id, links.Count);
@@ -125,6 +133,40 @@ namespace HambotV2.LinkFix
                 _logger.LogError(ex,
                     "Link repost {Outcome} in guild {GuildId}, channel {ChannelId}: {LinkCount} link(s).",
                     "failed", guildChannel.GuildId, message.Channel.Id, links.Count);
+            }
+
+            // Outside the try: a refused edit must never look like a failed repost.
+            if (posted && replacedEveryLink && _settings.SuppressOriginalEmbeds)
+                await SuppressOriginalEmbedsAsync(message);
+        }
+
+        /// <summary>
+        /// Hides the original message's embeds so the faulty preview does not sit beside its replacement: Discord's
+        /// per-message flag, the only edit a bot may make to a member's message (needs Manage Messages).
+        /// </summary>
+        private async Task SuppressOriginalEmbedsAsync(IMessage message)
+        {
+            if (message is not IUserMessage userMessage)
+                return;
+
+            try
+            {
+                await userMessage.ModifyAsync(properties => properties.Flags = MessageFlags.SuppressEmbeds);
+            }
+            catch (HttpException ex) when (ex.DiscordCode == DiscordErrorCode.MissingPermissions || ex.DiscordCode == (DiscordErrorCode)50001)
+            {
+                // The replacement stands and the original keeps its embed. A server that never granted Manage
+                // Messages would otherwise log a warning on every repost, so this is a debug line.
+                _logger.LogDebug(
+                    "Link repost could not suppress the original embeds in channel {ChannelId} ({ErrorCode}).",
+                    message.Channel.Id, ex.DiscordCode);
+            }
+            catch (Exception ex)
+            {
+                // Nothing content-bearing: the repost is already posted, so this is never its failure.
+                _logger.LogWarning(
+                    "Link repost posted, but the original embeds could not be suppressed ({ExceptionType}).",
+                    ex.GetType().Name);
             }
         }
 

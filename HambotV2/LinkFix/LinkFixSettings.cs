@@ -38,6 +38,12 @@ namespace HambotV2.LinkFix
         /// <summary>How long a preview verdict is reused before the link is checked again.</summary>
         public TimeSpan VideoProbeCacheLifetime { get; init; } = TimeSpan.FromMinutes(DefaultVideoProbeCacheMinutes);
 
+        /// <summary>
+        /// Suppress the original message's embeds once the repost has replaced them, so the faulty preview is not
+        /// shown twice. Needs Manage Messages; without it the repost stands and the original keeps its embed.
+        /// </summary>
+        public bool SuppressOriginalEmbeds { get; init; } = true;
+
         public static LinkFixSettings FromConfiguration(IConfiguration? configuration)
         {
             int maxLinks = DefaultMaxLinksPerMessage;
@@ -64,6 +70,10 @@ namespace HambotV2.LinkFix
             if (int.TryParse(configuration?["LinkFix:VideoProbeCacheMinutes"], out int configuredProbeCache) && configuredProbeCache > 0)
                 probeCacheMinutes = configuredProbeCache;
 
+            bool suppressOriginalEmbeds = true;
+            if (bool.TryParse(configuration?["LinkFix:SuppressOriginalEmbeds"], out bool configuredSuppress))
+                suppressOriginalEmbeds = configuredSuppress;
+
             return new LinkFixSettings
             {
                 MaxLinksPerMessage = maxLinks,
@@ -71,7 +81,8 @@ namespace HambotV2.LinkFix
                 MaxMappings = maxMappings,
                 RedditVideoProbe = redditVideoProbe,
                 VideoProbeTimeout = TimeSpan.FromSeconds(probeTimeoutSeconds),
-                VideoProbeCacheLifetime = TimeSpan.FromMinutes(probeCacheMinutes)
+                VideoProbeCacheLifetime = TimeSpan.FromMinutes(probeCacheMinutes),
+                SuppressOriginalEmbeds = suppressOriginalEmbeds
             };
         }
     }
