@@ -263,3 +263,29 @@ Opt-in (design §3.12): set `LLM_API_KEY=<Mistral API key>` and the job flags in
 | 16.20 | `!llmcontext on`, `!llmchannels add <#general>`, post distinctive messages in #general and in another channel, run `!llmupdate`; then `!llmchannels`, `!llmchannels remove <#general>`, `!llmchannels clear`, and `!llmchannels add <foreign-channel-id>` | Show: "all readable channels" when empty, the list otherwise; the update stays generic (never quotes chat, logs contain none of it); a foreign or non-text channel id is rejected ("not a text channel of this server"); remove/clear restore all-readable behavior. |
 | 16.21 | `!llminterval presence 1` with the presence job on; `!llmstatus`; `!llminterval presence 0`; `!llminterval banana 5`; `!llminterval presence reset`; `docker compose restart bot`, `!llmstatus` | Set confirms "1 min" and applies from the next tick (watch the cadence + status shows "every 1 min, runtime"); 0 and a bad surface are usage errors changing nothing; reset restores the configured interval; after the restart the configured interval is back (in-memory override gone). |
 | 16.22 | In the test server, an admin (tier 2) runs `!llmstatus` and `!llmcontext on`; a tier-0 user runs `!model` | `!llmstatus` is permission-denied (bot-owner tier 4, enforced by the pipeline per command, FR-168); `!llmcontext on` works (admin tier); `!model` is permission-denied for tier 0. |
+
+## 17. Link reposts (fixed-embed mirrors)
+
+Opt-in per server (design §3.23); defaults need no configuration. Use a test server with two channels.
+
+| # | Action | Expected |
+|---|---|---|
+| 17.1 | `!linkfix` (admin), then `!linkfix on` | "OFF for this server (default) — no message is scanned."; then the enabled confirmation. A second account at tier 0 gets permission denied. |
+| 17.2 | `!linkfix on` in a DM | "The 'linkfix' setting is per-server and only available in servers." |
+| 17.3 | Post `https://x.com/<user>/status/<id>` as a member | One follow-up reply referencing the post, containing only `https://fxtwitter.com/<user>/status/<id>` — the embed renders. The original message is untouched, and nobody is pinged. |
+| 17.4 | Post `https://www.reddit.com/r/<sub>/comments/<id>/<title>/?context=3` | The reply carries `https://redditez.com/…` with path, `?context=3` and the fragment preserved. |
+| 17.5 | Post a message with the same post twice (`x.com` + `www.twitter.com`) plus a second post | Two lines, first-appearance order, duplicates collapsed. |
+| 17.6 | Post `https://redd.it/<id>`, `https://x.com/i/status/<id>`, `https://example.com/…`, and a bot/webhook message with an X link | No repost for any of them. |
+| 17.7 | Post a member message that starts with the command identifier (e.g. `!quote https://x.com/…`) | No repost — command invocations belong to the pipeline. |
+| 17.8 | `!linkfix off`, post an X link; re-enable (`on`) and post again | No repost while off; the repost returns after `on` — no restart needed. |
+| 17.9 | In a channel with `LINKFIX_CHANNEL_COOLDOWN_SECONDS=60` (restart), post two X links in a row within a minute; wait a minute, post again; then post in a second channel | Only the first is reposted in that channel, the later one after the window passes, and the second channel is not throttled. A repost that fails (e.g. Send Messages revoked, then restored) does not consume the window. |
+| 17.10 | Post a message with 6 distinct X/Reddit posts | The reply carries the first 5 (`LINKFIX_MAX_LINKS_PER_MESSAGE`), the surplus dropped. |
+| 17.11 | `!linkfixmap` | The effective table with `x.com`, `twitter.com`, `reddit.com`, each `(shipped default)`, plus the `3/50 rows` count. |
+| 17.12 | `!linkfixmap x.com vxtwitter.com`, then post an X link; `docker compose restart bot`, post again | "Mapped x.com → vxtwitter.com (runtime) — effective from the next message."; the repost uses the new mirror immediately and still after the restart. |
+| 17.13 | `!linkfixmap clear x.com`, then post an X link | The shipped default (`fxtwitter.com`) applies again; the table shows the row as `(shipped default)`. |
+| 17.14 | `!linkfixmap example.social mirror.social`, post `https://example.social/anything`; then `clear example.social` | The added origin is reposted with any path (reported as `runtime`); after clear it disappears (`n/50 rows` drops back). |
+| 17.15 | `!linkfixmap https://x.com vxtwitter.com`, `!linkfixmap x.com/path fxtwitter.com`, `!linkfixmap x.com fxtwitter.com:443`, `!linkfixmap fxtwitter.com x.com`, `!linkfixmap twitter.com x.com` | Each is rejected naming the offending argument ("not a bare hostname…"); the mirror-host origin gets "is a mirror host of the current mapping", the origin-as-mirror case "is an origin of the current mapping"; nothing is written and existing rows keep rewriting as before. |
+| 17.16 | `!linkfixmap` from a second (tier 3 guild-owner) account and in a DM as the bot owner | Permission denied for the non-owner; the DM works (global, DM-usable). |
+| 17.17 | `!help`; `!linkfixmap` with `SLASH_COMMANDS_ENABLED=true` | Both commands appear under **Permissions & settings**; `/linkfix` and `/linkfixmap` reply ephemerally with identical content. |
+| 17.18 | During a `!restorebackup … confirm` (maintenance mode), post an X link | No repost while maintenance is active, and none after it ends (nothing is queued). |
+| 17.19 | Post an X link, then check `docker compose logs bot` and the database | One structured log line with guild, channel, link count and outcome — no URL, no message text; no new rows beyond `GuildSetting.LinkFixEnabled` and the `LinkFixMappings` overrides. |

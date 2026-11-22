@@ -34,6 +34,7 @@ Non-secret settings in `appsettings.json`:
 | `BotConfiguration:CooldownSecondsByTier` | `{ "0": 3, "1": 3, "2": 2, "3": 1 }` | Per-tier cooldown seconds; `0` disables throttling for that tier. |
 | `BotConfiguration:Presence` / `BotConfiguration:Bio` | *(unset)* | Optional startup activity / profile bio; absent → left untouched. Invalid values fail startup. |
 | `Llm:*` | see `HambotV2/appsettings.json` | Optional LLM features (automatic presence/bio updates). `Llm:ApiKey` is a secret — set via `LLM_API_KEY` in `.env` or `Llm__ApiKey`; absent → all LLM features inactive. |
+| `LinkFix:*` | see `HambotV2/appsettings.json` | Link-repost bounds: distinct links per repost (5), per-channel cooldown seconds (0 = disabled), mapping row cap (50). The origin→mirror hosts are runtime state (`!linkfixmap`), never configuration. |
 | `Serilog` | Console + daily `logs/` file | Logging; changeable without rebuilding. |
 
 Secrets (never commit; `.env` and `appsecrets.json` are gitignored):
@@ -77,6 +78,12 @@ The Compose `backup` sidecar (from `scripts/backup/`) dumps the database on sche
 
 Set `LLM_API_KEY` (Mistral API key, a secret) in `.env` to activate; without it every LLM feature is inactive and `!llmstatus` / `!health` report so. Settings live under `Llm:*` in `appsettings.json` (see the table in `docs/software-design.md` §3.12): model, persona seed, chat-context bounds (20 messages / 4000 chars / 24 h max age), daily request budget (default 500/UTC day), and the opt-in presence/bio update jobs (`LLM_PRESENCE_UPDATES_ENABLED`, `LLM_BIO_UPDATES_ENABLED`, each with its own `LLM_*_INTERVAL_MINUTES`). The bot automatically refreshes its presence and bio on their own intervals, in the persona's voice. Runtime controls are eight separate commands: `!llmstatus` (state report), `!llmswitch off|on` (in-memory kill switch), `!llmupdate [presence|bio]` (run an update now, even with the jobs off — still gated by the kill switch/budget), `!llminterval <presence|bio> [minutes|reset]` (per-job runtime interval, in-memory, floor 1 min), `!model [list|<name>|clear]` (model override, validated against the provider's list), `!persona global [<text...>|clear]` (global persona override) and `!persona server [<text...>|clear]` (per-guild override), `!llmcontext on|off` (per-guild chat-context opt-in, persisted, off by default; DM-triggered updates never read chat), `!llmchannels [add|remove <#channel|id>|clear]` (per-guild channel allowlist). The watchdog alerts on budget exhaustion and on 3 consecutive LLM failures.
 
+## Link reposts (opt-in)
+
+X/Twitter and Reddit links unfurl badly in Discord (X serves no usable metadata; Reddit's own preview loses video audio and extra images). A server that opts in with `!linkfix on` (admin tier, persisted, off by default) gets exactly one follow-up reply per member message carrying such a link: the same posts on a fixed-embed mirror — `fxtwitter.com` for X/Twitter, `redditez.com` for Reddit — one URL per line, no mentions. The member's message is never edited or deleted, and nothing is fetched, resolved, or stored: the rewrite is a host swap, so only canonical post paths qualify and short/opaque links (`redd.it/<id>`, `x.com/i/…`, `t.co/…`) are skipped rather than resolved. Bounds: `LINKFIX_MAX_LINKS_PER_MESSAGE` (5) links per repost and at most one repost per channel per `LINKFIX_CHANNEL_COOLDOWN_SECONDS` (0 = disabled). DMs, command invocations, and bot/webhook messages are never scanned, and maintenance mode pauses the listener.
+
+The mapping is global and bot-owner managed — no deploy needed when a mirror gets rate-limited or blocked: `!linkfixmap` lists the effective table with each row's layer (`runtime` / `shipped default`), `!linkfixmap <origin-host> <mirror-host>` repoints an origin (e.g. `!linkfixmap x.com vxtwitter.com`) or adds a site the shipped table lacks, and `!linkfixmap clear <origin-host>` drops the override. A change applies from the next message and survives a restart.
+
 ## MCP endpoint (agent API)
 
 Opt-in MCP server ([Model Context Protocol](https://modelcontextprotocol.io)) over streamable HTTP, hosted in-process, bearer-key authenticated. Enable with `MCP_ENABLED=true` + `MCP_API_KEY` (generate: `openssl rand -hex 32`); it listens at `http://0.0.0.0:2525/mcp`, published loopback-only in Compose (`127.0.0.1:2525`), so clients on other machines need a tunnel.
@@ -87,7 +94,7 @@ The agent acts at the lowest tier (0) per server; a guild owner or the bot owner
 
 ## Slash commands
 
-Opt-in via `SLASH_COMMANDS_ENABLED=true` (requires the `applications.commands` invite scope): the administrative/configuration commands (including the LLM commands `/llmstatus`, `/llmswitch`, `/llmupdate`, `/llminterval`, `/model`, `/persona`, `/llmcontext`, `/llmchannels`), the reminder commands, `/searchquotes`, `/version`, and `/help` run through the same command pipeline with identical permissions and cooldowns, but every reply is ephemeral (visible only to the invoker); multi-page `/help` and `/searchquotes` replies carry previous/next buttons. Community-facing commands (`!quote` & co., custom responses) stay text-only. Global commands can take up to an hour to appear.
+Opt-in via `SLASH_COMMANDS_ENABLED=true` (requires the `applications.commands` invite scope): the administrative/configuration commands (including the LLM commands `/llmstatus`, `/llmswitch`, `/llmupdate`, `/llminterval`, `/model`, `/persona`, `/llmcontext`, `/llmchannels` and `/linkfix`, `/linkfixmap`), the reminder commands, `/searchquotes`, `/version`, and `/help` run through the same command pipeline with identical permissions and cooldowns, but every reply is ephemeral (visible only to the invoker); multi-page `/help` and `/searchquotes` replies carry previous/next buttons. Community-facing commands (`!quote` & co., custom responses) stay text-only. Global commands can take up to an hour to appear.
 
 ## Building & running locally
 
@@ -142,6 +149,8 @@ Expected startup logs: `Bot version: <version>` → `Database migrations applied
 | `!persona [global\|server [<text...>\|clear]]` | 2 | Effective persona for the current scope; global (DM-usable) and per-server (guild-only) overrides, persisted. Slash-eligible. |
 | `!llmcontext [on\|off]` | 2 | Per-guild chat-context opt-in (persisted, default off). Guild-only, slash-eligible. |
 | `!llmchannels [add\|remove <#channel\|id>\|clear]` | 2 | Per-guild LLM chat-context channel allowlist. Guild-only, slash-eligible. |
+| `!linkfix [on\|off]` | 2 | Per-server fixed-embed link reposting opt-in (persisted, default off). Guild-only, slash-eligible. |
+| `!linkfixmap [<origin-host> <mirror-host> \| clear <origin-host>]` | 4 | The global origin→mirror table: list with layers, repoint or add an origin, or drop an override. DM-usable, slash-eligible. |
 | `!agenttier [<tier 0-4>\|clear]` | Tier the MCP operator agent acts at here. Owner tier. |
 | `!health` / `!notifychannel [<#ch>\|clear]` / `!backup` / `!backups` / `!restorebackup <name> [confirm]` | Bot-owner tier; all DM-usable. |
 | `!presence [<type> <text...>\|clear]` / `!bio [<text...>\|clear]` | Activity ("About Me"). Bot-owner tier; not persisted across restarts. |

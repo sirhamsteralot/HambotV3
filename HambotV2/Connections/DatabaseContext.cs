@@ -24,6 +24,8 @@ namespace HambotV2.Connections
 
         public DbSet<GuildLlmChannel> GuildLlmChannels { get; set; }
 
+        public DbSet<LinkFixMapping> LinkFixMappings { get; set; }
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             // Per-guild scoping: tiers and settings are keyed per guild.
@@ -39,6 +41,7 @@ namespace HambotV2.Connections
             modelBuilder.Entity<BotSetting>().HasKey(setting => setting.Key);
             modelBuilder.Entity<BotBan>().HasKey(ban => new { ban.GuildId, ban.DiscordId });
             modelBuilder.Entity<GuildLlmChannel>().HasKey(row => new { row.GuildId, row.ChannelId });
+            modelBuilder.Entity<LinkFixMapping>().HasKey(mapping => mapping.OriginHost);
         }
 
         public class User
@@ -88,6 +91,9 @@ namespace HambotV2.Connections
 
             /// <summary>Opt-in: LLM updates triggered from this guild include recent chat from this guild's readable channels; false = no chat is read.</summary>
             public bool LlmIncludeChat { get; set; }
+
+            /// <summary>Opt-in: this guild gets link reposts with fixed-embed mirror links; false = no message is scanned.</summary>
+            public bool LinkFixEnabled { get; set; }
 
             /// <summary>The guild's cooldown override for the given tier (0–3, the per-guild configurable tiers); null = inherit the global default.</summary>
             public int? GetCooldownOverride(int tier) => tier switch
@@ -213,6 +219,19 @@ namespace HambotV2.Connections
             public ulong GuildId { get; set; }
 
             public ulong ChannelId { get; set; }
+        }
+
+        /// <summary>
+        /// A runtime override of the link-repost origin→mirror mapping, global across guilds:
+        /// written only by the bot owner (<c>!linkfixmap</c>), layered over the shipped defaults.
+        /// </summary>
+        public class LinkFixMapping
+        {
+            /// <summary>The origin host, normalized to lowercase bare form (e.g. <c>x.com</c>).</summary>
+            public string OriginHost { get; set; } = string.Empty;
+
+            /// <summary>The mirror host the origin's links are rewritten to (e.g. <c>vxtwitter.com</c>).</summary>
+            public string MirrorHost { get; set; } = string.Empty;
         }
     }
 }

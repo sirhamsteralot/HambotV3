@@ -1,6 +1,7 @@
 using Discord;
 using Discord.WebSocket;
 using HambotV2.Commands;
+using HambotV2.LinkFix;
 using HambotV2.SlashCommands;
 
 namespace HambotV2.Connections
@@ -13,10 +14,11 @@ namespace HambotV2.Connections
         private readonly IGuildSettingsService _guildSettingsService;
         private readonly SlashCommandService _slashCommandService;
         private readonly ButtonPaginationService _buttonPaginationService;
+        private readonly EmbedLinkRepostService _embedLinkRepostService;
         private readonly string _logFormat;
         private readonly DiscordSocketClient _client;
 
-        public DiscordClient(ILogger<DiscordClient> logger, IConfiguration configuration, IServiceProvider serviceProvider, IGuildSettingsService guildSettingsService, SlashCommandService slashCommandService, ButtonPaginationService buttonPaginationService, DiscordSocketClient client)
+        public DiscordClient(ILogger<DiscordClient> logger, IConfiguration configuration, IServiceProvider serviceProvider, IGuildSettingsService guildSettingsService, SlashCommandService slashCommandService, ButtonPaginationService buttonPaginationService, EmbedLinkRepostService embedLinkRepostService, DiscordSocketClient client)
         {
             _logger = logger;
             _configuration = configuration;
@@ -24,6 +26,7 @@ namespace HambotV2.Connections
             _guildSettingsService = guildSettingsService;
             _slashCommandService = slashCommandService;
             _buttonPaginationService = buttonPaginationService;
+            _embedLinkRepostService = embedLinkRepostService;
             _logFormat = configuration["BotConfiguration:LogFormat"]!;
             // The client comes from DI (shared with ReminderDmSender, container-owned);
             // its gateway intents are configured once at the composition root.
@@ -47,6 +50,10 @@ namespace HambotV2.Connections
             // Button pagination: attached unconditionally — the previous/next buttons
             // ride on text-surface messages too, not only interaction replies.
             _buttonPaginationService.Attach();
+
+            // Link reposts: also unconditional — the per-guild opt-in is checked per message, so a
+            // guild that never enabled the feature costs one string check.
+            _embedLinkRepostService.Attach(_client);
 
             await _client.LoginAsync(TokenType.Bot, _configuration["Secrets:BotToken"]);
             await _client.StartAsync();

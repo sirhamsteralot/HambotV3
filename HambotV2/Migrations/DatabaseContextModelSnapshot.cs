@@ -133,6 +133,9 @@ namespace HambotV2.Migrations
                     b.Property<int?>("CooldownSecondsTier3")
                         .HasColumnType("integer");
 
+                    b.Property<bool>("LinkFixEnabled")
+                        .HasColumnType("boolean");
+
                     b.Property<bool>("LlmIncludeChat")
                         .HasColumnType("boolean");
 
@@ -157,6 +160,20 @@ namespace HambotV2.Migrations
                     b.HasKey("GuildId");
 
                     b.ToTable("GuildSettings");
+                });
+
+            modelBuilder.Entity("HambotV2.Connections.DatabaseContext+LinkFixMapping", b =>
+                {
+                    b.Property<string>("OriginHost")
+                        .HasColumnType("text");
+
+                    b.Property<string>("MirrorHost")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("OriginHost");
+
+                    b.ToTable("LinkFixMappings");
                 });
 
             modelBuilder.Entity("HambotV2.Connections.DatabaseContext+Quote", b =>

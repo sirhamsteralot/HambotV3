@@ -27,6 +27,8 @@ namespace HambotV2.Connections
 
         DbSet<DatabaseContext.GuildLlmChannel> GuildLlmChannels { get; }
 
+        DbSet<DatabaseContext.LinkFixMapping> LinkFixMappings { get; }
+
         Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
     }
 }

@@ -3,6 +3,7 @@ using HambotV2.Backups;
 using HambotV2.Commands.QuoteCommands;
 using HambotV2.Commands.ReminderCommands;
 using HambotV2.Connections;
+using HambotV2.LinkFix;
 using HambotV2.Llm;
 using HambotV2.Maintenance;
 using HambotV2.QuoteOfTheDay;
@@ -57,6 +58,12 @@ namespace HambotV2.Commands
         /// <summary>The runtime LLM job intervals, resolved by production DI; null keeps the registry usable in tests (the command then derives them from the settings).</summary>
         private readonly LlmRuntimeOptions? _runtimeOptions;
 
+        /// <summary>The link-repost mapping store, resolved by production DI; null keeps the registry usable in tests (the command then reports "not configured").</summary>
+        private readonly ILinkMappingStore? _linkMappingStore;
+
+        /// <summary>The link-repost bounds, parsed from the optional <c>LinkFix</c> configuration section; defaults apply when no configuration is supplied (tests).</summary>
+        private readonly LinkFixSettings _linkFixSettings;
+
         /// <summary>
         /// The signal defaults to an isolated instance, and the backup & stability and presence dependencies to null, which
         /// keeps the registry usable in tests that do not exercise those features (the affected
@@ -76,7 +83,9 @@ namespace HambotV2.Commands
             IGuildChannelLookup? guildChannelLookup = null,
             ILlmGate? llmGate = null,
             ILlmUpdateService? llmUpdateService = null,
-            LlmRuntimeOptions? runtimeOptions = null)
+            LlmRuntimeOptions? runtimeOptions = null,
+            ILinkMappingStore? linkMappingStore = null,
+            LinkFixSettings? linkFixSettings = null)
         {
             _deliverySignal = deliverySignal ?? new ScheduledDeliverySignal();
             _backupManager = backupManager;
@@ -94,6 +103,8 @@ namespace HambotV2.Commands
             _llmSettings = LlmSettings.FromConfiguration(configuration);
             _llmUpdateService = llmUpdateService;
             _runtimeOptions = runtimeOptions;
+            _linkMappingStore = linkMappingStore;
+            _linkFixSettings = linkFixSettings ?? LinkFixSettings.FromConfiguration(configuration);
         }
 
         public Dictionary<string, ICommand> Commands { get; } = new();
@@ -103,7 +114,7 @@ namespace HambotV2.Commands
 
         public void RegisterCommands()
         {
-            RegisterAllCommands.RegisterCommands(this, _deliverySignal, _backupManager, _maintenanceMode, _notificationPublisher, _notificationChannelStore, _healthSnapshotProvider, _presenceService, _httpContentDownloader, _reminderSettings, _quoteOfTheDaySettings, _quoteSearchBacklog, _guildChannelLookup, _llmGate, _llmSettings, _llmUpdateService, _runtimeOptions);
+            RegisterAllCommands.RegisterCommands(this, _deliverySignal, _backupManager, _maintenanceMode, _notificationPublisher, _notificationChannelStore, _healthSnapshotProvider, _presenceService, _httpContentDownloader, _reminderSettings, _quoteOfTheDaySettings, _quoteSearchBacklog, _guildChannelLookup, _llmGate, _llmSettings, _llmUpdateService, _runtimeOptions, _linkMappingStore, _linkFixSettings);
             CommandsRegistered = true;
         }
 

@@ -1,11 +1,13 @@
 using HambotV2.Backups;
 using HambotV2.Commands.BackupCommands;
+using HambotV2.Commands.LinkFixCommands;
 using HambotV2.Commands.LlmCommands;
 using HambotV2.Commands.QuoteCommands;
 using HambotV2.Commands.ReminderCommands;
 using HambotV2.Commands.ResponseCommands;
 using HambotV2.Commands.SystemCommands;
 using HambotV2.Connections;
+using HambotV2.LinkFix;
 using HambotV2.Llm;
 using HambotV2.Maintenance;
 using HambotV2.QuoteOfTheDay;
@@ -40,7 +42,9 @@ namespace HambotV2.Commands
             ILlmGate? llmGate = null,
             LlmSettings? llmSettings = null,
             ILlmUpdateService? llmUpdateService = null,
-            LlmRuntimeOptions? runtimeOptions = null)
+            LlmRuntimeOptions? runtimeOptions = null,
+            ILinkMappingStore? linkMappingStore = null,
+            LinkFixSettings? linkFixSettings = null)
         {
             RegisterSystemCommands.RegisterCommands(commandService, notificationChannelStore, healthSnapshotProvider, presenceService, httpContentDownloader);
             RegisterQuoteCommands.RegisterCommands(commandService, quoteSearchBacklog ?? new QuoteSearchBacklog(), quoteOfTheDaySettings, httpContentDownloader);
@@ -48,6 +52,7 @@ namespace HambotV2.Commands
             RegisterReminderCommands.RegisterCommands(commandService, deliverySignal, reminderSettings);
             RegisterBackupCommands.RegisterCommands(commandService, backupManager, maintenanceMode, notificationPublisher);
             RegisterLlmCommands.RegisterCommands(commandService, llmGate, llmSettings, llmUpdateService, runtimeOptions, guildChannelLookup);
+            RegisterLinkFixCommands.RegisterCommands(commandService, linkMappingStore, linkFixSettings);
         }
     }
 }

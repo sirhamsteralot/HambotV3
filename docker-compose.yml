@@ -56,8 +56,6 @@ services:
       Mcp__Enabled: ${MCP_ENABLED:-}
       Mcp__ApiKey: ${MCP_API_KEY:-}
       Mcp__ListenUri: ${MCP_LISTEN_URI:-}
-      # Optional: LLM features (design §3.12). Llm__ApiKey is the secret; without it every
-      # LLM feature stays inactive. Defaults live in appsettings.json.
       Llm__ApiKey: ${LLM_API_KEY:-}
       Llm__Persona: ${LLM_PERSONA:-}
       Llm__PresenceUpdates__Enabled: ${LLM_PRESENCE_UPDATES_ENABLED:-}
@@ -68,6 +66,9 @@ services:
       Llm__BioUpdates__Enabled: ${LLM_BIO_UPDATES_ENABLED:-}
       Llm__BioUpdates__IntervalMinutes: ${LLM_BIO_INTERVAL_MINUTES:-}
       Llm__DailyRequestBudget: ${LLM_DAILY_REQUEST_BUDGET:-}
+      LinkFix__MaxLinksPerMessage: ${LINKFIX_MAX_LINKS_PER_MESSAGE:-}
+      LinkFix__ChannelCooldownSeconds: ${LINKFIX_CHANNEL_COOLDOWN_SECONDS:-}
+      LinkFix__MaxMappings: ${LINKFIX_MAX_MAPPINGS:-}
     volumes:
       - backups:/app/backups
     # The MCP endpoint's listen port, published loopback-only (FR-86): an agent on the

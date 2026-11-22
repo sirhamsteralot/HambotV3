@@ -4,6 +4,7 @@ using HambotV2.Backups;
 using HambotV2.Commands;
 using HambotV2.Commands.QuoteCommands;
 using HambotV2.Connections;
+using HambotV2.LinkFix;
 using HambotV2.Llm;
 using HambotV2.Maintenance;
 using HambotV2.Mcp;
@@ -113,6 +114,16 @@ namespace HambotV2
             // search pages through the backlog snapshot. Attached unconditionally — the buttons
             // ride on text-surface messages too.
             builder.Services.AddSingleton<ButtonPaginationService>();
+
+            // Link reposts: purely textual host swaps for X/Twitter and Reddit links — no fetch, no
+            // LLM, no gate budget. The mapping store is the runtime layer over the shipped table
+            // (one immutable snapshot, replaced after every !linkfixmap write); the repost service
+            // subscribes the gateway beside the pagination handler rather than being hosted, since
+            // it has no loop of its own.
+            var linkFixSettings = LinkFixSettings.FromConfiguration(builder.Configuration);
+            builder.Services.AddSingleton(linkFixSettings);
+            builder.Services.AddSingleton<ILinkMappingStore, LinkMappingStore>();
+            builder.Services.AddSingleton<EmbedLinkRepostService>();
 
             // Singleton so the cooldown timestamps are shared across messages; time comes from
             // an injectable TimeProvider for deterministic tests.
