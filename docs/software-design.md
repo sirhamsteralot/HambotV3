@@ -61,7 +61,7 @@ Registers `appsecrets.json` then environment variables (env wins), replaces logg
 
 | Lifetime | Registrations |
 |---|---|
-| Singleton | Shared `DiscordSocketClient` (intents below; container-disposed; also used by the reminder DM sender and the quote-of-the-day sender); `CommandService`; `GuildSettingsService` (per-guild identifier/tier cache); `IVirtualCommandRunner` + `SlashCommandService` (§3.15); `QuoteSearchBacklog` + `ButtonPaginationService` (§3.19); `ICooldownService` + `TimeProvider.System`; `IScheduledDeliverySignal` + reminder source/sender (§3.8); quote-of-the-day sender (§3.17); `IPresenceService` + gateway seam + `IHttpContentDownloader` (§3.10, §3.6); maintenance/backup/notification/health/gateway-status set (§3.13, §5.2); MCP client/tools/status set (§3.11); LLM foundation set (§3.12): `LlmSettings`, `ILlmClient` (only when `Llm:ApiKey` is set), `ILlmModelResolver`, `ILlmUsageTracker`, `ILlmGate`, `LlmPromptBuilder`, `IChatContextCollector`, `LlmRuntimeOptions` (runtime job intervals), `ILlmUpdateService` (the same singleton instance as the hosted `PresenceUpdateService`). `IPresenceService` is resolved eagerly in `Main` so its Ready subscription exists before the gateway starts. LLM participation state (§3.21, **(planned)**) — activity counters, per-guild bounds, run locks — lives inside the hosted `ChatParticipationService`. |
+| Singleton | Shared `DiscordSocketClient` (intents below; container-disposed; also used by the reminder DM sender and the quote-of-the-day sender); `CommandService`; `GuildSettingsService` (per-guild identifier/tier cache); `IVirtualCommandRunner` + `SlashCommandService` (§3.15); `QuoteSearchBacklog` + `ButtonPaginationService` (§3.19); `ICooldownService` + `TimeProvider.System`; `IScheduledDeliverySignal` + reminder source/sender (§3.8); quote-of-the-day sender (§3.17); `IPresenceService` + gateway seam + `IHttpContentDownloader` (§3.10, §3.6); maintenance/backup/notification/health/gateway-status set (§3.13, §5.2); MCP client/tools/status set (§3.11); LLM foundation set (§3.12): `LlmSettings`, `ILlmClient` (only when `Llm:ApiKey` is set), `ILlmModelResolver`, `ILlmUsageTracker`, `ILlmGate`, `LlmPromptBuilder`, `IChatContextCollector`, `LlmRuntimeOptions` (runtime job intervals), `ILlmUpdateService` (the same singleton instance as the hosted `PresenceUpdateService`). `IPresenceService` is resolved eagerly in `Main` so its Ready subscription exists before the gateway starts. LLM participation state (§3.21, **(planned)**) — activity counters, per-guild bounds, run locks — lives inside the hosted `ChatParticipationService`. Link reposts (§3.23, **(planned)**): `LinkFixSettings`, `ILinkMappingStore` + `LinkMappingStore` (mapping snapshot), `EmbedLinkRepostService` (attached by `DiscordClient`, not hosted — no loop of its own). |
 | Transient | `ICommandHandler` → `CommandHandler` (per message, disposed after use), `IPermissionsService`, `DatabaseContext` (also mapped onto `IDatabaseContext`). |
 | Hosted | The six active services listed above (plus `ContextPipelineHost` (§3.20) and `ChatParticipationService` (§3.21), both **(planned)**). |
 
@@ -141,13 +141,14 @@ GuildSetting 1 ──< User            key (GuildId, DiscordId)            Permi
              1 ──< GuildLlmChannel key (GuildId, ChannelId)           per-guild LLM chat-context channel allowlist (§3.12, FR-164)
              1 ──< GuildLlmKeyword key (GuildId, Keyword)             per-guild participation keywords (§3.21, FR-174, **(planned)**)
 Reminder     key (OwnerDiscordId, Number) — user-scoped, not guild-scoped: Message 1–500, DueAtUtc, nullable GuildId/RecurrenceInterval/FailedAtUtc (§3.8, §3.14)
-BotSetting   key Key — global key-value: notification channel id (§3.13), global persona override and model override (§3.12)
-GuildSetting columns: CommandIdentifier override, per-tier cooldown overrides, OperatorAgentTier (§3.11), quote-of-the-day config (§3.17), nullable Persona (§3.12, FR-156), LlmIncludeChat opt-in (§3.12, FR-154), LlmReplyEnabled + LlmReplyDailyCap participation opt-in/cap (§3.21, FR-170/179, **(planned)**)
+BotSetting   key Key — global key-value scalars: notification channel id (§3.13), global persona override and model override (§3.12)
+LinkFixMapping key OriginHost — override mirror host, one row per repointed origin (§3.23, FR-198, **(planned)**)
+GuildSetting columns: CommandIdentifier override, per-tier cooldown overrides, OperatorAgentTier (§3.11), quote-of-the-day config (§3.17), nullable Persona (§3.12, FR-156), LlmIncludeChat opt-in (§3.12, FR-154), LlmReplyEnabled + LlmReplyDailyCap participation opt-in/cap (§3.21, FR-170/179, **(planned)**), LinkFixEnabled opt-in (§3.23, FR-192, **(planned)**)
 ```
 
 Migrations (`HambotV2/Migrations/`) apply automatically on startup (`Database.Migrate()` before the gateway); an unreachable database is a critical log line + non-zero exit. Regenerate with `dotnet ef migrations add <Name>` from `HambotV2/` (`DesignTimeDatabaseContextFactory` avoids running startup). Pre-`PerGuildScoping` rows keep sentinel `GuildId = 0` (matches no real guild; re-grant per guild).
 
-`GuildSetting` rows have one upsert path: `Connections/GuildSettingStore.GetOrAddAsync` (`FindAsync` on the key, so an already-tracked unsaved row is seen; the caller saves). `BotSetting` rows likewise go through `Llm/BotSettingOverride` (§3.12).
+`GuildSetting` rows have one upsert path: `Connections/GuildSettingStore.GetOrAddAsync` (`FindAsync` on the key, so an already-tracked unsaved row is seen; the caller saves). `BotSetting` rows likewise go through `Llm/BotSettingOverride` (§3.12), and `LinkFixMapping` rows only through `ILinkMappingStore` (§3.23).
 
 Tests: no dedicated suite — every feature suite runs against this model through `IDatabaseContext` over InMemory.
 
@@ -417,7 +418,7 @@ s slash interaction ──► SlashCommandLineBuilder ──► virtual text lin
                                                      carries components, so buttons work on ephemeral replies (§3.19)
 ```
 
-- **Eligibility** is declared per command via `ICommand.ApplicationCommand` (typed options, a single free-form `arguments` fallback, or none): administrative/configuration commands (permissions, settings, bans, agent tier, presence/bio/images, health, notifications, backups, `quoteoftheday`, the LLM commands `llmstatus`, `llmswitch`, `llmupdate`, `llminterval`, `model`, `persona`, `llmcontext`, `llmchannels` — plus, planned per §3.21, `llmreply`, `llmreplycap`, `llmkeywords`), invoker-scoped commands (reminders), `/searchquotes`, `/version`, `/help`. Community-facing commands (`quote`, `removequote`, `importquotes`, custom responses, `hello`) stay text-only.
+- **Eligibility** is declared per command via `ICommand.ApplicationCommand` (typed options, a single free-form `arguments` fallback, or none): administrative/configuration commands (permissions, settings, bans, agent tier, presence/bio/images, health, notifications, backups, `quoteoftheday`, the LLM commands `llmstatus`, `llmswitch`, `llmupdate`, `llminterval`, `model`, `persona`, `llmcontext`, `llmchannels` — plus, planned per §3.21, `llmreply`, `llmreplycap`, `llmkeywords`; planned per §3.23, `linkfix`, `linkfixmap`), invoker-scoped commands (reminders), `/searchquotes`, `/version`, `/help`. Community-facing commands (`quote`, `removequote`, `importquotes`, custom responses, `hello`) stay text-only.
 - On the first gateway Ready, `SlashCommandService` builds one definition per eligible command (validating Discord's limits) and pushes them as one bulk global overwrite (idempotent); failure logs critical and leaves the text surface intact.
 
 Tests: `TestSlashCommands.cs`.
@@ -574,6 +575,101 @@ Phase B of roadmap Phase #2 (FR-170–FR-182 in §2.26). Builds **directly on th
 
 Tests **(planned)**: `TestChatParticipation.cs` per NFR-34.
 
+### 3.23 Embed-fix link reposts — fixed-embed rewrites for X/Twitter and Reddit **(planned)**
+
+Per-guild opt-in reposting of rewritten links (FR-192–FR-199 in §2.28; test contract NFR-35). A rewrite is a **host swap** — every mirror serves the origin's own path — so the feature is purely textual: nothing is fetched, no LLM call, no gate or budget, and no link or message content is ever stored, logged, or shown in `!health`. The member's message is never edited or deleted; the bot posts one follow-up. Two roadmap questions are settled here: there is **no static fallback list per origin** (one mirror each, FR-195 — a rate-limited or blocked mirror is repointed with `!linkfixmap`), and the listener is a plain singleton with an `Attach()` rather than a hosted service — it only subscribes, so it follows the `ButtonPaginationService` shape (roadmap step 3 said "hosted"; there is no loop to host).
+
+```
+MessageReceived (own Attach(), ButtonPaginationService pattern — DiscordClient routing untouched)
+   │
+   ▼ textual gate — no DbContext, no database read
+ maintenance? · guild channel? · human author (not bot/webhook/self)? · not a command invocation?
+ any URL whose host is a known origin and not a known mirror?          ── no ──► drop
+   │ yes
+   ▼
+ LinkMapping snapshot — shipped defaults + LinkFixMapping overrides, built once, swapped on write
+   │
+   ▼ opted in? GuildSetting.LinkFixEnabled (the only database read, and only for matching messages) ── no ──► drop
+   │ yes
+   ▼
+ LinkRewriter (pure): host match → path-shape eligibility → https host swap (path/query/fragment kept)
+   │                  → dedupe on the rewritten URL → MaxLinksPerMessage cap
+   │ nothing left ──► drop
+   ▼
+ per-channel cooldown (in-memory; ChannelCooldownSeconds, 0 = off) ── running ──► drop
+   │ clear
+   ▼
+ one SendMessageAsync: reply to the original, one URL per line, AllowedMentions.None
+   send failure → one log line without content, swallowed, never retried, no watchdog/health signal
+```
+
+**Shipped defaults** — `LinkFix/LinkMappingDefaults.cs`, one table; origins match case-insensitively and tolerate any subdomain:
+
+| Origin host | Mirror host | Path shape |
+|---|---|---|
+| `x.com` | `fxtwitter.com` | `XStatus` — `/<user>/status/<digits>` |
+| `twitter.com` | `fxtwitter.com` | `XStatus` |
+| `reddit.com` | `redditez.com` | `RedditComments` — `/r/<sub>/comments/<id>/…` |
+
+Deliberately not shipped: the short or opaque shapes (`redd.it/<id>`, `t.co/…`, `x.com/i/…`) and the equivalent mirrors (`fixupx.com`, `vxtwitter.com`/`fixvx.com`, `rxddit.com`, `vxreddit.com`) — an operator maps those with `!linkfixmap`. No config key names a host: the shipped table plus the runtime rows are the only mapping state.
+
+**Mapping layers** (`LinkFix/LinkMapping.cs`, `LinkFix/LinkMappingStore.cs`):
+
+| Layer | Source | Note |
+|---|---|---|
+| runtime | `LinkFixMapping` row `(OriginHost, MirrorHost)` | Written only by `!linkfixmap` and only through `ILinkMappingStore`. Survives a restart. |
+| shipped | `LinkMappingDefaults` | The default of every origin, and the only layer for a host nobody overrode. |
+
+- Effective map = shipped ∪ overrides, the override winning per origin; an override for an origin the table lacks adds a row (FR-198).
+- `KnownMirrorHosts` = every shipped mirror ∪ every override value — a mirror host is never an origin, so a rewritten link is never rewritten again (FR-193).
+- Snapshot — the `ILinkMappingStore` singleton holds one immutable `LinkMapping`, built on first use (one `LinkFixMapping` query — the whole table is a handful of rows) and replaced after every successful write. Resolved once per message, so a `!linkfixmap` change applies from the next message: no restart, no cache to invalidate (FR-195). A failed load logs and degrades to the shipped defaults; the next message retries.
+- A stored override failing hostname validation is ignored, so a hand-edited row can never inject a scheme, path, or port.
+
+**Rewrite** — `LinkFix/LinkRewriter.cs` (pure, no Discord types, unit-tested directly):
+
+- URL extraction: every `http://`/`https://` run of non-whitespace characters; trailing `.`, `,`, `)`, `]`, `>` stripped (FR-194). Nothing else in the message is touched — only URLs are written into the repost.
+- Host match: the host equals the origin or ends with `.` + the origin (any subdomain — `www`, `mobile`, `m`, `old`, `new`, `np` and the rest), case-insensitively; `notx.com` never matches `x.com`.
+- Path shape: each mapping entry names its shape (`XStatus`, `RedditComments`, or `Any` for an operator-added origin) and the rewriter applies that shape's predicate — the per-site rule rides in the table, so the rewriter has no per-site branch and `!linkfixmap` needs no shape syntax. `XStatus` also rejects the site's own routes (`/i/…`, `/intent/…`, `/share/…`, `/search/…`, `/hashtag/…`), which is what keeps opaque share links out (FR-194). An ineligible URL is dropped on its own; the message's other URLs still post.
+- Output: `https://` + the mirror host + the origin's path, query, and fragment verbatim; duplicates collapse on the rewritten string (so `www.x.com/u/status/1` and `twitter.com/u/status/1` post once); first-appearance order; `MaxLinksPerMessage` drops the surplus from the tail so the first N still post (FR-197); the joined lines must fit Discord's 2000-char limit, so the tail is dropped there too — one message, never split.
+
+**Detection and skip rules** — `LinkFix/EmbedLinkRepostService.cs`, singleton attached from `DiscordClient` beside the pagination attach (`_embedLinkRepostService.Attach()`, §3.1); no new intents (the configured set already covers guild messages, FR-2), no pipeline run, no command cooldown, no audit event. Checks run in this order:
+
+| # | Skip | Why / note |
+|---|---|---|
+| 1 | maintenance mode active (§5.2) | nothing is scanned, nothing is queued for later |
+| 2 | the message is not in a guild channel | DMs are never scanned or answered (FR-192) |
+| 3 | the author is a bot or a webhook, incl. the bot itself | also makes a repost loop impossible |
+| 4 | the content is a command invocation (the guild's effective identifier, `IGuildSettingsService`) | those belong to the pipeline (FR-193) |
+| 5 | no URL whose host is a known origin and not a known mirror | the textual gate: the database is never touched |
+| 6 | the guild has not opted in (`GuildSetting.LinkFixEnabled`) | the only database read, one per matching message; deliberately uncached — a rare read, and a cache would add an invalidation path |
+| 7 | nothing survives path shape, dedupe, and the cap | — |
+| 8 | the channel's cooldown is running | in-memory `channel → last repost` over `TimeProvider`; `ChannelCooldownSeconds` 0 or negative = disabled; a restart resets it (FR-197) |
+| 9 | the send failed | logged, swallowed, never retried, never a health or watchdog signal (FR-199) |
+
+- **Repost shape** (FR-196): exactly one message, a reply referencing the triggering message (`MessageReference`, `failIfNotExists: false`) so the fixed links sit beside what they fix. Discord's reply-embed deduplication hides a preview the referenced message already carries; every reposted URL differs from the original by host, so the unfurl is never suppressed — if a preview is ever suppressed in practice, the fallback is a plain follow-up without the reference (one constant, nothing else changes). `AllowedMentions.None`: nobody is pinged, not even the replied-to author. The content is the URLs and nothing else — no preamble, no quoted text. The original message is never edited or deleted and no other message is touched. Bot bans never suppress a repost — FR-135 covers replies to the invoker, while a repost serves the channel.
+- **Privacy and failure** (FR-199): no URL, host, or message text is stored, logged, or exposed anywhere, `!health` included — no counter, no feature row, no watchdog signal. Per repost exactly one structured log line (guild, channel, link count, outcome); a failure logs the same plus the exception, never content. Nothing is persisted beyond `GuildSetting.LinkFixEnabled` and the `LinkFixMap:` rows. No fetch means no SSRF surface, no rate-limit exposure, and no LLM budget.
+
+**Commands** — `Commands/LinkFixCommands/`, registered by a new `RegisterLinkFixCommands` in the `RegisterAllCommands` chain; both listed under `PermissionsAndSettings`, both slash-eligible with free-form declarations (§3.15), both parsing through `CommandArguments`:
+
+| Command | Tier | Behavior |
+|---|---|---|
+| `linkfix [on\|off]` | 2 admin | No args: report this guild's state (`on`/`off`, default off). `on`/`off`: persist `GuildSetting.LinkFixEnabled` through `GuildSettingStore`. Guild-only — declines in DMs (FR-192). |
+| `linkfixmap [<origin-host> <mirror-host> \| clear <origin-host>]` | 4 bot owner | No args: the effective table, one line per origin with its mirror and layer (`runtime` / `shipped default`) plus the `n/MaxMappings` row count (the `!llmstatus` convention). Set: validate both hostnames, reject an origin that is a known mirror host, enforce the cap for a new origin (an existing row still updates past it), persist through `ILinkMappingStore`, effective from the next message. `clear <origin>`: remove the override — a shipped origin falls back to its default, an override-only origin disappears; with no override it reports the shipped default. Global and DM-usable (FR-198). |
+
+**Hostname validation** — `LinkFix/LinkHostNames.TryNormalize`, pure and shared by the command and the snapshot loader: trim, lowercase (so `X.COM` is accepted and stored as `x.com`), then `^[a-z0-9.-]+$`, ≤ 253 chars, at least two labels, no empty label, no label starting or ending with `-`. A scheme, path, port, userinfo, or wildcard fails with the offending argument named.
+
+**Data model and settings** — migration `AddLinkFix`: `GuildSetting.LinkFixEnabled` (bool, default false, §3.4) and the two-column `LinkFixMapping` table (`OriginHost` the key, `MirrorHost`, both non-null). A dedicated table rather than namespaced `BotSetting` keys: overrides are a row set, not a scalar, so they get uniqueness and non-null constraints and are findable in the model — and `BotSetting` keeps its one-scalar-per-key reading. In-memory only: the mapping snapshot and the per-channel cooldown. `LinkFix:*` (absent/invalid → default; parsed once into `LinkFixSettings.FromConfiguration`, the `ReminderSettings`/`QuoteOfTheDaySettings` shape, §4):
+
+| Key | Default | Meaning |
+|---|---|---|
+| `MaxLinksPerMessage` | 5 | Distinct links per repost; invalid or below 1 → default. |
+| `ChannelCooldownSeconds` | 0 | One repost per channel per window; 0 or negative = disabled. |
+| `MaxMappings` | 50 | Effective row count cap (shipped + override-only); below 1 → default. Past the cap a new origin is rejected while existing rows still update. |
+
+**Plumbing** — `Program.cs` (singleton, §2.1): `LinkFixSettings` parsed from configuration, `ILinkMappingStore` + `LinkMappingStore` (a scope factory for its own reads and writes through the transient `IDatabaseContext`, like `NotificationChannelStore`; no `BotSettingOverride` involvement, and `IDatabaseContext` exposes the new `LinkFixMappings` set so tests run over InMemory), `EmbedLinkRepostService` attached by `DiscordClient`. The commands receive the store and the settings through the `RegisterAllCommands` chain. Nothing is hosted, no intent changes, `!health` gains nothing.
+
+Tests **(planned)**: `BotTests/TestLinkFix.cs` — the pure rewriter over the shipped table (every origin host and subdomain, case-insensitivity, non-matching hosts, query/fragment/trailing punctuation, each path shape and its rejections), mapping layering (shipped default, override wins, `clear` restores or removes, an invalid stored row ignored, the rows surviving a restart), the listener's skip rules (bot/webhook/self, command invocation, DM, non-opted-in guild, already-mirrored host) and bounds (dedupe, per-message cap, cooldown boundary incl. `0` and restart), the repost shape (one reply, `AllowedMentions.None`, ordering), both commands (validation incl. scheme/path/port rejection, origin-is-a-mirror, the cap, DM usability, a change effective from the next message), and that nothing is written to the database or logged as content.
+
 ## 4. Configuration
 
 | Area | Keys (defaults) | Notes |
@@ -590,6 +686,7 @@ Tests **(planned)**: `TestChatParticipation.cs` per NFR-34.
 | LLM (§3.12) | All `Llm:*` keys — full settings table in §3.12 | Compose `.env`: `LLM_API_KEY`, `LLM_PERSONA`, `LLM_PRESENCE_UPDATES_ENABLED`, `LLM_PRESENCE_INTERVAL_MINUTES`, `LLM_CHAT_CONTEXT_MAX_MESSAGES`, `LLM_CHAT_CONTEXT_MAX_CHARACTERS`, `LLM_CHAT_CONTEXT_MAX_AGE_HOURS`, `LLM_BIO_UPDATES_ENABLED`, `LLM_BIO_INTERVAL_MINUTES`, `LLM_DAILY_REQUEST_BUDGET` (mapped to `Llm__*`; absent/invalid → defaults, absent key → features inactive). Runtime persona overrides (`!persona global`, `!persona server`) beat the `Llm:Persona` config seed; the chat-context opt-in and channel allowlist are runtime-only (`!llmcontext on`, `!llmchannels` per guild), not env. |
 | Context pipeline **(planned)** (§3.20) | `Llm:Triggers:<Name>:Enabled` (true), `Llm:Collectors:<Name>:Enabled` (true); guild-scoped opt-ins and cadence bounds via `GuildSetting`/config | One key per registered trigger/collector name. |
 | LLM chat participation **(planned)** (§3.21) | `Llm:Chat:*` — full tables in §3.21: `CheckIntervalMinutes` (15), the probabilities/boosts, activity window/burst, hard bounds, `ContextMessages` (5), `DefaultDailyReplyCap` (20) | Compose `.env`: `LLM_CHAT_*` mapped to `Llm__Chat__*`; absent/invalid → defaults. Per-guild opt-in/cap/keywords are runtime-only (`!llmreply`, `!llmreplycap`, `!llmkeywords`), not env. |
+| Link fix **(planned)** (§3.23) | `LinkFix:MaxLinksPerMessage` (5), `LinkFix:ChannelCooldownSeconds` (0 = disabled), `LinkFix:MaxMappings` (50) | Compose `.env`: `LINKFIX_MAX_LINKS_PER_MESSAGE`, `LINKFIX_CHANNEL_COOLDOWN_SECONDS`, `LINKFIX_MAX_MAPPINGS` mapped to `LinkFix__*`; absent/invalid → defaults. The origin→mirror hosts are runtime state (`!linkfixmap`), never configuration. |
 
 ## 5. Deployment
 
@@ -664,3 +761,4 @@ The Jenkins container needs the host Docker socket + CLI mounted for the Image s
 ## 8. Known Design Considerations / Current Limitations
 
 - CI/CD: the `Jenkinsfile` builds, tests, and auto-deploys version tags only; ordinary pushes (including `master`) never deploy. A second scheduled pipeline (`Jenkinsfile.security`, §5.3) runs the weekly dependency scan and never deploys.
+- Link reposts (§3.23) honor FR-193’s skip list only: a member who suppresses a preview by wrapping the URL in `<…>` gets the link reposted anyway. Honoring that intent is an FR-193 change, not a design detail.
