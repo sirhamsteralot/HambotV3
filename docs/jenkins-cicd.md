@@ -95,7 +95,7 @@ The next Jenkins deploy starts whatever you stopped (`docker compose up -d`) —
 
 A scheduled Pipeline job (cron `0 4 * * 0` in the pipeline itself; controller timezone — FR-121 specifies 04:00 UTC). It inventories the deployed tree (per-project NuGet SBOMs + the Docker image) and checks it for CVEs. It **never deploys** and holds no deploy or bot credentials.
 
-Stages: **Build** (same policy as the main pipeline, no tests) → **SBOM** (pinned `dotnet CycloneDX` + jq installed into the workspace) → **Image** (`docker build` + `docker save`, never pushed or started) → **Scan** (Trivy over SBOMs and the saved tarball; findings never fail a stage, tool/DB failures do) → **Report** (severity summary; HIGH/CRITICAL in the deployed tree → build **UNSTABLE**, never FAILED; `BotTests` findings informational).
+Stages: **Build** (same policy as the main pipeline, no tests) → **SBOM** (pinned `dotnet CycloneDX` + jq installed into the workspace) → **Image** (`docker build --pull` + `docker save`, never pushed or started — `--pull` so the scan sees today's base images, not whatever layer the agent cached first) → **Scan** (Trivy over SBOMs and the saved tarball; findings never fail a stage, tool/DB failures do) → **Report** (severity summary plus a fixable / awaiting-upstream split; HIGH/CRITICAL in the deployed tree → build **UNSTABLE**, never FAILED; `BotTests` findings informational).
 
 Creating the job: New Item → **Pipeline** (plain, not multibranch) → "Pipeline script from SCM" → Script Path `Jenkinsfile.security` → no credentials attached → Discard old builds with artifacts kept ≥ ~26 builds. **Run it once manually** — that is what registers the cron trigger and serves as the feature's acceptance verification (NFR-28).
 
@@ -116,4 +116,6 @@ Tool versions are pinned in `Jenkinsfile.security`; bump them deliberately. The 
 | Scan: Trivy DB download fails | The agent needs outbound access to `ghcr.io`; delete a stale `~/.cache/trivy` and re-run. |
 | Scan never runs on schedule | The cron registers only after the first manual run; also check the controller timezone. |
 | Scan UNSTABLE with nothing "broken" | The result policy working — a HIGH/CRITICAL finding in the deployed tree; fix the package, don't re-run. |
+| Scan reports runtime/framework CVEs that were already patched | Compare the versions in the report with `mcr.microsoft.com/dotnet/aspnet:10.0`; the Image stage builds with `--pull`, so a stale hit means the pull itself failed — check outbound access to `mcr.microsoft.com` and prune the agent's old base images. |
+| Findings with no fix available | Upstream published no patch — Trivy shows an empty `FixedVersion` with `Status: affected`. Nothing to install; they clear on the weekly build once the fix ships (the base images are pulled fresh). Don't hand-patch or pin a package by hand. |
 | Host key verification failed after a server reinstall | `accept-new` only accepts *new* keys — remove the stale `known_hosts` entry. |

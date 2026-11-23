@@ -52,7 +52,12 @@ RUN apt-get update \
     && echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt ${VERSION_CODENAME}-pgdg main" > /etc/apt/sources.list.d/pgdg.list \
     && apt-get update \
     && apt-get install -y --no-install-recommends postgresql-client-17 \
+    && apt-get purge -y --auto-remove curl \
     && rm -rf /var/lib/apt/lists/*
+# curl only fetched the PGDG key above; purging it (with libcurl/librtmp, which nothing
+# else in the image links) keeps packages the bot never calls out of the scanned image —
+# librtmp1 in particular has no Ubuntu fix (design §5.3). ca-certificates stays: .NET
+# resolves Discord/LLM/MCP TLS through the system CA bundle.
 USER $APP_UID
 WORKDIR /app
 COPY --from=publish /app/publish .

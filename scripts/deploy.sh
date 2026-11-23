@@ -80,7 +80,10 @@ echo "==> Expected bot version: $expected_version"
 #    not disturb the running stack (deploy failure != outage). This covers the
 #    bot and every sidecar compose defines (the backup sidecar, §5.2) — `up`
 #    below runs with --no-build and needs all of them to already exist.
-docker compose build
+#    --pull refreshes the base images instead of reusing the server's cached
+#    ones, so a deploy also picks up the runtime/framework/OS patches the
+#    weekly scan (§5.3) reports as fixed.
+docker compose build --pull
 
 # 2. Replace only changed containers. --no-build: exactly the image built above
 #    is run. Compose recreates only the bot when its image changed; the db

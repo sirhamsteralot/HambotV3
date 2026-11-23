@@ -716,7 +716,7 @@ Tests: `BotTests/TestLinkFix.cs` — the pure rewriter over the shipped table (e
 
 ## 5. Deployment
 
-Containerized via `HambotV2/Dockerfile` (multi-stage .NET 10 build → runtime-only image on the ASP.NET Core base — required by the in-process MCP endpoint — plus `postgresql-client-17` for the in-bot backup commands). Build context is the repo root; the image is secret-free.
+Containerized via `HambotV2/Dockerfile` (multi-stage .NET 10 build → runtime-only image on the ASP.NET Core base — required by the in-process MCP endpoint — plus `postgresql-client-17` for the in-bot backup commands; `curl`, needed only to fetch the PGDG key, is purged in the same layer, so the runtime image carries no HTTP client). Build context is the repo root; the image is secret-free.
 
 ```
 ┌─ docker-compose.yml ──────────────────────────────────────────────────────┐
@@ -740,11 +740,12 @@ push ──► Jenkinsfile: Build (Release, warnings as errors) ──► Test (
                                                                  │ yes
                                                                  ▼
                               Deploy: SSH to server → scripts/deploy.sh:
-                              snapshot running image (rollback point) → build new image before touching
-                              containers → swap only changed containers (secrets only from the server's
-                              gitignored .env) → poll startup lines ("Database migrations applied
-                              successfully", "Discord gateway connection established.", "Bot version: <expected>")
-                              → rollback + non-zero exit if absent; else prune dangling images, write .deploy-info
+                              snapshot running image (rollback point) → pull base images, build new
+                              image before touching containers → swap only changed containers (secrets
+                              only from the server's gitignored .env) → poll startup lines ("Database
+                              migrations applied successfully", "Discord gateway connection established.",
+                              "Bot version: <expected>") → rollback + non-zero exit if absent; else prune
+                              dangling images, write .deploy-info
 ```
 
 One-time server prep: `hambot-deploy` user in the docker group, clone at `/opt/hambotv2`, `.env` filled there (the pipeline never touches it), SSH key credential in Jenkins (`DEPLOY_HOST/USER/DIR/CREDENTIAL`, SSH Agent plugin). Full guide: [`jenkins-cicd.md`](jenkins-cicd.md).
@@ -763,12 +764,15 @@ One-time server prep: `hambot-deploy` user in the docker group, clone at `/opt/h
 
 ```
 Build (warnings as errors, no tests) ──► SBOM (pinned dotnet CycloneDX per project + pinned jq)
-  ──► Image (docker build + docker save the deployment image — never pushed or started)
+  ──► Image (docker build --pull + docker save the deployment image — never pushed or started)
   ──► Scan (Trivy over SBOMs + saved tarball, JSON, --exit-code 0: findings never fail a stage;
        tool/DB failures fail the build)
-  ──► Report (jq severity summary; HIGH/CRITICAL in the deployed tree — HambotV2 SBOM + image,
-       BotTests excluded — mark the build UNSTABLE, never FAILED); artifacts under security/ archived (~26 builds)
+  ──► Report (jq severity summary + fixable/awaiting-upstream split; HIGH/CRITICAL in the
+       deployed tree — HambotV2 SBOM + image, BotTests excluded — mark the build UNSTABLE,
+       never FAILED); artifacts under security/ archived (~26 builds)
 ```
+
+Base images are pulled in both builds — the scan's `docker build --pull` and the deploy's `docker compose build --pull` (§5.1): a base layer cached on the agent or server would otherwise keep the report pinned to a runtime/OS patch the registry already replaced (a stale `aspnet:10.0` layer reported 10.0.14 while 10.0.15 was available). Findings split on `FixedVersion`: one with a published fix clears on the next build once installed; one without (e.g. Ubuntu `noble` packages that have no security-pocket update yet) is accepted risk — listed, never hidden behind an ignore file — until upstream ships it.
 
 The Jenkins container needs the host Docker socket + CLI mounted for the Image stage (same accepted trade-off as §5.1).
 

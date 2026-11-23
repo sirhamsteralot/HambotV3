@@ -112,7 +112,7 @@ dotnet test HambotV2.sln   # no database, token, or Docker needed
 Same as the quick start, on your server. Data persists in the `db-data` and `backups` volumes; all services use `restart: unless-stopped`; the bot waits for the database healthcheck. Plain Docker also works (build context is the repo root):
 
 ```bash
-docker build -f HambotV2/Dockerfile -t hambotv2:latest .
+docker build --pull -f HambotV2/Dockerfile -t hambotv2:latest .
 docker run -d --name hambot --restart unless-stopped \
   -e Secrets__BotToken=<token> \
   -e "ConnectionStrings__DefaultConnection=Server=<host>;Port=5432;Database=hambotdb;User Id=hambot;Password=<password>;" \

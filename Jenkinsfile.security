@@ -78,8 +78,14 @@ pipeline {
                 // the base image layers and apt packages the NuGet graph cannot
                 // see. Scan-only — never pushed, never started, never tagged as
                 // anything the stack uses.
+                //
+                // --pull is required: without it docker silently reuses whatever
+                // base image the agent cached first, so the scan keeps reporting
+                // runtime/framework CVEs that the registry already patched (a
+                // stale aspnet:10.0 layer pinned the report to 10.0.14 while
+                // 10.0.15 was released). Findings must reflect today's tags.
                 sh '''
-                    docker build -f HambotV2/Dockerfile -t "$SCAN_TAG" .
+                    docker build --pull -f HambotV2/Dockerfile -t "$SCAN_TAG" .
                     mkdir -p scan-image
                     docker save "$SCAN_TAG" -o scan-image/hambotv2-image.tar
                 '''
@@ -111,6 +117,17 @@ pipeline {
                             echo "$severity: $count"
                         done
                         jq -r '.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH" or .Severity=="CRITICAL") | "\\(.Severity) \\(.VulnerabilityID) \\(.PkgName) \\(.InstalledVersion) -> fixed \\(.FixedVersion // "unknown")"' "security/cve-report.$report.json" || true
+                    done
+                    # Triage split: a finding with a published fix clears on the
+                    # next build once that fix is installed (image CVEs when the
+                    # base image is pulled, NuGet ones on a package bump); a
+                    # finding without one is waiting on upstream and needs no
+                    # action here. Only the first group is actionable.
+                    for report in hambotv2 bottests image; do
+                        fixable=$(jq '[.Results[]?.Vulnerabilities[]? | select(.FixedVersion != null and .FixedVersion != "")] | length' "security/cve-report.$report.json")
+                        waiting=$(jq '[.Results[]?.Vulnerabilities[]? | select(.FixedVersion == null or .FixedVersion == "")] | length' "security/cve-report.$report.json")
+                        echo "$report: $fixable fixable now, $waiting waiting on an upstream fix"
+                        jq -r '.Results[]?.Vulnerabilities[]? | select(.FixedVersion != null and .FixedVersion != "") | "  fixable \\(.Severity) \\(.VulnerabilityID) \\(.PkgName) \\(.InstalledVersion) -> \\(.FixedVersion)"' "security/cve-report.$report.json" || true
                     done
                     # The result policy gates on the deployed tree only: the
                     # HambotV2 SBOM and the image. BotTests findings are
