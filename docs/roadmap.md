@@ -102,6 +102,60 @@ Each task carries: **Problem** (what's missing today), **Steps** (ordered checkl
 
     **Acceptance criteria**: none yet — specifying this task is the first step once scheduled; after that: `!remindme at <datetime> <message...>` stores and delivers at the exact UTC instant like any other reminder, invalid or past input is an in-channel error with nothing stored, the existing duration and `every` forms are unchanged, build warning-free and tests green.
 
+- [ ] **FuelUsageMonitor — Torque real-time upload ingestion and a per-trip Discord summary (receive path specified and designed, ready to implement: §2.29 FR-201–FR-211 + NFR-36, design §3.24; the statistics half still needs FRs from FR-213 and the §3.24 extension — FR-183–191 belong to Phase B2; the wire format is captured in [`torque-log-upload-server-wire-format-and-endpoint-requirements.md`](torque-log-upload-server-wire-format-and-endpoint-requirements.md))**
+
+    **Split**: the **receive path is specified and designed, ready to implement** — §2.29 FR-201–FR-212 + NFR-36 of the requirements, design §3.24: opt-in endpoint on the existing Kestrel host, query-string-only contract with the exact `OK!` ack, bearer/path-secret auth, bounds, an uploaded body accepted and discarded (FR-212 — the transport works today, nothing is parsed), sample parsing, queue handoff, `!health` counters, privacy and failure rules. The second half (accumulation, `FuelUsageTrip`, statistics, commands, channel post) is still to be authored, and design §3.24 already marks the consumer loop as its single replacement point. Steps 1–2 below are therefore no longer spec work; the rest of the checklist follows once the receive path lands.
+
+    **Problem**: nothing in the bot measures what members' vehicles burn. Members drive with Torque Pro/Lite (Android + Bluetooth OBD-II) and its **realtime web upload** pushes live telemetry to a URL of their choosing — but that traffic is neither a file nor a body: it is one query-string sample per logging interval, and an endpoint that parses a body silently receives nothing. The bot has no inbound HTTP surface except the operator-agent MCP endpoint (§3.11) and no trip statistics, so the datastream has nowhere to go.
+
+    **Requested shape**: an upload endpoint Torque can point at; the incoming sample stream is accumulated into trips and each finished trip is summarised — litres used, kilometres driven, fuel usage total and average — into that guild's configured channel. No LLM, no external lookups: the arithmetic is local and the only network traffic is the Discord post.
+
+    **Wire contract** (as captured, to be absorbed into §3.24):
+
+    | Property | Detail |
+    |---|---|
+    | Method | `GET` **and** `POST` on the same URL — the body is always empty, everything rides in the query string |
+    | Success | HTTP 200 with body exactly `OK!`; the app's *Test settings* button checks the same, and anything else is treated as failure (possible retry/alert) |
+    | Cadence | One request per *Web Logging Interval* (a few seconds; ~1 s in older versions), so work must happen off the request thread |
+    | Sample keys | `session` (drive start, epoch ms) + `id` (32 hex) identify the drive, `time` (epoch ms) orders samples within it, `v` is the format version |
+    | Identity | `eml` — the *User Email Address* field verbatim, the only user/vehicle discriminator; `profileName` is a usable label, other `profile*`/`userUnit*`/`defaultUnit*` keys are ignorable |
+    | PIDs | Open-ended `k*` keys, and the key set can differ request to request: `kc` RPM, `kd` speed, `k2f` fuel level, `kff1001` GPS speed, `kff1005`/`kff1006` latitude/longitude, `kff1201` trip distance; the fuel-rate key depends on the member's custom PID |
+    | Caveats | Duplicate keys possible (pick one policy), `0.0` is a real reading, absent PIDs simply do not appear, spaces in `eml` break the app's encoding |
+    | Auth | Torque Pro ≥ 1.12.46 sends `Authorization: Bearer <token>` when enabled, over https only |
+    | Privacy | Every request carries live GPS coordinates — TLS plus a token, or a VPN, and no coordinate persistence |
+
+    **Steps** (initial plan; full FR set and design authored as the first step once scheduled):
+
+    1. Spec first: move the captured contract into §3.24 and settle which PID carries fuel: litres come from integrating a flow-rate PID, or from a fuel-level drop, and the key is member-configured (`kff…`), so the parser keys off a configurable PID name rather than a hardcoded one. Verify against one captured drive from the requester's own app.
+    2. Ingestion endpoint: a minimal-API route on the Kestrel host the MCP endpoint already runs in (`FuelUsageMonitor:ListenPath`, default `/fuel/upload`) that accepts both methods, parses the query string only, validates the token, answers `200 OK!` immediately, and hands the parsed sample to a `Channel<T>` read by a background consumer — a per-sample database write on the request thread would fall behind a 1 s uploader.
+    3. Trip accumulation: an in-memory accumulator per (token → guild, `session`, `id`), fed from the channel:
+
+        | Statistic | Derivation |
+        |---|---|
+        | Litres used | ∫ fuel-rate PID dt over the sample timestamps, or fuel-level drop × tank capacity; guarded against resets and gaps |
+        | Kilometres driven | Trapezoidal ∫ speed dt (`kd`, falling back to `kff1001`), dropping gaps > `FuelUsageMonitor:MaxSampleGapSeconds` (120) so a paused app is not smeared across the trip |
+        | Average fuel usage | litres ÷ km × 100 (L/100 km), or MPG in the guild's unit system |
+        | Fuel usage total | The finished trip's aggregate, as posted in the summary |
+
+    4. Trip finalisation: a drive ends when its last sample is older than `FuelUsageMonitor:TripIdleMinutes` (default 10) or a new `session` arrives for the same token — swept by a job on the shared `Scheduling/PeriodicJobHost` (§3.8, the watchdog/quote-of-the-day pattern). The finished trip persists as a `FuelUsageTrip` row (guild, channel, token id, session, `id`, `eml`/`profileName` label, start/end UTC, km, litres, average usage, sample count) via migration `AddFuelUsageTrips` and posts exactly one summary embed, `AllowedMentions.None`, through the existing notification path (§3.13).
+    5. Duplicates and retries: `(session, id, time)` is idempotent — a resend after a reconnect updates the accumulator instead of double-counting, and a replayed completed session never double-posts.
+    6. Commands in a new `FuelUsageMonitor/` + `Commands/FuelUsageMonitorCommands/` set: `!fuelchannel <#channel|off>` (tier 2, guild-only), `!fueltoken [rotate]` (tier 3, shows the upload URL/token and rotates it), `!fuel [days]` (recent trips plus rolling totals). Help text, category, slash-eligible per §3.15.
+    7. Auth, bounds, trust: one bearer token per guild/vehicle pair, hashed at rest — the query string is not where a secret belongs, because reverse proxies log URLs; a plain-HTTP or VPN-only deployment may instead use an unguessable path segment. `eml` is validated against the values registered for that token and is never an instruction; `MaxUploadBytes` (small, 64 KB) and `MaxUploadsPerMinute` (30) per token; an unknown token is refused, while a malformed *sample* from a known token is counted, logged without content, and still answered `OK!` so the app does not retry-storm — a bad sample never kills the listener.
+    8. Privacy: raw samples and coordinates stay in memory only; the finished trip stores distance and volume, never a position or a route. TLS terminates at the reverse proxy, which is why the bearer header (not a URL secret) is the default.
+    9. Config and deployment: `FuelUsageMonitor:Enabled` (false), `FuelUsageMonitor:ListenPath` (`/fuel/upload`), `FuelUsageMonitor:FuelRatePid` (empty = derive litres from fuel level), `FuelUsageMonitor:FuelCapacityLitres`, `FuelUsageMonitor:MaxSampleGapSeconds` (120), `FuelUsageMonitor:TripIdleMinutes` (10), `FuelUsageMonitor:MaxUploadsPerMinute` (30), `FuelUsageMonitor:UnitSystem` (`metric`), optional `FuelUsageMonitor:DefaultChannelId`; compose `FUELUSAGEMONITOR_*` → `FuelUsageMonitor__*` beside the MCP port settings, plus the published port and https note in §4/§5. Tokens are runtime state (`!fueltoken`), never configuration.
+    10. Tests: sample→accumulator arithmetic against a hand-computed drive; gap handling, fuel resets, duplicate `(session, time)`, unknown `k*` keys, `0.0` readings; GET/POST parity and the exact `OK!` body with a fast return; finalisation on idle and on session rollover; token auth and rate bounds; post path over a fake sender; InMemory database, `FakeTimeProvider`.
+    11. Docs at sign-off: §2.29 and §3.24 as-built (drop **(planned)**), §4 config table, §5 published port, README command table, manual-test-plan section; state in §6 that this inbound endpoint is machine-to-machine ingestion of a member's own telemetry, not the out-of-scope web interface or admin panel.
+
+    **To settle when the FRs are authored**:
+
+    - **Which PID carries fuel** — the open-ended `k*` set and member-defined custom PIDs decide whether litres are integrated from flow or derived from a fuel-level drop; `FuelUsageMonitor:FuelRatePid` + `FuelUsageMonitor:FuelCapacityLitres` are the placeholders for that choice.
+    - **Sample retention**: in-memory accumulator (no GPS ever stored, a mid-drive restart loses that trip) vs the contract's narrow `(session, id, time, pid, value)` rows with a retention window — privacy favours memory, replay/debugging favours rows.
+    - **Live trips**: realtime mode permits an in-progress "current trip" view or per-trip progress ping; keep the feature to completed trips unless the requester wants live telemetry.
+    - **Multiple vehicles per guild**: one token per vehicle (cleaner separation, more tokens) versus one token per guild with `eml`/`profileName` as the label.
+    - **The finished-log path**: file uploads now arrive and are discarded (FR-212), which proves the transport without deciding anything; whether such a CSV is ever parsed into a trip stays open — the realtime stream is the only data source the statistics half needs.
+
+    **Acceptance criteria**: none yet — specifying this task is the first step once scheduled; after that: a member's drive streams samples to the guild's URL and the bot answers `200`/`OK!` fast enough for a 1 s cadence; on trip end exactly one embed lands in the configured channel with litres used, kilometres driven and average fuel usage computed from the log's own speed and fuel data; metric and imperial uploads both compute correctly; an unknown token is refused, and malformed samples, duplicate resends, unknown PIDs and mid-drive gaps neither crash the listener nor double-post; no GPS coordinate or raw sample is persisted; a restart mid-drive costs at most the in-flight trip; build warning-free and tests green.
+
 - [ ] **Further extra features — placeholder (not yet specified)**
 
     Candidates get their own entry here (Problem / Steps / Acceptance criteria) once proposed and agreed, then are fully specified in the requirements and design docs before implementation.
