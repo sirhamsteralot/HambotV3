@@ -83,7 +83,6 @@ services:
       FuelUsageMonitor__MaxUploadsPerMinute: ${FUELUSAGEMONITOR_MAX_UPLOADS_PER_MINUTE:-}
       FuelUsageMonitor__MaxQueryBytes: ${FUELUSAGEMONITOR_MAX_QUERY_BYTES:-}
       FuelUsageMonitor__MaxBodyBytes: ${FUELUSAGEMONITOR_MAX_BODY_BYTES:-}
-      FuelUsageMonitor__QueueCapacity: ${FUELUSAGEMONITOR_QUEUE_CAPACITY:-}
     volumes:
       - backups:/app/backups
     # The MCP endpoint's listen port, published loopback-only (FR-86): an agent on the

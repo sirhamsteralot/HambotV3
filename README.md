@@ -35,7 +35,7 @@ Non-secret settings in `appsettings.json`:
 | `BotConfiguration:Presence` / `BotConfiguration:Bio` | *(unset)* | Optional startup activity / profile bio; absent → left untouched. Invalid values fail startup. |
 | `Llm:*` | see `HambotV2/appsettings.json` | Optional LLM features (automatic presence/bio updates). `Llm:ApiKey` is a secret — set via `LLM_API_KEY` in `.env` or `Llm__ApiKey`; absent → all LLM features inactive. |
 | `LinkFix:*` | see `HambotV2/appsettings.json` | Link-repost bounds: distinct links per repost (5), per-channel cooldown seconds (0 = disabled), mapping row cap (50), the Reddit video gate (on, 5 s check timeout, 6 h verdict cache), and hiding the original's embeds after a repost (on; needs Manage Messages). The origin→mirror hosts are runtime state (`!linkfixmap`), never configuration. |
-| `FuelUsageMonitor:*` | see `HambotV2/appsettings.json` | Opt-in Torque upload receiver (off): listen address (`http://0.0.0.0:2526`) and route (`/fuel/upload`), per-address rate (120/min), query (8 KB) and body (8 MB) caps, queue capacity (1000). `FuelUsageMonitor:UploadToken` is a secret — required when enabled. |
+| `FuelUsageMonitor:*` | see `HambotV2/appsettings.json` | Opt-in Torque upload receiver (off): listen address (`http://0.0.0.0:2526`) and route (`/fuel/upload`), per-address rate (120/min), query (8 KB) and body (8 MB) caps. `FuelUsageMonitor:UploadToken` is a secret — required when enabled. |
 | `Serilog` | Console + daily `logs/` file | Logging; changeable without rebuilding. |
 
 Secrets (never commit; `.env` and `appsecrets.json` are gitignored):
@@ -100,7 +100,7 @@ Accepts the **realtime web upload** of the Torque OBD-II app (`org.prowl.torque`
 
 In the app: **Settings → Data Logging & Upload → Upload to webserver**, set the Webserver URL to `https://<your-host>/fuel/upload` and the *User Email Address* to a label for the vehicle. Torque Pro ≥ 1.12.46 sends the token as an `Authorization: Bearer` header, and only to an `https://` URL — that header is the only authentication, so terminate TLS at your proxy (the token is never accepted from the URL). The app appends its own query string and shows success only when the endpoint answers `200` with the body `OK!`.
 
-Accepted samples are counted and **discarded**: nothing is written to the database, nothing is posted, and an uploaded log *file* is acknowledged and thrown away unread. `!health` (tier 4) shows the receiver's state and counters — accepted, rejected, dropped, discarded bodies, the last sample's time, and which PID keys actually arrive (the fuel PID is member-chosen, so that list is what tells you what you can compute later). No coordinate, PID value or email address is ever logged or shown.
+Accepted samples are counted and **discarded**: nothing is written to the database, nothing is posted, and an uploaded log *file* is acknowledged and thrown away unread. `!health` (tier 4) shows the receiver's state and counters — accepted, rejected, discarded bodies, the last sample's time, and which PID keys actually arrive (the fuel PID is member-chosen, so that list is what tells you what you can compute later). No coordinate, PID value or email address is ever logged or shown.
 
 ## Slash commands
 

@@ -104,12 +104,12 @@ Each task carries: **Problem** (what's missing today), **Steps** (ordered checkl
 
 - [ ] **FuelUsageMonitor — trip accumulation, statistics and the per-trip Discord post (the receive path is built: §2.29 FR-201–FR-212 + NFR-36, design §3.24; this half still needs FRs from FR-213 and a §3.24 extension)**
 
-    **Problem**: the receiver accepts and acknowledges Torque's realtime uploads, but each sample is counted and dropped — no trip is assembled, no fuel or distance is measured, and nothing is posted, so a drive still produces no figure.
+    **Problem**: the receiver accepts and acknowledges Torque's realtime uploads, but each sample is counted and thrown away — no trip is assembled, no fuel or distance is measured, and nothing is posted, so a drive still produces no figure.
 
     **Steps** (full FR set and design delta authored first; the built receiver is the starting point):
 
     1. Settle the fuel PID: litres come from integrating a flow-rate PID or from a fuel-level drop, and the key is member-configured (`kff…`), so the parser keys off a config name (`FuelUsageMonitor:FuelRatePid`) instead of a hardcoded one. The `!health` PID list is how the requester confirms which keys their app actually logs.
-    2. Trip accumulator inside the receiver's consumer loop (design §3.24 marks that loop as the single replacement point): in memory per (sender, `session`, `id`), fed from the existing bounded channel.
+    2. Trip accumulator behind `FuelUsageIngestionStatus.RecordAccepted` (design §3.24 names that call as the receive path's single replacement point): a bounded channel is re-added there — the receive path deliberately has none today — and the accumulator keeps state in memory per (sender, `session`, `id`).
 
         | Statistic | Derivation |
         |---|---|

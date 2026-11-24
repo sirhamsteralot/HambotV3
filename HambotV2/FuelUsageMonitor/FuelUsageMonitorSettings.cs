@@ -13,7 +13,6 @@ namespace HambotV2.FuelUsageMonitor
         internal const int DefaultMaxUploadsPerMinute = 120;
         internal const int DefaultMaxQueryBytes = 8192;
         internal const int DefaultMaxBodyBytes = 8 * 1024 * 1024;
-        internal const int DefaultQueueCapacity = 1000;
 
         public bool Enabled { get; init; }
 
@@ -29,8 +28,6 @@ namespace HambotV2.FuelUsageMonitor
         public int MaxQueryBytes { get; init; } = DefaultMaxQueryBytes;
 
         public int MaxBodyBytes { get; init; } = DefaultMaxBodyBytes;
-
-        public int QueueCapacity { get; init; } = DefaultQueueCapacity;
 
         /// <summary>True when the endpoint should run: enabled and a token configured.</summary>
         public bool IsActive => Enabled && !string.IsNullOrWhiteSpace(UploadToken);
@@ -62,10 +59,6 @@ namespace HambotV2.FuelUsageMonitor
             if (int.TryParse(configuration?["FuelUsageMonitor:MaxBodyBytes"], out int configuredMaxBodyBytes) && configuredMaxBodyBytes >= 1024)
                 maxBodyBytes = configuredMaxBodyBytes;
 
-            int queueCapacity = DefaultQueueCapacity;
-            if (int.TryParse(configuration?["FuelUsageMonitor:QueueCapacity"], out int configuredQueueCapacity) && configuredQueueCapacity > 0)
-                queueCapacity = configuredQueueCapacity;
-
             return new FuelUsageMonitorSettings
             {
                 Enabled = enabled,
@@ -74,8 +67,7 @@ namespace HambotV2.FuelUsageMonitor
                 UploadToken = configuration?["FuelUsageMonitor:UploadToken"]?.Trim() ?? string.Empty,
                 MaxUploadsPerMinute = maxUploads,
                 MaxQueryBytes = maxQueryBytes,
-                MaxBodyBytes = maxBodyBytes,
-                QueueCapacity = queueCapacity
+                MaxBodyBytes = maxBodyBytes
             };
         }
 

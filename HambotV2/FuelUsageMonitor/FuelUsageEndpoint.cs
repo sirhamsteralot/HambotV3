@@ -1,5 +1,3 @@
-using System.Collections.Concurrent;
-using System.Threading.Channels;
 using HambotV2.Maintenance;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
@@ -9,9 +7,9 @@ namespace HambotV2.FuelUsageMonitor
 {
     /// <summary>
     /// The request handler behind the route: builds the gate's view of the request, discards any
-    /// uploaded body, answers <c>OK!</c> and hands a parsed sample to the queue. Nothing here
-    /// touches the database, Discord or the log's content rules — coordinates, PID values and the
-    /// sender's email address stay in memory.
+    /// uploaded body, answers <c>OK!</c> and counts the parsed sample. Nothing here touches the
+    /// database, Discord or trip statistics — coordinates, PID values and the sender's email
+    /// address stay in memory, and the counters keep neither.
     /// </summary>
     internal sealed class FuelUsageEndpoint
     {
@@ -21,27 +19,20 @@ namespace HambotV2.FuelUsageMonitor
         private readonly FuelUsageMonitorSettings _settings;
         private readonly FuelUsageRequestGate _gate;
         private readonly FuelUsageIngestionStatus _status;
-        private readonly ChannelWriter<TorqueSample> _queue;
         private readonly IMaintenanceMode _maintenance;
-        private readonly TimeProvider _timeProvider;
         private readonly ILogger _logger;
-        private readonly ConcurrentDictionary<string, long> _lastLogMinute = new(StringComparer.Ordinal);
 
         public FuelUsageEndpoint(
             FuelUsageMonitorSettings settings,
             FuelUsageRequestGate gate,
             FuelUsageIngestionStatus status,
-            ChannelWriter<TorqueSample> queue,
             IMaintenanceMode maintenance,
-            TimeProvider timeProvider,
             ILogger logger)
         {
             _settings = settings;
             _gate = gate;
             _status = status;
-            _queue = queue;
             _maintenance = maintenance;
-            _timeProvider = timeProvider;
             _logger = logger;
         }
 
@@ -53,7 +44,11 @@ namespace HambotV2.FuelUsageMonitor
             if (decision.Outcome is not (FuelUsageOutcome.Sample or FuelUsageOutcome.NotASample))
             {
                 _status.RecordRefused(decision.Outcome);
-                LogOutcomeOnceAMinute($"refused:{decision.Outcome}", decision.Outcome, decision.StatusCode, request.RawQuery.Length);
+                _logger.LogDebug(
+                    "Fuel usage upload {Outcome} ({StatusCode}), {ByteCount} bytes",
+                    decision.Outcome,
+                    decision.StatusCode,
+                    request.RawQuery.Length);
                 context.Response.StatusCode = decision.StatusCode;
                 return;
             }
@@ -66,7 +61,10 @@ namespace HambotV2.FuelUsageMonitor
             catch (BadHttpRequestException)
             {
                 _status.RecordRefused(FuelUsageOutcome.BodyTooLarge);
-                LogOutcomeOnceAMinute($"refused:{FuelUsageOutcome.BodyTooLarge}", FuelUsageOutcome.BodyTooLarge, FuelUsageRequestGate.StatusPayloadTooLarge, 0);
+                _logger.LogDebug(
+                    "Fuel usage upload {Outcome} ({StatusCode})",
+                    FuelUsageOutcome.BodyTooLarge,
+                    FuelUsageRequestGate.StatusPayloadTooLarge);
                 context.Response.StatusCode = FuelUsageRequestGate.StatusPayloadTooLarge;
                 return;
             }
@@ -74,8 +72,8 @@ namespace HambotV2.FuelUsageMonitor
             if (bodyBytes > 0)
                 _status.RecordBody(bodyBytes);
 
-            // The acknowledgement is written before the sample is queued: the app is waiting on
-            // exactly this string, and the queue write never blocks.
+            // The acknowledgement is written before the sample is counted: the app is waiting on
+            // exactly this string, and nothing downstream may delay it.
             context.Response.StatusCode = FuelUsageRequestGate.StatusOk;
             context.Response.ContentType = "text/plain; charset=utf-8";
             await context.Response.WriteAsync(SuccessBody, context.RequestAborted);
@@ -86,18 +84,12 @@ namespace HambotV2.FuelUsageMonitor
                 return;
             }
 
-            if (_queue.TryWrite(sample))
-            {
-                _logger.LogDebug(
-                    "Fuel usage sample accepted: {PidCount} PIDs ({PidKeys}), {BodyBytes} body bytes",
-                    sample.Values.Count,
-                    string.Join(",", sample.Values.Keys),
-                    bodyBytes);
-                return;
-            }
-
-            _status.RecordDropped();
-            LogOutcomeOnceAMinute("dropped", FuelUsageOutcome.Sample, FuelUsageRequestGate.StatusOk, bodyBytes);
+            _status.RecordAccepted(sample);
+            _logger.LogDebug(
+                "Fuel usage sample accepted: {PidCount} PIDs ({PidKeys}), {BodyBytes} body bytes",
+                sample.Values.Count,
+                string.Join(",", sample.Values.Keys),
+                bodyBytes);
         }
 
         /// <summary>
@@ -149,17 +141,6 @@ namespace HambotV2.FuelUsageMonitor
                 RemoteAddress = context.Connection.RemoteIpAddress?.ToString() ?? string.Empty,
                 MaintenanceActive = _maintenance.IsActive
             };
-        }
-
-        /// <summary>One log line per outcome per minute: a flood must not become a log flood.</summary>
-        private void LogOutcomeOnceAMinute(string key, FuelUsageOutcome outcome, int statusCode, long byteCount)
-        {
-            long minute = _timeProvider.GetUtcNow().ToUnixTimeSeconds() / 60;
-            if (_lastLogMinute.TryGetValue(key, out long lastLogged) && lastLogged == minute)
-                return;
-
-            _lastLogMinute[key] = minute;
-            _logger.LogDebug("Fuel usage upload {Outcome} ({StatusCode}), {ByteCount} bytes", outcome, statusCode, byteCount);
         }
     }
 }

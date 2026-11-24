@@ -312,4 +312,4 @@ Opt-in (design §3.24). Requires `FUELUSAGEMONITOR_ENABLED=true` + `FUELUSAGEMON
 | 18.10 | Point the app at `https://<host>/fuel/upload` with the token and drive for a minute | The app reports success; the `!health` accepted count rises about once per logging interval, and the PID list matches what the app logs. |
 | 18.11 | `docker compose logs bot` | One `Information` line on start; per-sample detail at `Debug` only; no coordinate, PID value or email address in any line. |
 | 18.12 | `!health` as a non-owner, and `!health` in a DM as the owner | Denied for the non-owner; the DM report includes the `Fuel usage monitor:` line. |
-| 18.13 | During `!restorebackup … confirm` (maintenance mode), post a sample | `503`; nothing is queued for replay; after maintenance, samples flow again. |
+| 18.13 | During `!restorebackup … confirm` (maintenance mode), post a sample | `503`; nothing is retained for replay; after maintenance, samples flow again. |

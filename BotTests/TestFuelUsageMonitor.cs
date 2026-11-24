@@ -1,7 +1,6 @@
 using System.Net;
 using System.Net.Http;
 using System.Text;
-using System.Threading.Channels;
 using HambotV2.FuelUsageMonitor;
 using HambotV2.Maintenance;
 using Microsoft.Extensions.Configuration;
@@ -28,8 +27,7 @@ namespace BotTests
         private static FuelUsageMonitorSettings CreateSettings(
             int maxUploadsPerMinute = 120,
             int maxQueryBytes = 8192,
-            int maxBodyBytes = 1024 * 1024,
-            int queueCapacity = 10)
+            int maxBodyBytes = 1024 * 1024)
         {
             return new FuelUsageMonitorSettings
             {
@@ -39,8 +37,7 @@ namespace BotTests
                 UploadToken = Token,
                 MaxUploadsPerMinute = maxUploadsPerMinute,
                 MaxQueryBytes = maxQueryBytes,
-                MaxBodyBytes = maxBodyBytes,
-                QueueCapacity = queueCapacity
+                MaxBodyBytes = maxBodyBytes
             };
         }
 
@@ -62,7 +59,6 @@ namespace BotTests
             Assert.AreEqual(120, settings.MaxUploadsPerMinute);
             Assert.AreEqual(8192, settings.MaxQueryBytes);
             Assert.AreEqual(8 * 1024 * 1024, settings.MaxBodyBytes);
-            Assert.AreEqual(1000, settings.QueueCapacity);
         }
 
         [TestMethod]
@@ -87,14 +83,12 @@ namespace BotTests
                 ("FuelUsageMonitor:ListenPath", "fuel/upload/"),
                 ("FuelUsageMonitor:MaxUploadsPerMinute", "0"),
                 ("FuelUsageMonitor:MaxQueryBytes", "12"),
-                ("FuelUsageMonitor:MaxBodyBytes", "10"),
-                ("FuelUsageMonitor:QueueCapacity", "-5")));
+                ("FuelUsageMonitor:MaxBodyBytes", "10")));
 
             Assert.AreEqual("/fuel/upload", settings.ListenPath, "A path is normalized to a single leading slash.");
             Assert.AreEqual(120, settings.MaxUploadsPerMinute);
             Assert.AreEqual(8192, settings.MaxQueryBytes, "An absurdly small query bound falls back.");
             Assert.AreEqual(8 * 1024 * 1024, settings.MaxBodyBytes);
-            Assert.AreEqual(1000, settings.QueueCapacity);
         }
 
         [TestMethod]
@@ -352,7 +346,6 @@ namespace BotTests
             status.RecordAccepted(TorqueSampleParser.Parse(SampleQuery())!);
             status.RecordRefused(FuelUsageOutcome.Unauthorized);
             status.RecordRefused(FuelUsageOutcome.NotASample);
-            status.RecordDropped();
             status.RecordBody(2048);
 
             string report = status.Describe();
@@ -360,7 +353,6 @@ namespace BotTests
             StringAssert.Contains(report, "listening at http://0.0.0.0:2526/fuel/upload");
             StringAssert.Contains(report, "accepted 1");
             StringAssert.Contains(report, "rejected 2");
-            StringAssert.Contains(report, "dropped 1");
             StringAssert.Contains(report, "bodies 1 (2 KB)");
             StringAssert.Contains(report, "session 1764012345000");
             StringAssert.Contains(report, "kff1005");
@@ -385,45 +377,55 @@ namespace BotTests
             private readonly FuelUsageWebHost _host;
             private readonly HttpClient _client = new();
 
+            private readonly FuelUsageIngestionStatus _status;
+
             private Harness(
                 FuelUsageWebHost host,
                 FuelUsageMonitorSettings settings,
-                Channel<TorqueSample> queue,
                 FuelUsageIngestionStatus status,
                 MaintenanceMode maintenance)
             {
                 _host = host;
                 Settings = settings;
-                Queue = queue;
-                Status = status;
+                _status = status;
                 Maintenance = maintenance;
             }
 
             public FuelUsageMonitorSettings Settings { get; }
-            public Channel<TorqueSample> Queue { get; }
-            public FuelUsageIngestionStatus Status { get; }
+            public FuelUsageIngestionStatus Status => _status;
             public MaintenanceMode Maintenance { get; }
 
             public static async Task<Harness> StartAsync(FuelUsageMonitorSettings settings)
             {
-                var queue = Channel.CreateBounded<TorqueSample>(new BoundedChannelOptions(settings.QueueCapacity)
-                {
-                    FullMode = BoundedChannelFullMode.Wait,
-                    SingleReader = true
-                });
                 var status = new FuelUsageIngestionStatus();
                 var maintenance = new MaintenanceMode();
                 var endpoint = new FuelUsageEndpoint(
                     settings,
                     CreateGate(settings, new FakeTimeProvider()),
                     status,
-                    queue.Writer,
                     maintenance,
-                    new FakeTimeProvider(),
                     NullLogger.Instance);
 
                 FuelUsageWebHost host = await FuelUsageWebHost.StartAsync(settings, endpoint.HandleAsync, CancellationToken.None);
-                return new Harness(host, settings, queue, status, maintenance);
+                return new Harness(host, settings, status, maintenance);
+            }
+
+            /// <summary>
+            /// The counters are updated after the acknowledgement is written, so a test waits for the
+            /// reported end state instead of reading it the instant the response arrives.
+            /// </summary>
+            public async Task<string> WaitForStatusAsync(string expected)
+            {
+                for (int attempt = 0; attempt < 500; attempt++)
+                {
+                    string report = _status.Describe();
+                    if (report.Contains(expected, StringComparison.Ordinal))
+                        return report;
+
+                    await Task.Delay(10);
+                }
+
+                return _status.Describe();
             }
 
             private Uri RequestUrl(string query) => new(_host.BaseUri, $"{Settings.ListenPath.TrimStart('/')}{query}");
@@ -478,14 +480,13 @@ namespace BotTests
             Assert.AreEqual("OK!", await get.Content.ReadAsStringAsync(), "The app checks this exact body.");
             Assert.AreEqual("OK!", await post.Content.ReadAsStringAsync());
 
-            Assert.IsTrue(harness.Queue.Reader.TryRead(out TorqueSample? first));
-            Assert.IsTrue(harness.Queue.Reader.TryRead(out TorqueSample? second));
-            Assert.AreEqual(87.5, first!.Values["kd"]);
-            Assert.AreEqual(87.5, second!.Values["kd"]);
+            string status = await harness.WaitForStatusAsync("accepted 2");
+            StringAssert.Contains(status, "accepted 2", "Both requests carry a sample.");
+            StringAssert.Contains(status, "kc", "The PID keys that arrive are named, so an operator can see the fuel key.");
         }
 
         [TestMethod]
-        public async Task Endpoint_Acknowledges_A_Test_Settings_Ping_Without_Queuing_Anything()
+        public async Task Endpoint_Acknowledges_A_Test_Settings_Ping_Without_Accepting_Anything()
         {
             await using Harness harness = await Harness.StartAsync(CreateSettings());
 
@@ -493,8 +494,9 @@ namespace BotTests
 
             Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
             Assert.AreEqual("OK!", await response.Content.ReadAsStringAsync());
-            Assert.IsFalse(harness.Queue.Reader.TryRead(out _), "Nothing is a sample without session/id + time.");
-            StringAssert.Contains(harness.Status.Describe(), "rejected 1");
+            string status = await harness.WaitForStatusAsync("rejected 1");
+            StringAssert.Contains(status, "accepted 0", "Nothing is a sample without session/id + time.");
+            StringAssert.Contains(status, "rejected 1");
         }
 
         [TestMethod]
@@ -512,9 +514,9 @@ namespace BotTests
 
             Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
             Assert.AreEqual("OK!", await response.Content.ReadAsStringAsync(), "An upload is acknowledged so the transport works.");
-            Assert.IsFalse(harness.Queue.Reader.TryRead(out _), "The body is never parsed into a sample.");
-            string status = harness.Status.Describe();
+            string status = await harness.WaitForStatusAsync("bodies 1");
             StringAssert.Contains(status, "bodies 1", "The discarded body is counted.");
+            StringAssert.Contains(status, "accepted 0", "The body is never parsed into a sample.");
             StringAssert.Contains(status, "rejected 1", "It is acknowledged as not-a-sample, not as a trip.");
         }
 
@@ -527,8 +529,9 @@ namespace BotTests
             using HttpResponseMessage response = await harness.PostAsync(content, SampleQueryString);
 
             Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
-            Assert.IsTrue(harness.Queue.Reader.TryRead(out TorqueSample? sample), "The query string decides, the body changes nothing.");
-            Assert.AreEqual("1764012345000", sample!.Session);
+            string status = await harness.WaitForStatusAsync("accepted 1");
+            StringAssert.Contains(status, "accepted 1", "The query string decides, the body changes nothing.");
+            StringAssert.Contains(status, "session 1764012345000");
         }
 
         [TestMethod]
@@ -551,7 +554,7 @@ namespace BotTests
             using HttpResponseMessage response = await harness.GetAsync(SampleQueryString, bearer: null);
 
             Assert.AreEqual(HttpStatusCode.Unauthorized, response.StatusCode);
-            Assert.IsFalse(harness.Queue.Reader.TryRead(out _));
+            StringAssert.Contains(await harness.WaitForStatusAsync("rejected 1"), "accepted 0");
         }
 
         [TestMethod]
@@ -575,21 +578,7 @@ namespace BotTests
             using HttpResponseMessage response = await harness.GetAsync(SampleQueryString);
 
             Assert.AreEqual(HttpStatusCode.ServiceUnavailable, response.StatusCode);
-            Assert.IsFalse(harness.Queue.Reader.TryRead(out _), "Nothing is queued for replay.");
-        }
-
-        [TestMethod]
-        public async Task Endpoint_Drops_A_Sample_When_The_Queue_Is_Full_And_Still_Acknowledges()
-        {
-            await using Harness harness = await Harness.StartAsync(CreateSettings(queueCapacity: 1));
-
-            using HttpResponseMessage first = await harness.GetAsync(SampleQueryString);
-            using HttpResponseMessage second = await harness.GetAsync(SampleQueryString);
-
-            Assert.AreEqual(HttpStatusCode.OK, first.StatusCode);
-            Assert.AreEqual(HttpStatusCode.OK, second.StatusCode, "A drop never becomes a failed upload.");
-            Assert.AreEqual("OK!", await second.Content.ReadAsStringAsync());
-            StringAssert.Contains(harness.Status.Describe(), "dropped 1");
+            StringAssert.Contains(await harness.WaitForStatusAsync("rejected 1"), "accepted 0", "Nothing is retained for replay.");
         }
     }
 }

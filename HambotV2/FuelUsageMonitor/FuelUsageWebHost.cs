@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
 namespace HambotV2.FuelUsageMonitor
@@ -26,6 +27,9 @@ namespace HambotV2.FuelUsageMonitor
 
         /// <summary>The bound address (the real port when the configured one is 0, as in tests).</summary>
         public Uri BaseUri { get; }
+
+        /// <summary>Completes when the host stops: cancellation requested, or a host-level failure.</summary>
+        public Task WaitForShutdownAsync(CancellationToken cancellationToken) => _app.WaitForShutdownAsync(cancellationToken);
 
         public static async Task<FuelUsageWebHost> StartAsync(
             FuelUsageMonitorSettings settings,

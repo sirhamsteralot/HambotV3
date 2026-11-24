@@ -12,7 +12,7 @@ namespace HambotV2.FuelUsageMonitor
 
     /// <summary>
     /// The receive path's in-memory counters and endpoint state: what arrived, what was refused,
-    /// what was dropped, and which PID keys the app actually logs. Nothing here is persisted, and
+    /// and which PID keys the app actually logs. Nothing here is persisted, and
     /// no email address, coordinate or PID value is ever recorded — the row names keys and counts
     /// only, because a Torque URL carries a live position and the health report is shown in chat.
     /// </summary>
@@ -23,7 +23,6 @@ namespace HambotV2.FuelUsageMonitor
         private readonly ConcurrentDictionary<string, byte> _pidKeys = new(StringComparer.Ordinal);
         private readonly ConcurrentDictionary<FuelUsageOutcome, int> _refusals = new();
         private long _accepted;
-        private long _dropped;
         private long _bodies;
         private long _bodyBytes;
         private long _lastSampleMilliseconds;
@@ -50,8 +49,6 @@ namespace HambotV2.FuelUsageMonitor
         }
 
         public void RecordRefused(FuelUsageOutcome outcome) => _refusals.AddOrUpdate(outcome, 1, static (_, count) => count + 1);
-
-        public void RecordDropped() => Interlocked.Increment(ref _dropped);
 
         public void RecordBody(long byteCount)
         {
@@ -81,7 +78,6 @@ namespace HambotV2.FuelUsageMonitor
             return $"{_state}"
                 + $" · accepted {Interlocked.Read(ref _accepted)}"
                 + $" · rejected {refused}" + (reasons.Count > 0 ? $" ({string.Join(", ", reasons)})" : string.Empty)
-                + $" · dropped {Interlocked.Read(ref _dropped)}"
                 + $" · bodies {Interlocked.Read(ref _bodies)} ({BackupSize.Format(Interlocked.Read(ref _bodyBytes))})"
                 + $" · last {last}"
                 + $" · session {session}"
