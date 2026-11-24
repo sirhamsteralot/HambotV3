@@ -35,6 +35,7 @@ Non-secret settings in `appsettings.json`:
 | `BotConfiguration:Presence` / `BotConfiguration:Bio` | *(unset)* | Optional startup activity / profile bio; absent → left untouched. Invalid values fail startup. |
 | `Llm:*` | see `HambotV2/appsettings.json` | Optional LLM features (automatic presence/bio updates). `Llm:ApiKey` is a secret — set via `LLM_API_KEY` in `.env` or `Llm__ApiKey`; absent → all LLM features inactive. |
 | `LinkFix:*` | see `HambotV2/appsettings.json` | Link-repost bounds: distinct links per repost (5), per-channel cooldown seconds (0 = disabled), mapping row cap (50), the Reddit video gate (on, 5 s check timeout, 6 h verdict cache), and hiding the original's embeds after a repost (on; needs Manage Messages). The origin→mirror hosts are runtime state (`!linkfixmap`), never configuration. |
+| `FuelUsageMonitor:*` | see `HambotV2/appsettings.json` | Opt-in Torque upload receiver (off): listen address (`http://0.0.0.0:2526`) and route (`/fuel/upload`), per-address rate (120/min), query (8 KB) and body (8 MB) caps, queue capacity (1000). `FuelUsageMonitor:UploadToken` is a secret — required when enabled. |
 | `Serilog` | Console + daily `logs/` file | Logging; changeable without rebuilding. |
 
 Secrets (never commit; `.env` and `appsecrets.json` are gitignored):
@@ -44,6 +45,7 @@ Secrets (never commit; `.env` and `appsecrets.json` are gitignored):
 | `Secrets:BotToken` | Discord bot token. |
 | `ConnectionStrings:DefaultConnection` | PostgreSQL connection string. |
 | `Mcp:Enabled` / `Mcp:ApiKey` / `Mcp:ListenUri` | Optional MCP endpoint; `ApiKey` required when enabled. |
+| `FuelUsageMonitor:UploadToken` | Optional Torque upload receiver; the bearer token the phone app sends, required when `FuelUsageMonitor:Enabled` is true. |
 | `Llm:ApiKey` | Optional Mistral API key for the LLM features; absent → inactive. |
 
 - **Compose**: set `DISCORD_BOT_TOKEN` and `POSTGRES_PASSWORD` in `.env`; they reach the container as `Secrets__BotToken` / `ConnectionStrings__DefaultConnection` (env vars win over files).
@@ -91,6 +93,14 @@ Opt-in MCP server ([Model Context Protocol](https://modelcontextprotocol.io)) ov
 Tools: `bot_status`, `list_guilds`, `list_channels(guildId)`, `list_commands`, `set_presence`, `set_bio`, `get_recent_messages(channelId, limit ≤ 50)`, `send_message(channelId, text ≤ 2000)`, `run_command(guildId, commandLine)` — a virtual invocation through the real command pipeline (same permissions, cooldowns, audit; the reply is returned as the tool result, never posted to a channel) — and the read-only member lookup tools: `search_users(guildId, query, limit ≤ 25)` (Discord member search by username/display name/nickname — resolve a name to a user id), `get_user_profile(guildId, userId)` (Discord identity plus the bot's records: permission tier, active bot ban, quotes added, last-modified custom responses; reminders stay private), `get_user_quotes(guildId, userId)` (≤ 50, newest first), and `get_user_messages(guildId, userId, limit ≤ 50)` (the member's recent messages across the bot's readable channels). The lookup tools write nothing and are not gated by `!agenttier`; during a backup restore they decline with the maintenance notice.
 
 The agent acts at the lowest tier (0) per server; a guild owner or the bot owner raises it with `!agenttier <tier 0-4>`. The agent can never change its own ceiling.
+
+## Fuel usage monitor (opt-in)
+
+Accepts the **realtime web upload** of the Torque OBD-II app (`org.prowl.torque`) so trip telemetry can be measured. Enable with `FUELUSAGEMONITOR_ENABLED=true` + `FUELUSAGEMONITOR_UPLOAD_TOKEN` (generate: `openssl rand -hex 32`); it listens at `http://0.0.0.0:2526/fuel/upload` (Compose publishes `2526`, deliberately not loopback-only — phones on mobile data must reach it, and the URL the phone is given must be https).
+
+In the app: **Settings → Data Logging & Upload → Upload to webserver**, set the Webserver URL to `https://<your-host>/fuel/upload` and the *User Email Address* to a label for the vehicle. Torque Pro ≥ 1.12.46 sends the token as an `Authorization: Bearer` header, and only to an `https://` URL — that header is the only authentication, so terminate TLS at your proxy (the token is never accepted from the URL). The app appends its own query string and shows success only when the endpoint answers `200` with the body `OK!`.
+
+Accepted samples are counted and **discarded**: nothing is written to the database, nothing is posted, and an uploaded log *file* is acknowledged and thrown away unread. `!health` (tier 4) shows the receiver's state and counters — accepted, rejected, dropped, discarded bodies, the last sample's time, and which PID keys actually arrive (the fuel PID is member-chosen, so that list is what tells you what you can compute later). No coordinate, PID value or email address is ever logged or shown.
 
 ## Slash commands
 

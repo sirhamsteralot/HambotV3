@@ -1,6 +1,7 @@
 using Discord;
 using HambotV2.Commands;
 using HambotV2.Connections;
+using HambotV2.Connections.Http;
 using HambotV2.Maintenance;
 using HambotV2.Mcp;
 using HambotV2.Watchdog;
@@ -75,12 +76,12 @@ namespace BotTests
         [TestMethod]
         public void BearerKey_AcceptsOnlyTheConfiguredKey()
         {
-            Assert.IsTrue(McpBearerAuthentication.IsValid("Bearer odysseus-key", "odysseus-key"));
+            Assert.IsTrue(BearerAuthentication.IsValid("Bearer odysseus-key", "odysseus-key"));
 
-            Assert.IsFalse(McpBearerAuthentication.IsValid(null, "odysseus-key"), "A missing header is rejected.");
-            Assert.IsFalse(McpBearerAuthentication.IsValid("Bearer wrong-key", "odysseus-key"), "A wrong key is rejected.");
-            Assert.IsFalse(McpBearerAuthentication.IsValid("odysseus-key", "odysseus-key"), "A bare key without the scheme is rejected.");
-            Assert.IsFalse(McpBearerAuthentication.IsValid("bearer odysseus-key", "odysseus-key"), "The scheme is case-sensitive, like HTTP auth.");
+            Assert.IsFalse(BearerAuthentication.IsValid(null, "odysseus-key"), "A missing header is rejected.");
+            Assert.IsFalse(BearerAuthentication.IsValid("Bearer wrong-key", "odysseus-key"), "A wrong key is rejected.");
+            Assert.IsFalse(BearerAuthentication.IsValid("odysseus-key", "odysseus-key"), "A bare key without the scheme is rejected.");
+            Assert.IsFalse(BearerAuthentication.IsValid("bearer odysseus-key", "odysseus-key"), "The scheme is case-sensitive, like HTTP auth.");
         }
 
         // Tools over fakes

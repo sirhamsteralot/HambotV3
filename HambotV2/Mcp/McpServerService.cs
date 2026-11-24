@@ -1,3 +1,4 @@
+using HambotV2.Connections.Http;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
@@ -64,7 +65,7 @@ namespace HambotV2.Mcp
             string apiKey = _configuration.ApiKey;
             app.Use(async (context, next) =>
             {
-                if (!McpBearerAuthentication.IsValid(context.Request.Headers.Authorization, apiKey))
+                if (!BearerAuthentication.IsValid(context.Request.Headers.Authorization, apiKey))
                 {
                     context.Response.StatusCode = StatusCodes.Status401Unauthorized;
                     return;

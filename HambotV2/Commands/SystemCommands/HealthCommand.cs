@@ -7,9 +7,9 @@ namespace HambotV2.Commands.SystemCommands
     /// <summary>
     /// Reports the bot's operational state: build version, uptime, gateway state, database
     /// reachability, backup and restore-test status, pending reminder count, the configured
-    /// notification channel, and the MCP endpoint state — one in-channel report from the single
-    /// health snapshot provider. Bot-owner tier by default, usable in direct messages
-    /// (no guild state is read).
+    /// notification channel, the MCP endpoint state, and the fuel upload ingestion state — one
+    /// in-channel report from the single health snapshot provider. Bot-owner tier by default,
+    /// usable in direct messages (no guild state is read).
     /// </summary>
     internal sealed class HealthCommand : ICommand
     {
@@ -50,7 +50,8 @@ namespace HambotV2.Commands.SystemCommands
                 $"Pending reminders: {snapshot.PendingReminders}\n" +
                 $"Notification channel: {snapshot.NotificationChannel}\n" +
                 $"MCP: {snapshot.Mcp}\n" +
-                $"LLM: {snapshot.Llm}");
+                $"LLM: {snapshot.Llm}\n" +
+                $"Fuel usage monitor: {snapshot.FuelUsage}");
         }
 
         private static string FormatUptime(TimeSpan uptime) => uptime.Days > 0

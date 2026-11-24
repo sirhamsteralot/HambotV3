@@ -25,6 +25,12 @@ namespace HambotV2
             if (string.IsNullOrWhiteSpace(configuration["BotConfiguration:CommandIdentifier"]))
                 missing.Add("BotConfiguration:CommandIdentifier");
 
+            // The upload token is required only by the opt-in endpoint, so it is reported only when
+            // the operator has switched that endpoint on.
+            bool fuelUsageEnabled = bool.TryParse(configuration["FuelUsageMonitor:Enabled"], out bool configuredFuelUsage) && configuredFuelUsage;
+            if (fuelUsageEnabled && string.IsNullOrWhiteSpace(configuration["FuelUsageMonitor:UploadToken"]))
+                missing.Add("FuelUsageMonitor:UploadToken");
+
             return missing;
         }
     }

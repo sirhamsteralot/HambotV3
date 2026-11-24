@@ -73,13 +73,29 @@ services:
       LinkFix__VideoProbeTimeoutSeconds: ${LINKFIX_VIDEO_PROBE_TIMEOUT_SECONDS:-}
       LinkFix__VideoProbeCacheMinutes: ${LINKFIX_VIDEO_PROBE_CACHE_MINUTES:-}
       LinkFix__SuppressOriginalEmbeds: ${LINKFIX_SUPPRESS_ORIGINAL_EMBEDS:-}
+      # Optional: the Torque upload receiver (design §3.24, default off). The phone app posts one
+      # query-string sample per logging interval; enabled requires an upload token, which the app
+      # sends as a bearer header — hence the app-side URL must be https (proxy-terminated).
+      FuelUsageMonitor__Enabled: ${FUELUSAGEMONITOR_ENABLED:-}
+      FuelUsageMonitor__UploadToken: ${FUELUSAGEMONITOR_UPLOAD_TOKEN:-}
+      FuelUsageMonitor__ListenUri: ${FUELUSAGEMONITOR_LISTEN_URI:-}
+      FuelUsageMonitor__ListenPath: ${FUELUSAGEMONITOR_LISTEN_PATH:-}
+      FuelUsageMonitor__MaxUploadsPerMinute: ${FUELUSAGEMONITOR_MAX_UPLOADS_PER_MINUTE:-}
+      FuelUsageMonitor__MaxQueryBytes: ${FUELUSAGEMONITOR_MAX_QUERY_BYTES:-}
+      FuelUsageMonitor__MaxBodyBytes: ${FUELUSAGEMONITOR_MAX_BODY_BYTES:-}
+      FuelUsageMonitor__QueueCapacity: ${FUELUSAGEMONITOR_QUEUE_CAPACITY:-}
     volumes:
       - backups:/app/backups
     # The MCP endpoint's listen port, published loopback-only (FR-86): an agent on the
     # deployment host reaches http://127.0.0.1:2525/mcp while the internet cannot. Nothing
     # listens on it while the endpoint is disabled.
+    #
+    # The Torque upload port (design §3.24) is deliberately NOT loopback-only: phones on mobile
+    # data must reach it. Put it behind a TLS-terminating reverse proxy (the app only sends its
+    # bearer token to an https URL) or keep it on a VPN. It listens only while enabled.
     ports:
       - "127.0.0.1:2525:2525"
+      - "2526:2526"
 
   # Backup sidecar (FR-81–FR-85, FR-100–FR-101; design §5.2): backs the database up on
   # schedule independently of the bot, validates each dump, prunes local retention, pushes

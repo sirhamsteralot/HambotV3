@@ -293,3 +293,23 @@ Opt-in per server (design §3.23); defaults need no configuration. Use a test se
 | 17.17 | `!help`; `!linkfixmap` with `SLASH_COMMANDS_ENABLED=true` | Both commands appear under **Permissions & settings**; `/linkfix` and `/linkfixmap` reply ephemerally with identical content. |
 | 17.18 | During a `!restorebackup … confirm` (maintenance mode), post an X link | No repost while maintenance is active, and none after it ends (nothing is queued). |
 | 17.19 | Post an X link, then check `docker compose logs bot` and the database | One structured log line with guild, channel, link count and outcome — no URL, no message text; no new rows beyond `GuildSetting.LinkFixEnabled` and the `LinkFixMappings` overrides. |
+
+## 18. Fuel usage monitor (Torque upload receiver)
+
+Opt-in (design §3.24). Requires `FUELUSAGEMONITOR_ENABLED=true` + `FUELUSAGEMONITOR_UPLOAD_TOKEN=<openssl rand -hex 32>` and a restart; the endpoint listens at `http://0.0.0.0:2526/fuel/upload`. Substitute your host and token below; the receiver does not need the Discord connection, so this can be tested before the app is configured.
+
+| # | Action | Expected |
+|---|---|---|
+| 18.1 | Enabled but **no** token | Startup logs "Missing required configuration keys: FuelUsageMonitor:UploadToken"; the bot exits non-zero. |
+| 18.2 | `FUELUSAGEMONITOR_ENABLED=false` (default) | "Fuel usage ingestion disabled: FuelUsageMonitor:Enabled is false"; nothing listens on 2526; `!health` shows the same reason. |
+| 18.3 | `curl -i "http://<host>:2526/fuel/upload"` with no `Authorization` | `401`, empty body. |
+| 18.4 | Same with `-H "Authorization: Bearer <token>"` (the app's *Test settings* ping) | `200` and the body `OK!` exactly; `!health` shows `rejected 1`, `accepted 0`. |
+| 18.5 | `curl -i -H "Authorization: Bearer <token>" "http://<host>:2526/fuel/upload?v=8&session=1764012345000&time=1764012346000&eml=test&kd=87.5&kc=2140&kff1001=87.1"` | `200` `OK!`; `!health` shows `accepted 1`, `last <UTC>`, `session 1764012345000`, `PIDs kc, kd, kff1001`. |
+| 18.6 | `curl -i -F "file=@session.csv" -H "Authorization: Bearer <token>" "http://<host>:2526/fuel/upload"` (a real Torque log file) | `200` `OK!`; `!health` shows `bodies 1 (<size>)` and `rejected 1` — the file is discarded, nothing is parsed or stored. |
+| 18.7 | The same upload with a body past `FUELUSAGEMONITOR_MAX_BODY_BYTES` (default 8 MB) | `413`; `!health` `rejected` increments; the bot stays up. |
+| 18.8 | `curl -i "http://<host>:2526/other" -H "Authorization: Bearer <token>"`, then the same against `…/fuel/upload/extra` | `404` both times — only the configured route is served. |
+| 18.9 | 130 requests in one minute from one machine | The first 120 answer `200`, the rest `429`; another machine still gets `200`. |
+| 18.10 | Point the app at `https://<host>/fuel/upload` with the token and drive for a minute | The app reports success; the `!health` accepted count rises about once per logging interval, and the PID list matches what the app logs. |
+| 18.11 | `docker compose logs bot` | One `Information` line on start; per-sample detail at `Debug` only; no coordinate, PID value or email address in any line. |
+| 18.12 | `!health` as a non-owner, and `!health` in a DM as the owner | Denied for the non-owner; the DM report includes the `Fuel usage monitor:` line. |
+| 18.13 | During `!restorebackup … confirm` (maintenance mode), post a sample | `503`; nothing is queued for replay; after maintenance, samples flow again. |

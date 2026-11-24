@@ -97,6 +97,25 @@ namespace BotTests
         }
 
         [TestMethod]
+        public void Fuel_Upload_Token_Is_Required_Only_When_The_Endpoint_Is_Enabled()
+        {
+            var disabled = CompleteConfiguration();
+            Assert.AreEqual(0, HambotV2.ConfigurationValidator.GetMissingKeys(BuildConfiguration(disabled)).Count,
+                "The endpoint is off by default and needs no token.");
+
+            var enabledWithoutToken = CompleteConfiguration();
+            enabledWithoutToken["FuelUsageMonitor:Enabled"] = "true";
+            CollectionAssert.AreEqual(
+                new List<string> { "FuelUsageMonitor:UploadToken" },
+                HambotV2.ConfigurationValidator.GetMissingKeys(BuildConfiguration(enabledWithoutToken)));
+
+            var enabledWithToken = CompleteConfiguration();
+            enabledWithToken["FuelUsageMonitor:Enabled"] = "true";
+            enabledWithToken["FuelUsageMonitor:UploadToken"] = "secret";
+            Assert.AreEqual(0, HambotV2.ConfigurationValidator.GetMissingKeys(BuildConfiguration(enabledWithToken)).Count);
+        }
+
+        [TestMethod]
         public void Environment_Variable_Provider_Resolves_Configuration_Keys()
         {
             // Containers supply configuration via environment variables ("__" maps to the ":" key

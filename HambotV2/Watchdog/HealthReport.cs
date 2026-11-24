@@ -1,5 +1,6 @@
 using HambotV2.Backups;
 using HambotV2.Connections;
+using HambotV2.FuelUsageMonitor;
 using HambotV2.Llm;
 using HambotV2.Mcp;
 using Microsoft.EntityFrameworkCore;
@@ -26,6 +27,9 @@ namespace HambotV2.Watchdog
 
         /// <summary>LLM state; defaults to "not configured" when no gate is registered (tests).</summary>
         public string Llm { get; init; } = "not configured";
+
+        /// <summary>Fuel upload ingestion state; defaults to "not configured" when the feature is absent (tests).</summary>
+        public string FuelUsage { get; init; } = "not configured";
     }
 
     /// <summary>
@@ -45,6 +49,7 @@ namespace HambotV2.Watchdog
         private readonly IBackupStatusReader _backupStatus;
         private readonly IMcpEndpointStatus _mcpEndpoint;
         private readonly ILlmGate? _llmGate;
+        private readonly IFuelUsageIngestionStatus? _fuelUsage;
         private readonly IServiceScopeFactory _scopeFactory;
         private readonly string _connectionString;
         private readonly TimeProvider _timeProvider;
@@ -58,13 +63,15 @@ namespace HambotV2.Watchdog
             IServiceScopeFactory scopeFactory,
             IConfiguration configuration,
             TimeProvider timeProvider,
-            ILlmGate? llmGate = null)
+            ILlmGate? llmGate = null,
+            IFuelUsageIngestionStatus? fuelUsage = null)
         {
             _gateway = gateway;
             _notificationChannel = notificationChannel;
             _backupStatus = backupStatus;
             _mcpEndpoint = mcpEndpoint;
             _llmGate = llmGate;
+            _fuelUsage = fuelUsage;
             _scopeFactory = scopeFactory;
             _connectionString = configuration.GetConnectionString("DefaultConnection") ?? string.Empty;
             _timeProvider = timeProvider;
@@ -86,7 +93,8 @@ namespace HambotV2.Watchdog
                 RestoreTest = FormatRestoreTest(),
                 NotificationChannel = FormatNotificationChannel(await _notificationChannel.GetChannelIdAsync(cancellationToken)),
                 Mcp = _mcpEndpoint.State,
-                Llm = FormatLlm()
+                Llm = FormatLlm(),
+                FuelUsage = _fuelUsage?.Describe() ?? "not configured"
             };
         }
 

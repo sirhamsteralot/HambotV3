@@ -4,6 +4,7 @@ using HambotV2.Backups;
 using HambotV2.Commands;
 using HambotV2.Commands.QuoteCommands;
 using HambotV2.Connections;
+using HambotV2.FuelUsageMonitor;
 using HambotV2.LinkFix;
 using HambotV2.Llm;
 using HambotV2.Maintenance;
@@ -199,6 +200,22 @@ namespace HambotV2
             builder.Services.AddSingleton<IMcpEndpointStatus>(serviceProvider =>
                 serviceProvider.GetRequiredService<McpEndpointStatus>());
             builder.Services.AddHostedService<McpServerService>();
+
+            // Fuel usage monitor: the Torque realtime-web-upload receiver (design §3.24). Off
+            // unless enabled with an upload token; the hosted service starts its own Kestrel host
+            // only when active, and the status object feeds the health report.
+            var fuelUsageSettings = FuelUsageMonitorSettings.FromConfiguration(builder.Configuration);
+            builder.Services.AddSingleton(fuelUsageSettings);
+            builder.Services.AddSingleton<FuelUsageIngestionStatus>();
+            builder.Services.AddSingleton<IFuelUsageIngestionStatus>(serviceProvider =>
+                serviceProvider.GetRequiredService<FuelUsageIngestionStatus>());
+            builder.Services.AddSingleton(serviceProvider => new FuelUsageRateLimiter(
+                fuelUsageSettings.MaxUploadsPerMinute,
+                serviceProvider.GetRequiredService<TimeProvider>()));
+            builder.Services.AddSingleton(serviceProvider => new FuelUsageRequestGate(
+                fuelUsageSettings,
+                serviceProvider.GetRequiredService<FuelUsageRateLimiter>()));
+            builder.Services.AddHostedService<FuelUsageIngestionService>();
 
             builder.Services.AddDbContext<DatabaseContext>(options =>
                 options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")),
