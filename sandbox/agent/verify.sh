@@ -38,6 +38,17 @@ code=$(curl -s -o /dev/null -m 15 -w '%{http_code}' -x http://egress:8888 https:
 if [ "$code" = "200" ]; then ok "allowlisted host answers via the proxy (api.nuget.org -> 200)"; else bad "allowlisted host answers via the proxy (got [$code])"; fi
 code=$(curl -s -o /dev/null -m 15 -w '%{http_code}' -x http://egress:8888 https://marketplace.visualstudio.com/ 2>/dev/null)
 if [ -n "$code" ] && [ "$code" != "000" ]; then ok "VS Code marketplace answers via the proxy (HTTP $code)"; else bad "VS Code marketplace answers via the proxy (got [$code])"; fi
+# The hosts a live vibe session needs must pass the host filter: a
+# "403 Filtered" on the CONNECT means the allowlist lacks the host (any
+# upstream answer, even 401/404, proves the filter passed).
+for host in api.mistral.ai auth.mistral.ai experiments.mistral.services; do
+  out=$(curl -sv -m 15 -x http://egress:8888 https://$host/ -o /dev/null 2>&1)
+  if echo "$out" | grep -q '403 Filtered'; then
+    bad "allowlisted host passes the filter ($host got 403 Filtered)"
+  else
+    ok "allowlisted host passes the filter ($host)"
+  fi
+done
 # A denied CONNECT gets its 403 on the tunnel itself, so %{http_code} stays 000;
 # grep the verbose transcript for the proxy's "403 Filtered" response instead.
 out=$(curl -sv -m 15 -x http://egress:8888 https://example.com/ -o /dev/null 2>&1)

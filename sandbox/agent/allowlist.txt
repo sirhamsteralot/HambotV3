@@ -7,10 +7,21 @@
 ^api\.mistral\.ai$
 ^api\.eu\.mistral\.ai$
 ^api\.us\.mistral\.ai$
+
+# GrowthBook remote eval ([experiments], on by default in recent
+# mistral-vibe releases). Deleting this: the eval fails open — sessions still
+# work, but experiment-driven config never applies and every session logs a
+# warning on startup.
+^experiments\.mistral\.services$
+
 # Sign-in (PKCE against the console) and the Vibe Code subscription base.
 # Deleting these: browser sign-in cannot complete.
 ^console\.mistral\.ai$
 ^chat\.mistral\.ai$
+# OIDC issuer (default in mistral-vibe >= 3.0.4): token issuance and refresh
+# for browser sign-in. Deleting this: a signed-in session cannot refresh its
+# token and every model call is refused.
+^auth\.mistral\.ai$
 
 # Git host over HTTPS (clone/fetch/push, REST API, archive downloads).
 # Deleting these: no remote git operations at all.
