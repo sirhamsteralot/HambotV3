@@ -18,8 +18,10 @@
 ^api\.github\.com$
 ^codeload\.github\.com$
 
-# PyPI: the CLI's own update check, and `uv tool install` inside the box.
-# Deleting these: the CLI cannot self-update or install extra tools.
+# PyPI: the entrypoint's per-start CLI update (`uv tool upgrade/install
+# mistral-vibe` into the agent-home volume) and `uv tool install` inside the
+# box. Deleting these: the CLI stays on the image-pinned AGENT_CLI_VERSION
+# fallback and extra tools cannot be installed.
 ^pypi\.org$
 ^files\.pythonhosted\.org$
 

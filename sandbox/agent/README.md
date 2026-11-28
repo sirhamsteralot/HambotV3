@@ -52,11 +52,11 @@ host                                  agent box (containers)
 
 | File | Role |
 |---|---|
-| `Dockerfile` | two targets: `egress` (debian + tinyproxy) and `agent` (.NET 10 SDK + gosu/jq + `mistral-vibe` CLI via uv, pinned) |
+| `Dockerfile` | two targets: `egress` (debian + tinyproxy) and `agent` (.NET 10 SDK + gosu/jq + `mistral-vibe` CLI via uv; the build installs the pinned `AGENT_CLI_VERSION` into `/opt/uv-tools` as the offline fallback) |
 | `compose.yaml` | `egress` + `agent` services, internal `sandbox` network, `upstream` |
 | `tinyproxy.conf` | default-deny, allowlist filter, HTTPS-only ConnectPorts |
 | `allowlist.txt` | one ERE per host, each with a comment saying what deleting it costs |
-| `entrypoint.sh` | root bootstrap → `gosu agent`; sets git `safe.directory` |
+| `entrypoint.sh` | root bootstrap → `gosu agent`; sets git `safe.directory`; best-effort `uv tool upgrade/install mistral-vibe` into the home volume on every container start |
 | `xdg-open.sh` | no-browser stub: prints the URL the CLI wanted to open |
 | `.env.example` | copy to `.env` (gitignored) for `MISTRAL_API_KEY` |
 | `verify.sh` | boundary verification, run inside the box (see below) |
@@ -74,6 +74,14 @@ docker compose run --rm agent        # plain shell in the box
 ./vibe.sh "first prompt"             # wrapper: proxy + agent in one call
 REPO_PATH=/tmp/scratch-clone docker compose run --rm agent vibe   # scratch checkout
 ```
+
+The CLI is updated to the latest PyPI release on every container start:
+`entrypoint.sh` runs `uv tool upgrade/install mistral-vibe` into the
+`agent-home` volume through the egress proxy (`UV_TOOL_DIR`/`UV_TOOL_BIN_DIR`
+point at `/home/agent/.local`, which is first on `PATH`). If that fails, the
+image-pinned `AGENT_CLI_VERSION` copy in `/usr/local/bin` is the fallback. The
+in-session self-update is disabled (`VIBE_ENABLE_UPDATE_CHECKS=false` in
+`compose.yaml`) so the entrypoint stays the single update path.
 
 Sign-in without a browser: run `vibe --setup` in the box, let the `xdg-open`
 stub print the sign-in URL, open it in a host browser; the box keeps polling
@@ -114,7 +122,7 @@ Container** → the `agent` container.
 | `api.mistral.ai`, `api.eu.mistral.ai`, `api.us.mistral.ai` | Mistral model API (default + regional hosts hardcoded in mistral-vibe) |
 | `console.mistral.ai`, `chat.mistral.ai` | browser sign-in (PKCE) + Vibe Code subscription base |
 | `github.com`, `api.github.com`, `codeload.github.com` | git over HTTPS + REST API + archives (this repo's remote is GitHub) |
-| `pypi.org`, `files.pythonhosted.org` | the CLI's update check; `uv tool install` inside the box |
+| `pypi.org`, `files.pythonhosted.org` | the entrypoint's per-start CLI update (`uv tool upgrade/install mistral-vibe` into the agent-home volume) and `uv tool install` inside the box |
 | `api.nuget.org` | `dotnet restore/build/test` inside the box |
 | `marketplace.visualstudio.com`, `*.gallery.vsassets.io`, `*.gallerycdn.vsassets.io`, `*.vscode-cdn.net`, `update.code.visualstudio.com` | VS Code extension gallery/CDN, so the dev container can install extensions from inside the box |
 

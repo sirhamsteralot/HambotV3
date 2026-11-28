@@ -38,6 +38,12 @@ services:
       https_proxy: http://egress:8888
       no_proxy: localhost,127.0.0.1
       BROWSER: xdg-open                  # the no-browser stub (see Dockerfile)
+      NUGET_FALLBACK_PACKAGES: /home/agent/.nuget/packages
+      # CLI updates happen once per container start in entrypoint.sh (uv tool
+      # upgrade/install into the agent-home volume, UV_TOOL_DIR is set in the
+      # image). The in-session self-update is disabled to keep a single path.
+      VIBE_ENABLE_UPDATE_CHECKS: "false"
+      VIBE_ENABLE_AUTO_UPDATE: "false"
     env_file:
       - path: .env                       # untracked; holds the model API key
         required: false

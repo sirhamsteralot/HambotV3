@@ -41,11 +41,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       unzip \
     && rm -rf /var/lib/apt/lists/*
 
-# uv (standalone) + the agent CLI in a build-scoped dir, so later
-# `uv tool install` by the agent lands in its home volume, not the read-only
-# rootfs. Managed pythons go to /opt/uv-python (image layer; readable at
-# runtime). Python is pinned to 3.14: some of the CLI's dependencies (PyO3
-# wheels) do not support newer interpreters yet.
+# uv (standalone) + the agent CLI in a build-scoped dir: the pinned copy in
+# /opt/uv-tools (bin shims in /usr/local/bin) is the offline fallback. At
+# runtime UV_TOOL_DIR/UV_TOOL_BIN_DIR (ENV below) point at the writable home
+# volume, where entrypoint.sh upgrades the CLI on every container start.
+# Managed pythons go to /opt/uv-python (image layer; readable at runtime).
+# Python is pinned to 3.14: some of the CLI's dependencies (PyO3 wheels) do
+# not support newer interpreters yet.
 ENV UV_PYTHON_INSTALL_DIR=/opt/uv-python \
     UV_PYTHON=3.14
 RUN curl -LsSf https://astral.sh/uv/install.sh \
@@ -79,7 +81,11 @@ ENV HOME=/home/agent \
     DOTNET_CLI_TELEMETRY_OPTOUT=1 \
     DOTNET_NOLOGO=1 \
     DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1 \
-    NUGET_XMLDOC_MODE=skip
+    NUGET_XMLDOC_MODE=skip \
+    NUGET_FALLBACK_PACKAGES=/home/agent/.nuget/packages \
+    UV_TOOL_DIR=/home/agent/.local/share/uv/tools \
+    UV_TOOL_BIN_DIR=/home/agent/.local/bin \
+    PATH=/home/agent/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 WORKDIR /work/repo
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
