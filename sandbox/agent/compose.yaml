@@ -5,6 +5,10 @@ services:
     build:
       context: .
       target: egress
+    # Rebuild on up/run: the baked-in tinyproxy ACL/Listen must match the
+    # pinned subnet below. A stale image serving the new network refuses the
+    # agent's address with 403 Access denied on every CONNECT.
+    pull_policy: build
     image: hambotv2-agent-box-egress:latest
     restart: unless-stopped
     user: tinyproxy
@@ -35,6 +39,7 @@ services:
       args:
         AGENT: ${AGENT:-vibe}            # AGENT=none: same box, no agent CLI
         AGENT_CLI_VERSION: ${AGENT_CLI_VERSION:-3.0.2}
+    pull_policy: build                   # keep the image in sync with its sources
     image: hambotv2-agent-box:latest
     depends_on:
       egress:

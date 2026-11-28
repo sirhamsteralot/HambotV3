@@ -63,7 +63,7 @@ host                                  agent box (containers)
 |---|---|
 | `Dockerfile` | two targets: `egress` (debian + tinyproxy) and `agent` (.NET 10 SDK + gosu/jq + `mistral-vibe` CLI via uv; the build installs the pinned `AGENT_CLI_VERSION` into `/opt/uv-tools` as the offline fallback) |
 | `compose.yaml` | `egress` + `agent` services, internal `sandbox` network pinned to 10.255.254.0/24 (egress at 10.255.254.2), `upstream`; egress healthcheck + `pids_limit`/`mem_limit`, agent waits for `service_healthy` |
-| `tinyproxy.conf` | default-deny, allowlist filter, CONNECT limited to 443, bound to the egress IP only |
+| `tinyproxy.conf` | default-deny, allowlist filter, CONNECT limited to 443, bound to the egress IP + container loopback (healthcheck) |
 | `allowlist.txt` | one ERE per host, each with a comment saying what deleting it costs |
 | `entrypoint.sh` | root bootstrap → `gosu agent`; sets git `safe.directory`; best-effort `uv tool upgrade/install mistral-vibe` into the home volume on every container start, logging the resolved CLI version |
 | `xdg-open.sh` | no-browser stub: prints the URL the CLI wanted to open |
@@ -83,6 +83,8 @@ docker compose run --rm agent        # plain shell in the box
 ./vibe.sh "first prompt"             # wrapper: proxy + agent in one call
 REPO_PATH=/tmp/scratch-clone docker compose run --rm agent vibe   # scratch checkout
 ```
+
+Both services set `pull_policy: build`, so `up`/`run` rebuild the images when the sandbox sources change. Do not skip that on a fresh checkout: a stale egress image (old `Allow` ranges against the pinned subnet) answers every CONNECT from the agent with `403 Access denied`.
 
 The CLI is updated to the latest PyPI release on every container start:
 `entrypoint.sh` runs `uv tool upgrade/install mistral-vibe` into the
@@ -132,7 +134,9 @@ Container** → the `agent` container.
 | Host | Why |
 |---|---|
 | `api.mistral.ai`, `api.eu.mistral.ai`, `api.us.mistral.ai` | Mistral model API (default + regional hosts hardcoded in mistral-vibe) |
+| `experiments.mistral.services` | GrowthBook remote eval, on by default in recent mistral-vibe (fails open if blocked) |
 | `console.mistral.ai`, `chat.mistral.ai` | browser sign-in (PKCE) + Vibe Code subscription base |
+| `auth.mistral.ai` | OIDC issuer (default in mistral-vibe ≥ 3.0.4): token issuance/refresh for browser sign-in |
 | `github.com`, `api.github.com`, `codeload.github.com` | git over HTTPS + REST API + archives (this repo's remote is GitHub) |
 | `pypi.org`, `files.pythonhosted.org` | the entrypoint's per-start CLI update (`uv tool upgrade/install mistral-vibe` into the agent-home volume) and `uv tool install` inside the box |
 | `api.nuget.org` | `dotnet restore/build/test` inside the box |
