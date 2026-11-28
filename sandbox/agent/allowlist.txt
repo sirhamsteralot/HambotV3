@@ -1,0 +1,41 @@
+# Default-deny egress allowlist: one extended regex per line, matched against
+# the destination host. Add a host only when the workflow genuinely needs it;
+# each line says what deleting it costs.
+
+# Model API — default host plus the regional hosts hardcoded in mistral-vibe.
+# Deleting these: the agent cannot call any Mistral model.
+^api\.mistral\.ai$
+^api\.eu\.mistral\.ai$
+^api\.us\.mistral\.ai$
+# Sign-in (PKCE against the console) and the Vibe Code subscription base.
+# Deleting these: browser sign-in cannot complete.
+^console\.mistral\.ai$
+^chat\.mistral\.ai$
+
+# Git host over HTTPS (clone/fetch/push, REST API, archive downloads).
+# Deleting these: no remote git operations at all.
+^github\.com$
+^api\.github\.com$
+^codeload\.github\.com$
+
+# PyPI: the entrypoint's per-start CLI update (`uv tool upgrade/install
+# mistral-vibe` into the agent-home volume) and `uv tool install` inside the
+# box. Deleting these: the CLI stays on the image-pinned AGENT_CLI_VERSION
+# fallback and extra tools cannot be installed.
+^pypi\.org$
+^files\.pythonhosted\.org$
+
+# NuGet: dotnet restore/build/test inside the box (the repo's own verification).
+# Deleting this: the box cannot build or test the repo.
+^api\.nuget\.org$
+
+# VS Code: extension gallery metadata + extension CDNs, so opening the box as a
+# dev container (../.devcontainer/devcontainer.json) can install extensions from
+# inside the box. The VS Code server itself is injected host-side over the
+# Docker socket and does not use this proxy.
+# Deleting these: extensions cannot be downloaded inside the box.
+^marketplace\.visualstudio\.com$
+^.*\.gallery\.vsassets\.io$
+^.*\.gallerycdn\.vsassets\.io$
+^.*\.vscode-cdn\.net$
+^update\.code\.visualstudio\.com$
