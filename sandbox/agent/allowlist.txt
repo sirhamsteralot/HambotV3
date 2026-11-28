@@ -1,0 +1,28 @@
+# Default-deny egress allowlist: one extended regex per line, matched against
+# the destination host. Add a host only when the workflow genuinely needs it;
+# each line says what deleting it costs.
+
+# Model API — default host plus the regional hosts hardcoded in mistral-vibe.
+# Deleting these: the agent cannot call any Mistral model.
+^api\.mistral\.ai$
+^api\.eu\.mistral\.ai$
+^api\.us\.mistral\.ai$
+# Sign-in (PKCE against the console) and the Vibe Code subscription base.
+# Deleting these: browser sign-in cannot complete.
+^console\.mistral\.ai$
+^chat\.mistral\.ai$
+
+# Git host over HTTPS (clone/fetch/push, REST API, archive downloads).
+# Deleting these: no remote git operations at all.
+^github\.com$
+^api\.github\.com$
+^codeload\.github\.com$
+
+# PyPI: the CLI's own update check, and `uv tool install` inside the box.
+# Deleting these: the CLI cannot self-update or install extra tools.
+^pypi\.org$
+^files\.pythonhosted\.org$
+
+# NuGet: dotnet restore/build/test inside the box (the repo's own verification).
+# Deleting this: the box cannot build or test the repo.
+^api\.nuget\.org$

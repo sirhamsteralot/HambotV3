@@ -1,0 +1,76 @@
+name: hambotv2-agent-box
+
+services:
+  egress:
+    build:
+      context: .
+      target: egress
+    image: hambotv2-agent-box-egress:latest
+    restart: unless-stopped
+    user: tinyproxy
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:mode=1777
+    networks:
+      - sandbox
+      - upstream
+
+  agent:
+    build:
+      context: .
+      target: agent
+      args:
+        AGENT: ${AGENT:-vibe}            # AGENT=none: same box, no agent CLI
+        AGENT_CLI_VERSION: ${AGENT_CLI_VERSION:-3.0.2}
+    image: hambotv2-agent-box:latest
+    depends_on:
+      - egress
+    init: true
+    networks:
+      - sandbox                          # internal: no route out except egress
+    environment:
+      HTTP_PROXY: http://egress:8888
+      HTTPS_PROXY: http://egress:8888
+      http_proxy: http://egress:8888
+      https_proxy: http://egress:8888
+      no_proxy: localhost,127.0.0.1
+      BROWSER: xdg-open                  # the no-browser stub (see Dockerfile)
+    env_file:
+      - path: .env                       # untracked; holds the model API key
+        required: false
+    read_only: true
+    tmpfs:
+      - /tmp:size=4g,mode=1777
+      - /run:size=64m
+    volumes:
+      # The ONLY host path the box sees: the repo working tree, read-write.
+      # Override for a scratch checkout: REPO_PATH=/tmp/clone
+      - ${REPO_PATH:-../..}:/work/repo
+      - agent-home:/home/agent           # agent CLI state; wiped by down -v
+    cap_drop: [ALL]
+    cap_add:                             # root bootstrap only (chown + gosu)
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 2048
+    mem_limit: ${AGENT_MEMORY:-8g}
+    cpus: ${AGENT_CPUS:-8}
+    stdin_open: true
+    tty: true
+
+networks:
+  sandbox:
+    internal: true                       # no gateway; only egress is reachable
+    # No pinned subnet: compose allocates from the default pools
+    # (172.17.0.0/12 and 192.168.0.0/16), both inside tinyproxy's Allow ranges.
+  upstream:
+
+volumes:
+  agent-home:
