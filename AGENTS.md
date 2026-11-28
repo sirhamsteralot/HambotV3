@@ -36,7 +36,7 @@ Build context is the repo root. Recommended: `docker-compose.yml` (bot + Postgre
 
 ## Git
 
-- **Do not stage or commit anything to git yourself.** Leave all changes unstaged in the working tree; the user handles version control.
+- **Do not stage or commit anything to git yourself.** Leave all changes unstaged in the working tree; the user handles version control. Exception: the `Jenkinsfile.security-fix` autofix job (docs/jenkins-cicd.md §11, design §5.4) is allowed to create a branch, commit, push, and open a PR by itself — that is its purpose.
 
 ## Conventions
 

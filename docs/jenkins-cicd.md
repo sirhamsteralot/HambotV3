@@ -12,7 +12,7 @@ How to wire this repository to Jenkins so every push is built and tested, and ve
 
 Safety properties: a failed build/test never deploys; `deploy.sh` builds the new image *before* replacing containers, verifies the startup lines (`Database migrations applied successfully`, `Discord gateway connection established.`, `Bot version: <version>` matching tag + commit), and rolls back to the previous image if they don't appear; secrets never pass through Jenkins (the server's gitignored `.env` is read by Compose there).
 
-A second scheduled pipeline, [`Jenkinsfile.security`](../Jenkinsfile.security), runs the weekly dependency security scan — see §10.
+A second scheduled pipeline, [`Jenkinsfile.security`](../Jenkinsfile.security), runs the weekly dependency security scan — see §10 — and a third, [`Jenkinsfile.security-fix`](../Jenkinsfile.security-fix), turns the scan's CRITICAL findings into an automatically opened fix PR — see §11.
 
 ## Setup steps (in order)
 
@@ -101,6 +101,25 @@ Creating the job: New Item → **Pipeline** (plain, not multibranch) → "Pipeli
 
 Tool versions are pinned in `Jenkinsfile.security`; bump them deliberately. The Image stage needs Docker *on the Jenkins agent* — with a containerized Jenkins, mount the host socket and a Docker CLI as volumes in the Jenkins compose file.
 
+## 11. The weekly CVE autofix job (last scan result → fix PR)
+
+A third Pipeline job, [`Jenkinsfile.security-fix`](../Jenkinsfile.security-fix), is triggered by the **upstream trigger** — it runs every time the §10 security scan job *completes* (no fixed delay), and takes the **last result of that scan** to open a fix PR **without user intervention**. The trigger's threshold is UNSTABLE, so it fires on SUCCESS and UNSTABLE (every completed scan — the scan is UNSTABLE exactly when findings exist) but not on FAILURE/ABORTED, so a broken scan never produces a PR:
+
+| Stage | What happens |
+|---|---|
+| **Checkout fix branch** | `security/autofix-criticals` cut fresh from `origin/master` |
+| **Scan results** | `copyArtifacts` from the last build **with artifacts** of the scan job (`SECURITY_JOB`, default `Hambot V3 security pipeline`) — `lastWithArtifacts`, not `lastSuccessfulBuild`, because the scan is UNSTABLE exactly when findings exist |
+| **Install tools** | pinned jq + gh binaries into `$WORKSPACE/.tools` (same workspace-local pattern as §10's trivy/jq) |
+| **Plan fixes** | [`scripts/security/autofix-criticals.sh`](../scripts/security/autofix-criticals.sh): jq over `cve-report.*.json`, CRITICAL findings only; every direct `PackageReference` whose package has a published fixed version is bumped to the highest fixed version **within the installed major**; writes `autofix/plan.json`, `report.md`, `pr-body.md` |
+| **Verify** | `dotnet build` + `dotnet test` on the patched tree — a red build never becomes a PR |
+| **Pull request** | commit, `git push --force-with-lease` the fix branch, `gh pr create` (draft unless `AUTOFIX_DRAFT_PR=false`); an already-open PR for the branch is updated by the push, not duplicated |
+
+Auto-fixed vs. left for a human: only CRITICAL NuGet findings with a `FixedVersion` that lands in the installed major and maps to a direct `PackageReference` in `HambotV2/HambotV2.csproj` / `BotTests/BotTests.csproj`. Cross-major fixes, transitive-only packages, findings without a published fix, and image/apt findings are listed in the PR body as manual notes (image/base findings clear by themselves via the scan's `docker build --pull` and the Dockerfile's `apt-get upgrade`). No actionable CRITICALs → green build, no PR. The job **never merges** the PR and holds no deploy or bot credentials — only a GitHub PAT.
+
+The agent is **any agent with the .NET 10 SDK on its PATH** — the same install the main pipeline and the scan job already require (§3, `/opt/dotnet10`) — plus git (the SCM checkout) and outbound access to NuGet and github.com releases (pinned jq/gh install into the workspace). **No Docker and no extra image is needed**: unlike the scan, this job never builds a container image.
+
+Creating the job: New Item → **Pipeline** (plain, not multibranch) → "Pipeline script from SCM" → Script Path `Jenkinsfile.security-fix` → one **Secret text** credential (ID `github-autofix-pat`, overridable via `GITHUB_CREDENTIAL`) holding a GitHub PAT with `repo` scope on `sirhamsteralot/HambotV3` (`GITHUB_REPO`). Requires the **Copy Artifact** plugin. **Run it once manually** — that registers the upstream trigger (it then fires after every §10 scan build). Discard old builds with artifacts kept ≥ ~26 builds.
+
 ## Troubleshooting
 
 | Symptom | Fix |
@@ -117,5 +136,12 @@ Tool versions are pinned in `Jenkinsfile.security`; bump them deliberately. The 
 | Scan never runs on schedule | The cron registers only after the first manual run; also check the controller timezone. |
 | Scan UNSTABLE with nothing "broken" | The result policy working — a HIGH/CRITICAL finding in the deployed tree; fix the package, don't re-run. |
 | Scan reports runtime/framework CVEs that were already patched | Compare the versions in the report with `mcr.microsoft.com/dotnet/aspnet:10.0`; the Image stage builds with `--pull`, so a stale hit means the pull itself failed — check outbound access to `mcr.microsoft.com` and prune the agent's old base images. |
+| Autofix: `copyArtifacts` step not found | Copy Artifact plugin missing on the controller. |
+| Autofix: artifact copy fails / `security/` empty | `SECURITY_JOB` doesn't match the §10 job's name (folder-qualified if the job sits in a folder), or the scan never completed a build with artifacts — run the scan job once manually (§10). |
+| Autofix never runs after the scan | The upstream trigger registers only after the first manual run of the autofix job; also check that `SECURITY_JOB` matches the scan job's full name exactly. |
+| Autofix: `dotnet: not found` | The agent lacks the §3 .NET 10 install — `DOTNET_ROOT`/`PATH` in `Jenkinsfile.security-fix` must match (`/opt/dotnet10`). |
+| Autofix: `jq`/`gh` download fails | The agent needs outbound access to `github.com` releases (same as §10's jq/trivy downloads). |
+| Autofix: `gh pr create` 403 / push rejected | The `github-autofix-pat` credential is missing, expired, or lacks `repo` scope; `GITHUB_REPO` must be `owner/repo`. The fix branch is automation-owned — `--force-with-lease` rewrites it each run but refuses to clobber unexpected history; delete `security/autofix-criticals` if the lease ever fails. |
+| Autofix ran but no PR appeared | No auto-fixable CRITICALs (`plan.json` `changed=false`) — check the archived `autofix/report.md`; or the Verify stage went red (no PR on a broken bump, by design). |
 | Findings with no fix available | Upstream published no patch — Trivy shows an empty `FixedVersion` with `Status: affected`. Nothing to install; they clear on the weekly build once the fix ships (the base images are pulled fresh). Don't hand-patch or pin a package by hand. |
 | Host key verification failed after a server reinstall | `accept-new` only accepts *new* keys — remove the stale `known_hosts` entry. |
