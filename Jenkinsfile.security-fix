@@ -1,0 +1,201 @@
+// Weekly critical-CVE autofix pipeline for HambotV2 (design §5.4, FR-214).
+//
+// Point a dedicated Jenkins Pipeline job at this file ("Pipeline script from
+// SCM", script path "Jenkinsfile.security-fix") — NOT the main build/deploy job
+// and NOT the scan job. The job:
+//   - runs weekly via the cron trigger below (Sundays 05:00 in the controller's
+//     timezone, one hour after the §5.3 scan at 04:00 which has a 60-minute
+//     timeout; FR-121 says 04:00 UTC — run the controller on UTC or adjust),
+//   - takes the LAST RESULT of the security scan job: copyArtifacts from the
+//     last build of SECURITY_JOB that archived artifacts (the scan is UNSTABLE
+//     exactly when findings exist, so lastSuccessfulBuild would skip the
+//     interesting builds — lastWithArtifacts is the right selector),
+//   - for every CRITICAL finding with a published fixed version, bumps the
+//     matching direct PackageReference (scripts/security/autofix-criticals.sh),
+//   - verifies the bump (dotnet build + test) — a red build never produces a PR,
+//   - pushes branch security/autofix-criticals and opens a PR (draft by default)
+//     via gh — no user intervention needed,
+//   - never merges, never deploys, never touches the running stack, and holds
+//     no deploy or bot credentials — only a GitHub PAT (contents + pull
+//     requests write) in the GITHUB_CREDENTIAL Jenkins credential.
+//
+// Agent: a Docker agent running the repo's own sandbox image (sandbox/, image
+// hambotv2-sandbox:latest) — it already carries the .NET 10 SDK, git and jq,
+// so no new container is introduced. Build it once per agent:
+//   cd sandbox && docker compose build
+// The image's in-container account is uid 1000, so the agent runs it as root
+// (-u 0:0) and the NuGet cache lives on a named volume at /home/dev/.nuget.
+//
+// Also needed on the Jenkins controller:
+//   - the "Copy Artifact" plugin (the Scan results stage's copyArtifacts step),
+//   - a "Secret text" credential (ID in GITHUB_CREDENTIAL) holding a GitHub
+//     PAT with repo scope (contents:read/write, pull_requests:write) on
+//     GITHUB_REPO.
+//   - outbound network access (NuGet, GitHub releases for the pinned gh).
+//
+// Schedule and tool versions are pinned in the environment block below; bump
+// versions deliberately.
+
+pipeline {
+    environment {
+        // The repo's sandbox toolchain image (sandbox/compose.yaml names it
+        // hambotv2-sandbox:latest); build it on the agent once (see header).
+        SANDBOX_IMAGE = 'hambotv2-sandbox:latest'
+        NUGET_CACHE_VOLUME = 'hambotv2-autofix-nuget'
+
+        // The §5.3 scan job whose last archived results this pipeline consumes.
+        SECURITY_JOB = 'Hambot V3 security pipeline'
+
+        GITHUB_REPO = 'sirhamsteralot/HambotV3'
+        GITHUB_CREDENTIAL = 'github-autofix-pat'  // Jenkins "Secret text": PAT with repo scope
+        BASE_BRANCH = 'master'
+        FIX_BRANCH = 'security/autofix-criticals'
+        AUTOFIX_DRAFT_PR = 'true'                 // draft = suggestion; a human still merges
+
+        GH_VERSION = '2.104.0'
+
+        PATH = "${env.WORKSPACE}/.tools:${env.PATH}"
+        DOTNET_CLI_TELEMETRY_OPTOUT = '1'
+        DOTNET_NOLOGO = '1'
+    }
+
+    agent {
+        docker {
+            image "${env.SANDBOX_IMAGE}"
+            args "-u 0:0 -v ${env.NUGET_CACHE_VOLUME}:/home/dev/.nuget/packages"
+            reuseNode true
+        }
+    }
+
+    options {
+        timestamps()
+        timeout(time: 45, unit: 'MINUTES')
+        disableConcurrentBuilds()
+    }
+
+    triggers {
+        cron('0 5 * * 0')
+    }
+
+    stages {
+        stage('Checkout fix branch') {
+            steps {
+                // The autofix edits land on a dedicated branch cut from the
+                // current base; the job's own SCM checkout stays untouched.
+                sh '''
+                    git fetch origin "$BASE_BRANCH"
+                    git checkout -B "$FIX_BRANCH" "origin/$BASE_BRANCH"
+                '''
+            }
+        }
+
+        stage('Scan results') {
+            steps {
+                // Last result of the security scan job: its archived
+                // security/** tree (SBOMs + cve-report.*.json). A scan whose
+                // tooling broke fails here loudly instead of silently fixing
+                // nothing — same philosophy as the scan itself (FR-126).
+                sh 'mkdir -p scan-results autofix .tools'
+                copyArtifacts projectName: "${env.SECURITY_JOB}", selector: lastWithArtifacts(), target: 'scan-results'
+                sh 'ls -la scan-results/security/'
+            }
+        }
+
+        stage('Install gh') {
+            steps {
+                // Workspace-local pinned gh (same pattern as the scan's trivy
+                // and jq installs): the sandbox image ships no gh, and the
+                // workspace is cleaned with the build.
+                sh '''
+                    case "$(uname -m)" in
+                        x86_64) arch=amd64 ;;
+                        aarch64|arm64) arch=arm64 ;;
+                        *) echo "unsupported arch $(uname -m)" >&2; exit 1 ;;
+                    esac
+                    curl -sfL -o /tmp/gh.tar.gz "https://github.com/cli/cli/releases/download/v$GH_VERSION/gh_${GH_VERSION}_linux_${arch}.tar.gz"
+                    tar -xzf /tmp/gh.tar.gz -C /tmp
+                    mv "/tmp/gh_${GH_VERSION}_linux_${arch}/bin/gh" "$WORKSPACE/.tools/gh"
+                    "$WORKSPACE/.tools/gh" --version
+                '''
+            }
+        }
+
+        stage('Plan fixes') {
+            steps {
+                // Extracts CRITICAL findings from the scan reports and bumps
+                // the direct PackageReference versions in the two .csproj
+                // files (highest fixed version within the installed major).
+                sh 'scripts/security/autofix-criticals.sh scan-results/security . autofix'
+                sh 'cat autofix/report.md'
+                script {
+                    env.ACTIONABLE = sh(returnStdout: true, script: 'jq -r .changed autofix/plan.json').trim()
+                }
+                echo "Actionable CRITICAL fixes: ${env.ACTIONABLE}"
+            }
+        }
+
+        stage('Verify') {
+            // A bump that breaks the build or a test must never become a PR.
+            when {
+                expression { env.ACTIONABLE == 'true' }
+            }
+            steps {
+                sh 'dotnet build HambotV2.sln --configuration Release /warnaserror:nullable'
+                sh 'dotnet test HambotV2.sln --configuration Release --no-build'
+            }
+        }
+
+        stage('Pull request') {
+            when {
+                expression { env.ACTIONABLE == 'true' }
+            }
+            steps {
+                withCredentials([string(credentialsId: "${env.GITHUB_CREDENTIAL}", variable: 'GH_TOKEN')]) {
+                    sh '''
+                        set -e
+                        git config user.name 'hambot-autofix'
+                        git config user.email 'hambot-autofix@users.noreply.github.com'
+                        git config credential.helper '!f() { echo "username=x-access-token"; echo "password=$GH_TOKEN"; }; f'
+
+                        git add HambotV2/HambotV2.csproj BotTests/BotTests.csproj autofix/plan.json autofix/report.md autofix/pr-body.md
+                        if git diff --cached --quiet; then
+                            echo "Nothing to commit — scan findings already fixed on $BASE_BRANCH"
+                            exit 0
+                        fi
+                        git commit -m "chore(security): auto-fix CRITICAL CVEs from the weekly security scan
+
+Generated by Jenkinsfile.security-fix (${BUILD_URL})."
+                        # The branch belongs to this automation; force-with-lease
+                        # rewrites it each run while refusing to clobber anything
+                        # unexpected that appeared on it meanwhile.
+                        git push --force-with-lease origin "HEAD:$FIX_BRANCH"
+
+                        existing=$(gh pr list --repo "$GITHUB_REPO" --head "$FIX_BRANCH" --state open \
+                            --json number --jq 'if length > 0 then .[0].number | tostring else "" end')
+                        if [ -n "$existing" ]; then
+                            echo "PR already open for $FIX_BRANCH: #$existing (updated by this push)"
+                        else
+                            draft_flag=""
+                            [ "$AUTOFIX_DRAFT_PR" = "true" ] && draft_flag="--draft"
+                            gh pr create --repo "$GITHUB_REPO" --head "$FIX_BRANCH" --base "$BASE_BRANCH" \
+                                --title "chore(security): auto-fix CRITICAL vulnerabilities from the weekly security scan" \
+                                --body-file autofix/pr-body.md $draft_flag
+                        fi
+                    '''
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            // Keep the consumed scan reports and the fix plan/report for
+            // debugging even when a later stage fails.
+            archiveArtifacts artifacts: 'scan-results/**,autofix/**', allowEmptyArchive: true
+        }
+
+        cleanup {
+            cleanWs notFailBuild: true
+        }
+    }
+}

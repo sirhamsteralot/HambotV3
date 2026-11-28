@@ -853,6 +853,24 @@ Base images are pulled in both builds — the scan's `docker build --pull` and t
 
 The Jenkins container needs the host Docker socket + CLI mounted for the Image stage (same accepted trade-off as §5.1).
 
+### 5.4 Automated fix PRs for CRITICAL scan findings
+
+`Jenkinsfile.security-fix` — a third scheduled job (cron `0 5 * * 0`, after the §5.3 scan) on a Docker agent running the repo's own sandbox image (`sandbox/`, image `hambotv2-sandbox:latest` — no new container is introduced). It holds only a GitHub PAT (contents + pull requests write): never deploy or bot credentials, never merges, never touches the running stack.
+
+```
+Checkout security/autofix-criticals from origin/master
+  → copyArtifacts(lastWithArtifacts) from the §5.3 job  (lastWithArtifacts, not lastSuccessful:
+     the scan is UNSTABLE exactly when findings exist)
+  → pinned gh installed into the workspace
+  → scripts/security/autofix-criticals.sh: CRITICAL findings only; every direct PackageReference
+     whose package has a published FixedVersion is bumped to the highest fixed version within the
+     installed major (a cross-major fix is a breaking-change decision, left for a human)
+  → dotnet build + test on the patched tree (red = no PR)
+  → git push --force-with-lease (the branch is automation-owned) → gh pr create (draft by default)
+```
+
+Auto-fixable: CRITICAL NuGet findings with a `FixedVersion` in the installed major that map to a direct `PackageReference` in `HambotV2/HambotV2.csproj` / `BotTests/BotTests.csproj`. Everything else — cross-major fixes, transitive-only packages, no published fix, image/apt layers (those clear by themselves via the scan's `--pull` and the Dockerfile's `apt-get upgrade`) — is listed in the PR body as manual notes. No actionable CRITICALs → green build, no PR. Full setup guide: [`jenkins-cicd.md`](jenkins-cicd.md) §11.
+
 ## 6. Testing
 
 - `BotTests/` (MSTest + Moq) runs without a database or token: Moq doubles the Discord message surface; command/permission tests run against EF Core InMemory through `IDatabaseContext` (isolated database per test); time-sensitive logic uses `FakeTimeProvider`.
@@ -867,5 +885,5 @@ The Jenkins container needs the host Docker socket + CLI mounted for the Image s
 
 ## 8. Known Design Considerations / Current Limitations
 
-- CI/CD: the `Jenkinsfile` builds, tests, and auto-deploys version tags only; ordinary pushes (including `master`) never deploy. A second scheduled pipeline (`Jenkinsfile.security`, §5.3) runs the weekly dependency scan and never deploys.
+- CI/CD: the `Jenkinsfile` builds, tests, and auto-deploys version tags only; ordinary pushes (including `master`) never deploy. A second scheduled pipeline (`Jenkinsfile.security`, §5.3) runs the weekly dependency scan and never deploys. A third (`Jenkinsfile.security-fix`, §5.4) turns the scan's CRITICAL findings into an automatically opened fix PR; it never merges.
 - Link reposts (§3.23) honor FR-193’s skip list only: a member who suppresses a preview by wrapping the URL in `<…>` gets the link reposted anyway. Honoring that intent is an FR-193 change, not a design detail.
