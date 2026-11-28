@@ -381,7 +381,7 @@ FodyWeavers.xsd
 # Written on the server by the deploy script (commit/build traceability)
 /.deploy-info
 
-# Sandbox intake/state (sandbox_setup.md)
+# Sandbox intake/state
 # Agent-box credential file (loaded by compose, never committed)
 /sandbox/agent/.env
 # Boundary-verification probe written into the tree by sandbox/agent/verify.sh

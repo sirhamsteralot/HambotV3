@@ -33,11 +33,16 @@ RUN groupadd --gid "${USER_GID}" dev \
  && mkdir -p /home/dev/.nuget/packages \
  && chown -R dev:dev /home/dev
 
+# NUGET_FALLBACK_PACKAGES overrides the SDK's default fallbackPackageFolders
+# (they include Windows paths that don't exist in Linux containers). Scoped to
+# this image via env var on purpose — a repo-root NuGet.config would change
+# restore for every host dev machine and CI, not just the sandbox.
 ENV HOME=/home/dev \
     DOTNET_CLI_TELEMETRY_OPTOUT=1 \
     DOTNET_NOLOGO=1 \
     DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1 \
-    NUGET_XMLDOC_MODE=skip
+    NUGET_XMLDOC_MODE=skip \
+    NUGET_FALLBACK_PACKAGES=/home/dev/.nuget/packages
 
 USER dev
 WORKDIR /work/repo

@@ -4,8 +4,7 @@ One image carrying everything this repo needs to run its own verification
 (.NET 10 SDK + git + basics), with the repo bind-mounted read-write at
 `/work/repo`. The image is a toolchain; the repository is the mount. Nothing
 of the repo is baked into the image, and the build context is this directory,
-so a rebuild never streams the working tree to the daemon. Generalized
-procedure: `../sandbox_setup.md` §1.
+so a rebuild never streams the working tree to the daemon.
 
 ```
 sandbox/

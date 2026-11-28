@@ -14,9 +14,19 @@ services:
     read_only: true
     tmpfs:
       - /tmp:mode=1777
+    pids_limit: 64
+    mem_limit: 128m
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 3 bash -c 'exec 3<>/dev/tcp/127.0.0.1/8888'"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
     networks:
-      - sandbox
-      - upstream
+      sandbox:
+        aliases: [egress]
+        ipv4_address: 10.255.254.2     # tinyproxy Listen address (tinyproxy.conf)
+      upstream:
 
   agent:
     build:
@@ -27,7 +37,8 @@ services:
         AGENT_CLI_VERSION: ${AGENT_CLI_VERSION:-3.0.2}
     image: hambotv2-agent-box:latest
     depends_on:
-      - egress
+      egress:
+        condition: service_healthy       # wait for the proxy to listen, not just start
     init: true
     networks:
       - sandbox                          # internal: no route out except egress
@@ -74,8 +85,12 @@ services:
 networks:
   sandbox:
     internal: true                       # no gateway; only egress is reachable
-    # No pinned subnet: compose allocates from the default pools
-    # (172.17.0.0/12 and 192.168.0.0/16), both inside tinyproxy's Allow ranges.
+    # Pinned subnet, outside Docker's default pools (172.16.0.0/12,
+    # 192.168.0.0/16), so tinyproxy can Listen/Allow only this range instead
+    # of every bridge network on the host.
+    ipam:
+      config:
+        - subnet: 10.255.254.0/24
   upstream:
 
 volumes:

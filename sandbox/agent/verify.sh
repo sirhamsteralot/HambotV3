@@ -51,6 +51,20 @@ if curl -s -o /dev/null -m 10 --noproxy '*' https://api.nuget.org/v3/index.json 
 else
   ok "direct egress without the proxy is blocked"
 fi
+# DNS must not bypass the proxy either: on the internal sandbox network the
+# container resolves via Docker's embedded resolver (127.0.0.11), which on
+# engines without the GHSA-mq39-4gv4-mvpx patch forwards external lookups to
+# host resolvers — a DNS-tunneling channel that never touches the proxy.
+if getent hosts egress >/dev/null 2>&1; then
+  ok "service discovery still resolves 'egress'"
+else
+  bad "service discovery still resolves 'egress'"
+fi
+if getent hosts example.com >/dev/null 2>&1; then
+  bad "external DNS lookup was answered (embedded resolver forwards external queries — engine lacks the GHSA-mq39-4gv4-mvpx patch?)"
+else
+  ok "external DNS lookup is not answered (no DNS exfil channel)"
+fi
 
 echo "== agent CLI =="
 if command -v vibe >/dev/null 2>&1; then
