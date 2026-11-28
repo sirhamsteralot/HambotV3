@@ -1,0 +1,13 @@
+{
+  "name": "HambotV2 agent box",
+  "dockerComposeFile": ["../sandbox/agent/compose.yaml"],
+  "service": "agent",
+  "workspaceFolder": "/work/repo",
+  "remoteUser": "agent",
+  "shutdownAction": "stopCompose",
+  "customizations": {
+    "vscode": {
+      "extensions": ["ms-dotnettools.csharp"]
+    }
+  }
+}

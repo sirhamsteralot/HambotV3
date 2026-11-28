@@ -26,3 +26,14 @@
 # NuGet: dotnet restore/build/test inside the box (the repo's own verification).
 # Deleting this: the box cannot build or test the repo.
 ^api\.nuget\.org$
+
+# VS Code: extension gallery metadata + extension CDNs, so opening the box as a
+# dev container (../.devcontainer/devcontainer.json) can install extensions from
+# inside the box. The VS Code server itself is injected host-side over the
+# Docker socket and does not use this proxy.
+# Deleting these: extensions cannot be downloaded inside the box.
+^marketplace\.visualstudio\.com$
+^.*\.gallery\.vsassets\.io$
+^.*\.gallerycdn\.vsassets\.io$
+^.*\.vscode-cdn\.net$
+^update\.code\.visualstudio\.com$

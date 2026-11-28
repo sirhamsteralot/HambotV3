@@ -88,6 +88,25 @@ authenticate.
 Git Bash on Windows: set `MSYS_NO_PATHCONV=1` when passing container paths
 (`/work/repo/...`) to `docker compose run`.
 
+## Open in VS Code
+
+The repo root has `.devcontainer/devcontainer.json`, which points at this
+compose file (`service: agent`, `workspaceFolder: /work/repo`). With the
+Remote - Containers extension installed:
+
+1. `docker compose build` here (once, and after any Dockerfile change),
+2. in VS Code: **Dev Containers: Reopen in Container** → picks up
+   `.devcontainer/devcontainer.json` and opens `/work/repo` inside the box.
+
+The container stays up detached (`tty` keeps the entrypoint's shell alive),
+the VS Code server is injected host-side over the Docker socket into
+`/home/agent/.vscode-server` (the `agent-home` volume — writable), and
+extension downloads go through the egress proxy (marketplace/CDN hosts are
+allowlisted below). The C# extension (`ms-dotnettools.csharp`) is
+pre-configured in `devcontainer.json`. Equivalent manual path:
+`docker compose up -d` here, then **Remote Explorer → Attach to Running
+Container** → the `agent` container.
+
 ## Allowlist
 
 | Host | Why |
@@ -97,6 +116,7 @@ Git Bash on Windows: set `MSYS_NO_PATHCONV=1` when passing container paths
 | `github.com`, `api.github.com`, `codeload.github.com` | git over HTTPS + REST API + archives (this repo's remote is GitHub) |
 | `pypi.org`, `files.pythonhosted.org` | the CLI's update check; `uv tool install` inside the box |
 | `api.nuget.org` | `dotnet restore/build/test` inside the box |
+| `marketplace.visualstudio.com`, `*.gallery.vsassets.io`, `*.gallerycdn.vsassets.io`, `*.vscode-cdn.net`, `update.code.visualstudio.com` | VS Code extension gallery/CDN, so the dev container can install extensions from inside the box |
 
 Add a host only when the workflow genuinely needs it; keep the comment in
 `allowlist.txt` saying what deleting it costs.
@@ -104,7 +124,7 @@ Add a host only when the workflow genuinely needs it; keep the comment in
 ## Verification (2026-11-27, Docker Desktop 29.9.2)
 
 `docker compose run --rm agent bash /work/repo/sandbox/agent/verify.sh` —
-10 passed, 0 failed:
+11 passed, 0 failed:
 
 | Check | Result |
 |---|---|
@@ -115,6 +135,7 @@ Add a host only when the workflow genuinely needs it; keep the comment in
 | `git -C /work/repo rev-parse --is-inside-work-tree` | PASS (true) |
 | sandbox network has no default gateway (`internal: true`) | PASS |
 | allowlisted host via proxy (`api.nuget.org`) | PASS (200) |
+| VS Code marketplace via proxy (`marketplace.visualstudio.com`) | PASS (200) |
 | non-allowlisted host via proxy (`example.com`) | PASS (403 Filtered on the CONNECT) |
 | direct egress without the proxy | PASS (blocked) |
 | `vibe --version` in the box | PASS (vibe 3.0.2) |
@@ -135,6 +156,14 @@ cannot set timestamps on stale host-built `obj/` files (MSB3374). Run the
 suite against a scratch clone — `git clone --shared /work/repo /tmp/scratch`
 then `dotnet test` there — or build the tree inside the box first.
 
-Not verified: a live signed-in `vibe` session against a real account (the box
-ships with no credential; `vibe --version` and the full network boundary were
-exercised instead).
+VS Code dev-container mechanics: `docker compose up -d` keeps the `agent`
+container Up (tty), `docker exec -u agent` works, `/home/agent` (the
+vscode-server install path) is writable, and the marketplace answers 200 via
+the proxy.
+
+Not verified: the actual VS Code GUI flow ("Reopen in Container" / "Attach to
+Running Container" — no VS Code in the verification environment; the
+underlying container behavior above is what those commands drive) and a live
+signed-in `vibe` session against a real account (the box ships with no
+credential; `vibe --version` and the full network boundary were exercised
+instead).

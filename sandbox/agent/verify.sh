@@ -36,6 +36,8 @@ echo "== network =="
 if [ -z "$(ip route show default 2>/dev/null)" ]; then ok "sandbox network has no default gateway"; else bad "sandbox network has no default gateway"; fi
 code=$(curl -s -o /dev/null -m 15 -w '%{http_code}' -x http://egress:8888 https://api.nuget.org/v3/index.json 2>/dev/null)
 if [ "$code" = "200" ]; then ok "allowlisted host answers via the proxy (api.nuget.org -> 200)"; else bad "allowlisted host answers via the proxy (got [$code])"; fi
+code=$(curl -s -o /dev/null -m 15 -w '%{http_code}' -x http://egress:8888 https://marketplace.visualstudio.com/ 2>/dev/null)
+if [ -n "$code" ] && [ "$code" != "000" ]; then ok "VS Code marketplace answers via the proxy (HTTP $code)"; else bad "VS Code marketplace answers via the proxy (got [$code])"; fi
 # A denied CONNECT gets its 403 on the tunnel itself, so %{http_code} stays 000;
 # grep the verbose transcript for the proxy's "403 Filtered" response instead.
 out=$(curl -sv -m 15 -x http://egress:8888 https://example.com/ -o /dev/null 2>&1)
