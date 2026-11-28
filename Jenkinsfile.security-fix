@@ -18,29 +18,31 @@
 //     no deploy or bot credentials — only a GitHub PAT (contents + pull
 //     requests write) in the GITHUB_CREDENTIAL Jenkins credential.
 //
-// Agent: a Docker agent running the repo's own sandbox image (sandbox/, image
-// hambotv2-sandbox:latest) — it already carries the .NET 10 SDK, git and jq,
-// so no new container is introduced. Build it once per agent:
-//   cd sandbox && docker compose build
-// The image's in-container account is uid 1000, so the agent runs it as root
-// (-u 0:0) and the NuGet cache lives on a named volume at /home/dev/.nuget.
+// Agent: any agent with the .NET 10 SDK on its PATH — the same install the
+// main pipeline and the scan job already require (docs/jenkins-cicd.md §3,
+// /opt/dotnet10). No Docker and no extra image is needed: unlike the scan,
+// this pipeline never builds a container image, it only runs dotnet build/test
+// and git. jq and gh are installed workspace-local below (pinned), exactly
+// like the scan's trivy/jq installs.
 //
 // Also needed on the Jenkins controller:
 //   - the "Copy Artifact" plugin (the Scan results stage's copyArtifacts step),
 //   - a "Secret text" credential (ID in GITHUB_CREDENTIAL) holding a GitHub
 //     PAT with repo scope (contents:read/write, pull_requests:write) on
 //     GITHUB_REPO.
-//   - outbound network access (NuGet, GitHub releases for the pinned gh).
+//   - outbound network access on the agent (NuGet, GitHub releases for the
+//     pinned jq/gh).
 //
-// Schedule and tool versions are pinned in the environment block below; bump
-// versions deliberately.
+// Trigger and tool versions are pinned below; bump versions deliberately.
 
 pipeline {
+    agent any
+
     environment {
-        // The repo's sandbox toolchain image (sandbox/compose.yaml names it
-        // hambotv2-sandbox:latest); build it on the agent once (see header).
-        SANDBOX_IMAGE = 'hambotv2-sandbox:latest'
-        NUGET_CACHE_VOLUME = 'hambotv2-autofix-nuget'
+        DOTNET_ROOT = '/opt/dotnet10'
+        PATH = "/opt/dotnet10:${env.WORKSPACE}/.tools:${env.PATH}"
+        DOTNET_CLI_TELEMETRY_OPTOUT = '1'
+        DOTNET_NOLOGO = '1'
 
         // The §5.3 scan job whose last archived results this pipeline consumes.
         SECURITY_JOB = 'Hambot V3 security pipeline'
@@ -51,19 +53,8 @@ pipeline {
         FIX_BRANCH = 'security/autofix-criticals'
         AUTOFIX_DRAFT_PR = 'true'                 // draft = suggestion; a human still merges
 
+        JQ_VERSION = '1.7.1'
         GH_VERSION = '2.104.0'
-
-        PATH = "${env.WORKSPACE}/.tools:${env.PATH}"
-        DOTNET_CLI_TELEMETRY_OPTOUT = '1'
-        DOTNET_NOLOGO = '1'
-    }
-
-    agent {
-        docker {
-            image "${env.SANDBOX_IMAGE}"
-            args "-u 0:0 -v ${env.NUGET_CACHE_VOLUME}:/home/dev/.nuget/packages"
-            reuseNode true
-        }
     }
 
     options {
@@ -105,12 +96,14 @@ pipeline {
             }
         }
 
-        stage('Install gh') {
+        stage('Install tools') {
             steps {
-                // Workspace-local pinned gh (same pattern as the scan's trivy
-                // and jq installs): the sandbox image ships no gh, and the
-                // workspace is cleaned with the build.
+                // Workspace-local pinned jq + gh (same pattern as the scan's
+                // trivy/jq installs): nothing global on the agent, the
+                // workspace is cleaned with the build. jq is the official
+                // static binary; gh is needed to open the PR.
                 sh '''
+                    curl -sfL -o "$WORKSPACE/.tools/jq" "https://github.com/jqlang/jq/releases/download/jq-$JQ_VERSION/jq-linux-amd64" && chmod +x "$WORKSPACE/.tools/jq"
                     case "$(uname -m)" in
                         x86_64) arch=amd64 ;;
                         aarch64|arm64) arch=arm64 ;;
@@ -119,6 +112,7 @@ pipeline {
                     curl -sfL -o /tmp/gh.tar.gz "https://github.com/cli/cli/releases/download/v$GH_VERSION/gh_${GH_VERSION}_linux_${arch}.tar.gz"
                     tar -xzf /tmp/gh.tar.gz -C /tmp
                     mv "/tmp/gh_${GH_VERSION}_linux_${arch}/bin/gh" "$WORKSPACE/.tools/gh"
+                    "$WORKSPACE/.tools/jq" --version
                     "$WORKSPACE/.tools/gh" --version
                 '''
             }

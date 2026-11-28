@@ -855,13 +855,13 @@ The Jenkins container needs the host Docker socket + CLI mounted for the Image s
 
 ### 5.4 Automated fix PRs for CRITICAL scan findings
 
-`Jenkinsfile.security-fix` — a third job, fired by an `upstream` trigger every time the §5.3 scan job completes (threshold UNSTABLE: SUCCESS and UNSTABLE fire, FAILURE/ABORTED do not — a broken scan never produces a PR), on a Docker agent running the repo's own sandbox image (`sandbox/`, image `hambotv2-sandbox:latest` — no new container is introduced). It holds only a GitHub PAT (contents + pull requests write): never deploy or bot credentials, never merges, never touches the running stack.
+`Jenkinsfile.security-fix` — a third job, fired by an `upstream` trigger every time the §5.3 scan job completes (threshold UNSTABLE: SUCCESS and UNSTABLE fire, FAILURE/ABORTED do not — a broken scan never produces a PR), on any agent with the .NET 10 SDK installed (same `/opt/dotnet10` install as §5.1/§5.3; pinned jq + gh go into the workspace, no Docker and no extra image needed — unlike §5.3 it never builds a container image). It holds only a GitHub PAT (contents + pull requests write): never deploy or bot credentials, never merges, never touches the running stack.
 
 ```
 Checkout security/autofix-criticals from origin/master
   → copyArtifacts(lastWithArtifacts) from the §5.3 job  (lastWithArtifacts, not lastSuccessful:
      the scan is UNSTABLE exactly when findings exist)
-  → pinned gh installed into the workspace
+  → pinned jq + gh installed into the workspace
   → scripts/security/autofix-criticals.sh: CRITICAL findings only; every direct PackageReference
      whose package has a published FixedVersion is bumped to the highest fixed version within the
      installed major (a cross-major fix is a breaking-change decision, left for a human)
