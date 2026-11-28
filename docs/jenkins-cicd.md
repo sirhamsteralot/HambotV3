@@ -103,7 +103,7 @@ Tool versions are pinned in `Jenkinsfile.security`; bump them deliberately. The 
 
 ## 11. The weekly CVE autofix job (last scan result → fix PR)
 
-A third scheduled Pipeline job, [`Jenkinsfile.security-fix`](../Jenkinsfile.security-fix) (cron `0 5 * * 0` in the pipeline itself — one hour after the §10 scan, which has a 60-minute timeout; controller timezone, FR-121 wants UTC), takes the **last result of the §10 security scan job** and opens a fix PR **without user intervention**:
+A third Pipeline job, [`Jenkinsfile.security-fix`](../Jenkinsfile.security-fix), is triggered by the **upstream trigger** — it runs every time the §10 security scan job *completes* (no fixed delay), and takes the **last result of that scan** to open a fix PR **without user intervention**. The trigger's threshold is UNSTABLE, so it fires on SUCCESS and UNSTABLE (every completed scan — the scan is UNSTABLE exactly when findings exist) but not on FAILURE/ABORTED, so a broken scan never produces a PR:
 
 | Stage | What happens |
 |---|---|
@@ -118,7 +118,7 @@ Auto-fixed vs. left for a human: only CRITICAL NuGet findings with a `FixedVersi
 
 The agent is a Docker agent running the repo's own sandbox image (`hambotv2-sandbox:latest` from [`sandbox/`](../sandbox) — no new container is introduced; it already has the .NET 10 SDK, git and jq), run as root with a named NuGet-cache volume. Build the image once per agent: `cd sandbox && docker compose build`.
 
-Creating the job: New Item → **Pipeline** (plain, not multibranch) → "Pipeline script from SCM" → Script Path `Jenkinsfile.security-fix` → one **Secret text** credential (ID `github-autofix-pat`, overridable via `GITHUB_CREDENTIAL`) holding a GitHub PAT with `repo` scope on `sirhamsteralot/HambotV3` (`GITHUB_REPO`). Requires the **Copy Artifact** plugin. **Run it once manually** — that registers the cron trigger. Discard old builds with artifacts kept ≥ ~26 builds.
+Creating the job: New Item → **Pipeline** (plain, not multibranch) → "Pipeline script from SCM" → Script Path `Jenkinsfile.security-fix` → one **Secret text** credential (ID `github-autofix-pat`, overridable via `GITHUB_CREDENTIAL`) holding a GitHub PAT with `repo` scope on `sirhamsteralot/HambotV3` (`GITHUB_REPO`). Requires the **Copy Artifact** plugin. **Run it once manually** — that registers the upstream trigger (it then fires after every §10 scan build). Discard old builds with artifacts kept ≥ ~26 builds.
 
 ## Troubleshooting
 
@@ -137,7 +137,8 @@ Creating the job: New Item → **Pipeline** (plain, not multibranch) → "Pipeli
 | Scan UNSTABLE with nothing "broken" | The result policy working — a HIGH/CRITICAL finding in the deployed tree; fix the package, don't re-run. |
 | Scan reports runtime/framework CVEs that were already patched | Compare the versions in the report with `mcr.microsoft.com/dotnet/aspnet:10.0`; the Image stage builds with `--pull`, so a stale hit means the pull itself failed — check outbound access to `mcr.microsoft.com` and prune the agent's old base images. |
 | Autofix: `copyArtifacts` step not found | Copy Artifact plugin missing on the controller. |
-| Autofix: artifact copy fails / `security/` empty | `SECURITY_JOB` doesn't match the §10 job's name, or the scan never completed a build with artifacts — run the scan job once manually (§10). |
+| Autofix: artifact copy fails / `security/` empty | `SECURITY_JOB` doesn't match the §10 job's name (folder-qualified if the job sits in a folder), or the scan never completed a build with artifacts — run the scan job once manually (§10). |
+| Autofix never runs after the scan | The upstream trigger registers only after the first manual run of the autofix job; also check that `SECURITY_JOB` matches the scan job's full name exactly. |
 | Autofix: agent won't start / image not known | Build the sandbox image on the agent: `cd sandbox && docker compose build` (image name `hambotv2-sandbox:latest`). |
 | Autofix: `gh pr create` 403 / push rejected | The `github-autofix-pat` credential is missing, expired, or lacks `repo` scope; `GITHUB_REPO` must be `owner/repo`. The fix branch is automation-owned — `--force-with-lease` rewrites it each run but refuses to clobber unexpected history; delete `security/autofix-criticals` if the lease ever fails. |
 | Autofix ran but no PR appeared | No auto-fixable CRITICALs (`plan.json` `changed=false`) — check the archived `autofix/report.md`; or the Verify stage went red (no PR on a broken bump, by design). |

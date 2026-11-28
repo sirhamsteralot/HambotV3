@@ -855,7 +855,7 @@ The Jenkins container needs the host Docker socket + CLI mounted for the Image s
 
 ### 5.4 Automated fix PRs for CRITICAL scan findings
 
-`Jenkinsfile.security-fix` — a third scheduled job (cron `0 5 * * 0`, after the §5.3 scan) on a Docker agent running the repo's own sandbox image (`sandbox/`, image `hambotv2-sandbox:latest` — no new container is introduced). It holds only a GitHub PAT (contents + pull requests write): never deploy or bot credentials, never merges, never touches the running stack.
+`Jenkinsfile.security-fix` — a third job, fired by an `upstream` trigger every time the §5.3 scan job completes (threshold UNSTABLE: SUCCESS and UNSTABLE fire, FAILURE/ABORTED do not — a broken scan never produces a PR), on a Docker agent running the repo's own sandbox image (`sandbox/`, image `hambotv2-sandbox:latest` — no new container is introduced). It holds only a GitHub PAT (contents + pull requests write): never deploy or bot credentials, never merges, never touches the running stack.
 
 ```
 Checkout security/autofix-criticals from origin/master

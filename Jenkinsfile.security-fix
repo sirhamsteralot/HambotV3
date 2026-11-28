@@ -3,9 +3,8 @@
 // Point a dedicated Jenkins Pipeline job at this file ("Pipeline script from
 // SCM", script path "Jenkinsfile.security-fix") — NOT the main build/deploy job
 // and NOT the scan job. The job:
-//   - runs weekly via the cron trigger below (Sundays 05:00 in the controller's
-//     timezone, one hour after the §5.3 scan at 04:00 which has a 60-minute
-//     timeout; FR-121 says 04:00 UTC — run the controller on UTC or adjust),
+//   - runs via the upstream trigger below: every time the security scan job
+//     (SECURITY_JOB) completes — no fixed delay, whenever the scan is done,
 //   - takes the LAST RESULT of the security scan job: copyArtifacts from the
 //     last build of SECURITY_JOB that archived artifacts (the scan is UNSTABLE
 //     exactly when findings exist, so lastSuccessfulBuild would skip the
@@ -74,7 +73,12 @@ pipeline {
     }
 
     triggers {
-        cron('0 5 * * 0')
+        // Fire when the scan job finishes, not on a clock: threshold UNSTABLE
+        // means the trigger fires for SUCCESS and UNSTABLE — i.e. every
+        // completed scan, clean or with findings (the scan is UNSTABLE exactly
+        // when HIGH/CRITICAL findings exist, FR-126) — but NOT for FAILURE or
+        // ABORTED, so a broken scan (tool/DB failure) never produces a PR.
+        upstream(upstreamProjects: "${env.SECURITY_JOB}", threshold: hudson.model.Result.UNSTABLE)
     }
 
     stages {
